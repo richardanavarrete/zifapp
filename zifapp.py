@@ -203,7 +203,7 @@ if uploaded_file:
 
         edited_df = st.data_editor(editable_data, num_rows="dynamic", use_container_width=True)
 
-            if st.button("Calculate"):
+             if st.button("Calculate"):
         results = []
         for _, row in edited_df.iterrows():
             item = row['Item']
