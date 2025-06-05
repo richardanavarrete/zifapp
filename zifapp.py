@@ -39,38 +39,41 @@ if uploaded_file:
     full_df = full_df.dropna(subset=['Usage', 'End Inventory'])
     full_df = full_df.sort_values(by=['Item', 'Date'])
 
+    precision = st.radio("Decimal Precision", options=[1, 2], index=1, horizontal=True)
+
     def compute_metrics(group):
-        group = group.sort_values(by='Date').reset_index(drop=True)
-        usage = group['Usage']
-        inventory = group['End Inventory']
-        dates = group['Date']
+    group = group.sort_values(by='Date').reset_index(drop=True)
+    usage = group['Usage']
+    inventory = group['End Inventory']
+    dates = group['Date']
 
-        last_10 = usage[-10:]
-        last_4 = usage[-4:]
-        rolling_4 = usage.rolling(window=4)
+    last_10 = usage[-10:]
+    last_4 = usage[-4:]
+    rolling_4 = usage.rolling(window=4)
 
-        current_year = datetime.now().year
-        ytd_usage = group[dates.dt.year == current_year]['Usage']
-        ytd_avg = ytd_usage.mean() if not ytd_usage.empty else None
+    current_year = datetime.now().year
+    ytd_usage = group[dates.dt.year == current_year]['Usage']
+    ytd_avg = ytd_usage.mean() if not ytd_usage.empty else None
 
-        def safe_div(n, d):
-            return round(n / d, 2) if d and d > 0 else None
+    def safe_div(n, d):
+        return round(n / d, precision) if d and d > 0 else None
 
-        return pd.Series({
-            'End Inv': round(inventory.iloc[-1], 2),
-            'YTD Avg': round(ytd_avg, 2) if ytd_avg is not None else None,
-            '10Wk Avg': round(last_10.mean(), 2),
-            '4Wk Avg': round(last_4.mean(), 2),
-            'AT-High': round(usage.max(), 2),
-            'Low4 Avg': round(rolling_4.mean().min(), 2) if len(usage) >= 4 else None,
-            'High4 Avg': round(rolling_4.mean().max(), 2) if len(usage) >= 4 else None,
-            'Wks Rmn (YTD Avg)': safe_div(inventory.iloc[-1], ytd_avg),
-            'Wks Rmn (10Wk Avg)': safe_div(inventory.iloc[-1], last_10.mean()),
-            'Wks Rmn (4Wk Avg)': safe_div(inventory.iloc[-1], last_4.mean()),
-            'Wks Rmn (ATH)': safe_div(inventory.iloc[-1], usage.max()),
-            'Wks Rmn (Low4Avg)': safe_div(inventory.iloc[-1], rolling_4.mean().min()),
-            'Wks Rmn (High4 Avg)': safe_div(inventory.iloc[-1], rolling_4.mean().max())
-        })
+    return pd.Series({
+        'End Inv': round(inventory.iloc[-1], precision),
+        'YTD Avg': round(ytd_avg, precision) if ytd_avg is not None else None,
+        '10Wk Avg': round(last_10.mean(), precision),
+        '4Wk Avg': round(last_4.mean(), precision),
+        'AT-High': round(usage.max(), precision),
+        'Low4 Avg': round(rolling_4.mean().min(), precision) if len(usage) >= 4 else None,
+        'High4 Avg': round(rolling_4.mean().max(), precision) if len(usage) >= 4 else None,
+        'Wks Rmn (YTD Avg)': safe_div(inventory.iloc[-1], ytd_avg),
+        'Wks Rmn (10Wk Avg)': safe_div(inventory.iloc[-1], last_10.mean()),
+        'Wks Rmn (4Wk Avg)': safe_div(inventory.iloc[-1], last_4.mean()),
+        'Wks Rmn (ATH)': safe_div(inventory.iloc[-1], usage.max()),
+        'Wks Rmn (Low4Avg)': safe_div(inventory.iloc[-1], rolling_4.mean().min()),
+        'Wks Rmn (High4 Avg)': safe_div(inventory.iloc[-1], rolling_4.mean().max())
+    })
+
 
     summary_df = full_df.groupby('Item').apply(compute_metrics).reset_index()
 
@@ -84,6 +87,8 @@ if uploaded_file:
 
     # Add a dynamic threshold slider
     threshold = st.slider("Highlight if weeks remaining is below:", min_value=1, max_value=10, value=2)
+    precision = st.radio("Decimal Precision", options=[1, 2], index=1, horizontal=True)
+
 
     # Define styling function
     def highlight_weeks_remaining(val, threshold=2):
