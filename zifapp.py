@@ -55,11 +55,11 @@ if uploaded_file:
             'AT-High': round(usage.max(), 2),
             'Low4 Avg': round(rolling_4.mean().min(), 2) if len(usage) >= 4 else None,
             'High4 Avg': round(rolling_4.mean().max(), 2) if len(usage) >= 4 else None,
-            'Wks Rmn (10-Week Avg)': safe_div(inventory.iloc[-1], last_10.mean()),
-            'Wks Rmn (Last 4-Week Avg)': safe_div(inventory.iloc[-1], last_4.mean()),
-            'Wks Rmn (All-Time High)': safe_div(inventory.iloc[-1], usage.max()),
-            'Wks Rmn (Lowest 4-Week Avg)': safe_div(inventory.iloc[-1], rolling_4.mean().min()),
-            'Wks Rmn (Highest 4-Week Avg)': safe_div(inventory.iloc[-1], rolling_4.mean().max())
+            'Wks Rmn (10Wk Avg)': safe_div(inventory.iloc[-1], last_10.mean()),
+            'Wks Rmn (4Wk Avg)': safe_div(inventory.iloc[-1], last_4.mean()),
+            'Wks Rmn (ATH)': safe_div(inventory.iloc[-1], usage.max()),
+            'Wks Rmn (Low4Avg)': safe_div(inventory.iloc[-1], rolling_4.mean().min()),
+            'Wks Rmn (High4 Avg)': safe_div(inventory.iloc[-1], rolling_4.mean().max())
         })
 
     summary_df = full_df.groupby('Item').apply(compute_metrics).reset_index()
