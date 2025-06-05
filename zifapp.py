@@ -125,24 +125,18 @@ if uploaded_file:
 
         selected_items = st.multiselect("Select items to simulate purchases for:", summary_df['Item'].tolist())
 
-        results = []
+        if selected_items:
+            table_data = summary_df[summary_df['Item'].isin(selected_items)][['Item', usage_option]].copy()
+            table_data.rename(columns={usage_option: 'Avg Usage'}, inplace=True)
+            table_data['Added Inventory'] = 0.0
 
-        for item in selected_items:
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                added_inventory = st.number_input(f"Added bottles for {item}:", min_value=0.0, step=0.5, key=f"input_{item}")
-            with col2:
-                item_row = summary_df[summary_df['Item'] == item]
-                if not item_row.empty:
-                    avg_usage = item_row.iloc[0][usage_option]
-                    weeks_added = added_inventory / avg_usage if avg_usage and avg_usage > 0 else None
-                    results.append({
-                        "Item": item,
-                        "Added": added_inventory,
-                        "Avg Used": avg_usage,
-                        "Weeks Added": round(weeks_added, 2) if weeks_added is not None else "N/A"
-                    })
+            edited = st.data_editor(table_data, num_rows="dynamic", use_container_width=True)
 
-        if results:
-            st.markdown("### Summary")
-            st.dataframe(pd.DataFrame(results))
+            # Calculate weeks added
+            edited['Weeks Added'] = edited.apply(
+                lambda row: round(row['Added Inventory'] / row['Avg Usage'], 2)
+                if row['Avg Usage'] and row['Added Inventory'] > 0 else None, axis=1
+            )
+
+            st.markdown("### Result")
+            st.dataframe(edited, use_container_width=True)
