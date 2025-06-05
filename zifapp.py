@@ -115,20 +115,20 @@ if uploaded_file:
     with tab_playground:
         st.subheader("🧪 Playground: Inventory Planning")
 
+        mode = st.radio("Select View Mode:", ["By Vendor", "By Category"])
+
         vendor_map = {
-            vendor: summary_df[summary_df['Item'].str.upper().str.contains('|'.join([kw.upper() for kw in items]))]['Item'].tolist()
-            for vendor, items in {
-                "Breakthru": ["Crown", "Ketel", "Deep Eddy", "Baileys", "Tanqueray", "Wycliff", "LaMarca"],
-                "Southern": ["Basil Hayden", "Jameson", "Grey Goose", "Titos", "Cazadores", "Patron", "Glenlivet"],
-                "Crescent": ["Alaskan", "Blue Moon", "Coors", "Dos", "Juicy Haze", "Truly", "White Claw"],
-                "Hensley": ["Bud", "Mich", "Firestone", "Tower Station", "Church Music", "Zipps"]
-            }.items()
+            "Breakthru": ["Crown", "Ketel", "Deep Eddy", "Baileys", "Tanqueray", "Wycliff", "LaMarca"],
+            "Southern": ["Basil Hayden", "Jameson", "Grey Goose", "Titos", "Cazadores", "Patron", "Glenlivet"],
+            "Crescent": ["Alaskan", "Blue Moon", "Coors", "Dos", "Juicy Haze", "Truly", "White Claw"],
+            "Hensley": ["Bud", "Mich", "Firestone", "Tower Station", "Church Music", "Zipps"]
         }
 
         category_map = {
             "Well": [], "Whiskey": [], "Vodka": [], "Gin": [], "Tequila": [], "Rum": [], "Scotch": [],
             "Liqueur": [], "Cordials": [], "Wine": [], "Draft Beer": [], "Bottled Beer": [], "Juice": []
         }
+
         for item in summary_df['Item']:
             upper_item = item.upper()
             if "WELL" in upper_item: category_map["Well"].append(item)
@@ -145,19 +145,16 @@ if uploaded_file:
             elif "BEER BTL" in upper_item: category_map["Bottled Beer"].append(item)
             elif "JUICE" in upper_item or "BAR CONS" in upper_item: category_map["Juice"].append(item)
 
-        vendor_options = ["All Vendors"] + list(vendor_map.keys())
-        selected_vendor = st.selectbox("Select Vendor", options=vendor_options, index=0)
-
-        base_items = summary_df['Item'].tolist() if selected_vendor == "All Vendors" else vendor_map[selected_vendor]
-
-        category_options = list(category_map.keys())
-        selected_categories = st.multiselect("Select Categories to Display", options=category_options, default=category_options)
-
-        available_items = [item for cat in selected_categories for item in category_map[cat] if item in base_items]
+        if mode == "By Vendor":
+            vendor = st.selectbox("Select Vendor", list(vendor_map.keys()))
+            base_items = summary_df[summary_df['Item'].str.upper().str.contains('|'.join([kw.upper() for kw in vendor_map[vendor]]))]['Item'].tolist()
+        else:
+            selected_categories = st.multiselect("Select Categories", list(category_map.keys()), default=list(category_map.keys()))
+            base_items = [item for cat in selected_categories for item in category_map[cat]]
 
         usage_option = st.radio("Select usage average for calculation:", ["YTD Avg", "10Wk Avg", "4Wk Avg"], index=0)
 
-        editable_data = summary_df[summary_df['Item'].isin(available_items)][['Item', usage_option]].copy()
+        editable_data = summary_df[summary_df['Item'].isin(base_items)][['Item', usage_option]].copy()
         editable_data['Add Bottles'] = 0.0
         editable_data['Desired Weeks'] = 0.0
 
