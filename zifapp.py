@@ -80,7 +80,7 @@ if uploaded_file:
     )
     summary_df = summary_df.sort_values(by='ItemOrder').drop(columns='ItemOrder')
 
-   st.subheader("Usage Summary")
+st.subheader("Usage Summary")
 
 # Add a dynamic threshold slider
 threshold = st.slider("Highlight if weeks remaining is below:", min_value=1, max_value=10, value=2)
