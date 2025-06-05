@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 
-st.title("Beverage Usage Analyzer")
+st.set_page_config(page_title="Beverage Usage Analyzer", layout="wide")
+st.title("🍺 Beverage Usage Analyzer")
 
 uploaded_file = st.file_uploader("Upload BEVWEEKLY Excel File", type="xlsx")
 
@@ -38,35 +40,48 @@ if uploaded_file:
     full_df = full_df.sort_values(by=['Item', 'Date'])
 
     def compute_metrics(group):
-    group = group.sort_values(by='Date').reset_index(drop=True)
-    usage = group['Usage']
-    inventory = group['End Inventory']
-    dates = group['Date']
+        group = group.sort_values(by='Date').reset_index(drop=True)
+        usage = group['Usage']
+        inventory = group['End Inventory']
+        dates = group['Date']
 
-    last_10 = usage[-10:]
-    last_4 = usage[-4:]
-    rolling_4 = usage.rolling(window=4)
+        last_10 = usage[-10:]
+        last_4 = usage[-4:]
+        rolling_4 = usage.rolling(window=4)
 
-    # YTD Usage
-    current_year = datetime.now().year
-    ytd_usage = group[dates.dt.year == current_year]['Usage']
-    ytd_avg = ytd_usage.mean() if not ytd_usage.empty else None
+        current_year = datetime.now().year
+        ytd_usage = group[dates.dt.year == current_year]['Usage']
+        ytd_avg = ytd_usage.mean() if not ytd_usage.empty else None
 
-    def safe_div(n, d):
-        return round(n / d, 2) if d and d > 0 else None
+        def safe_div(n, d):
+            return round(n / d, 2) if d and d > 0 else None
 
-    return pd.Series({
-        'End Inv': round(inventory.iloc[-1], 2),
-        'YTD Avg': round(ytd_avg, 2) if ytd_avg is not None else None,
-        '10Wk Avg': round(last_10.mean(), 2),
-        '4Wk Avg': round(last_4.mean(), 2),
-        'AT-High': round(usage.max(), 2),
-        'Low4 Avg': round(rolling_4.mean().min(), 2) if len(usage) >= 4 else None,
-        'High4 Avg': round(rolling_4.mean().max(), 2) if len(usage) >= 4 else None,
-        'Wks Rmn (YTD Avg)': safe_div(inventory.iloc[-1], ytd_avg),
-        'Wks Rmn (10Wk Avg)': safe_div(inventory.iloc[-1], last_10.mean()),
-        'Wks Rmn (4Wk Avg)': safe_div(inventory.iloc[-1], last_4.mean()),
-        'Wks Rmn (ATH)': safe_div(inventory.iloc[-1], usage.max()),
-        'Wks Rmn (Low4Avg)': safe_div(inventory.iloc[-1], rolling_4.mean().min()),
-        'Wks Rmn (High4 Avg)': safe_div(inventory.iloc[-1], rolling_4.mean().max())
-    })
+        return pd.Series({
+            'End Inv': round(inventory.iloc[-1], 2),
+            'YTD Avg': round(ytd_avg, 2) if ytd_avg is not None else None,
+            '10Wk Avg': round(last_10.mean(), 2),
+            '4Wk Avg': round(last_4.mean(), 2),
+            'AT-High': round(usage.max(), 2),
+            'Low4 Avg': round(rolling_4.mean().min(), 2) if len(usage) >= 4 else None,
+            'High4 Avg': round(rolling_4.mean().max(), 2) if len(usage) >= 4 else None,
+            'Wks Rmn (YTD Avg)': safe_div(inventory.iloc[-1], ytd_avg),
+            'Wks Rmn (10Wk Avg)': safe_div(inventory.iloc[-1], last_10.mean()),
+            'Wks Rmn (4Wk Avg)': safe_div(inventory.iloc[-1], last_4.mean()),
+            'Wks Rmn (ATH)': safe_div(inventory.iloc[-1], usage.max()),
+            'Wks Rmn (Low4Avg)': safe_div(inventory.iloc[-1], rolling_4.mean().min()),
+            'Wks Rmn (High4 Avg)': safe_div(inventory.iloc[-1], rolling_4.mean().max())
+        })
+
+    summary_df = full_df.groupby('Item').apply(compute_metrics).reset_index()
+
+    summary_df['Item'] = summary_df['Item'].astype(str)
+    summary_df['ItemOrder'] = summary_df['Item'].apply(
+        lambda x: original_order.index(x) if x in original_order else float('inf')
+    )
+    summary_df = summary_df.sort_values(by='ItemOrder').drop(columns='ItemOrder')
+
+    st.subheader("📋 Usage Summary")
+    st.dataframe(summary_df.reset_index(drop=True), use_container_width=True)
+
+    csv = summary_df.to_csv(index=False).encode('utf-8')
+    st.download_button("Download CSV", data=csv, file_name="beverage_usage_summary.csv")
