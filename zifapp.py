@@ -115,149 +115,35 @@ if uploaded_file:
     with tab_playground:
         st.subheader("🧪 Playground: Inventory Planning")
 
-        vendor_map_full = {
-        "Breakthru": [
-        "WHISKEY Crown Royal",
-        "WHISKEY Crown Royal Regal Apple",
-        "WHISKEY Jack Daniels Black",
-        "WHISKEY Jack Daniels Tennessee Fire",
-        "WHISKEY Bulleit Straight Rye",
-        "WHISKEY Buffalo Trace",
-        "WHISKEY Fireball Cinnamon",
-        "VODKA Ketel One",
-        "VODKA Deep Eddy Orange",
-        "VODKA Deep Eddy Ruby Red",
-        "VODKA Deep Eddy Lime",
-        "LIQ Baileys Irish Cream",
-        "LIQ Chambord",
-        "LIQ Rumpleminze",
-        "LIQ Amaretto",
-        "LIQ Sour Apple",
-        "LIQ Watermelon Schnapps",
-        "LIQ Peach Schnapps",
-        "LIQ Melon",
-        "LIQ Triple Sec",
-        "LIQ Butterscotch",
-        "WELL Vodka",
-        "WELL Rum",
-        "WELL Gin",
-        "WELL Tequila",
-        "WELL Whiskey",
-        "WELL Scotch",
-        "WELL Brandy",
-        "TEQUILA Don Julio Blanco",
-        "TEQUILA Casamigos Blanco",
-        "TEQUILA Corazon Reposado",
-        "RUM Captain Morgan Spiced",
-        "GIN Tanqueray",
-        "WINE William Wycliff Brut Chateauamp",
-        "WINE LaMarca Prosecco",
-        "JUICE Red Bull",
-        "JUICE Red Bull SF",
-        "JUICE Red Bull Yellow",
-        "BAR CONS Bloody Mary"
-    ],
-        "Southern": [
-        "WHISKEY Basil Hayden",
-        "WHISKEY Jameson",
-        "WHISKEY Jim Beam",
-        "WHISKEY Makers Mark",
-        "WHISKEY Skrewball Peanut Butter",
-        "VODKA Grey Goose",
-        "VODKA Titos",
-        "TEQUILA Cazadores Reposado",
-        "TEQUILA Patron Silver",
-        "WHISKEY Glenlivet",
-        "WHISKEY Dewars White Label",
-        "RUM Bacardi Superior White",
-        "RUM Malibu Coconut",
-        "LIQ Grand Marnier",
-        "LIQ Hazelnut",  # Presumed full name if known, confirm if different
-        "LIQ Jagermeister",
-        "LIQ Kahlua",
-        "LIQ Melon",
-        "WINE Kendall Jackson Chardonnay",
-        "WINE La Crema Chardonnay",
-        "WINE La Crema Pinot Noir",
-        "WINE Troublemaker Red",
-        "WINE Villa Sandi Pinot Grigio",
-        "BAR CONS Bitters",
-        "BAR CONS Simple Syrup",
-        "LIQ Vermouth Sweet",
-        "LIQ Vermouth Dry"
-    ],
-        "Crescent": [
-        "BEER DFT Alaskan Amber",
-        "BEER DFT Blue Moon Belgian White",
-        "BEER DFT Coors Light",
-        "BEER DFT Dos Equis Lager",
-        "BEER DFT New Belgium Juicy Haze IPA",
-        "BEER DFT Miller Lite",
-        "BEER DFT Modelo Especial",
-        "BEER BTL Angry Orchard Crisp Apple",
-        "BEER BTL Blue Moon",
-        "BEER BTL Coors Light",
-        "BEER BTL Corona Extra",
-        "BEER BTL Corona NA",
-        "BEER BTL Corona Premier",
-        "BEER BTL Coronita Extra",
-        "BEER BTL Dos Equis Lager",
-        "BEER BTL Pacifico",
-        "BEER BTL College Street Big Blue Van",
-        "BEER BTL Guinness",
-        "BEER BTL Heineken 0.0",
-        "BEER BTL Truly Pineapple",
-        "BEER BTL Truly Wild Berry",
-        "BEER BTL Twisted Tea",
-        "BEER BTL White Claw Black Cherry",
-        "BEER BTL White Claw Mango",
-        "BEER BTL White Claw Peach",
-        "JUICE Ginger Beer",
-        "VODKA Western Son Blueberry",
-        "VODKA Western Son Lemon",
-        "VODKA Western Son Original",
-        "VODKA Western Son Prickly Pear",
-        "VODKA Western Son Raspberry"
-    ],
-        "Hensley": [
-        "BEER DFT Bud Light",
-        "BEER DFT Michelob Ultra",
-        "BEER DFT Firestone Walker 805",
-        "BEER DFT Mother Road Tower Station",
-        "BEER DFT Church Music",
-        "BEER DFT Zipps Lager",
-        "BEER BTL Austin Eastciders",
-        "BEER BTL Budweiser",
-        "BEER BTL Bud Light",
-        "BEER BTL Michelob Ultra"
-    ]
-}
+        vendor_map = {
+            # This should be populated using your correct full item names as in summary_df
+            # e.g., "Breakthru": ["WHISKEY Jack Daniels", "VODKA Titos", ...]
+        }
 
-import ace_tools as tools; tools.display_dataframe_to_user(name="Vendor Item Mapping", dataframe=pd.DataFrame([(k, item) for k, v in vendor_map_full.items() for item in v], columns=["Vendor", "Item"]))
         category_map = {
-            "Well": [], "Whiskey": [], "Vokda": [], "Gin": [], "Tequila": [], "Rum": [], "Scotch": [],
+            "Well": [], "Whiskey": [], "Vodka": [], "Gin": [], "Tequila": [], "Rum": [], "Scotch": [],
             "Liqueur": [], "Cordials": [], "Wine": [], "Draft Beer": [], "Bottled Beer": [], "Juice": []
         }
         for item in summary_df['Item']:
             upper_item = item.upper()
             if "WELL" in upper_item: category_map["Well"].append(item)
             elif "WHISKEY" in upper_item: category_map["Whiskey"].append(item)
-            elif "VODKA" in upper_item: category_map["Vokda"].append(item)
+            elif "VODKA" in upper_item: category_map["Vodka"].append(item)
             elif "GIN" in upper_item: category_map["Gin"].append(item)
             elif "TEQUILA" in upper_item: category_map["Tequila"].append(item)
             elif "RUM" in upper_item: category_map["Rum"].append(item)
             elif "SCOTCH" in upper_item: category_map["Scotch"].append(item)
-            elif "LIQ " in upper_item and any(x in upper_item for x in ["AMARETTO", "BAILEYS", "CHAMBORD", "KAHLUA", "JAGER"]): category_map["Liqueur"].append(item)
-            elif "LIQ " in upper_item or "SCHNAPPS" in upper_item: category_map["Cordials"].append(item)
+            elif "LIQ" in upper_item: category_map["Liqueur"].append(item)
+            elif "SCHNAPPS" in upper_item: category_map["Cordials"].append(item)
             elif "WINE" in upper_item: category_map["Wine"].append(item)
             elif "BEER DFT" in upper_item: category_map["Draft Beer"].append(item)
             elif "BEER BTL" in upper_item: category_map["Bottled Beer"].append(item)
             elif "JUICE" in upper_item or "BAR CONS" in upper_item: category_map["Juice"].append(item)
 
-        vendor_options = list(vendor_map.keys())
-        selected_vendor = st.selectbox("Select Vendor", options=["All Vendors"] + vendor_options, index=0)
+        vendor_options = ["All Vendors"] + list(vendor_map.keys())
+        selected_vendor = st.selectbox("Select Vendor", options=vendor_options, index=0)
 
-        base_items = summary_df['Item'].tolist() if selected_vendor == "All Vendors" else vendor_map[selected_vendor]
+        base_items = summary_df['Item'].tolist() if selected_vendor == "All Vendors" else [item for item in summary_df['Item'] if item in vendor_map[selected_vendor]]
 
         category_options = list(category_map.keys())
         selected_categories = st.multiselect("Select Categories to Display", options=category_options, default=category_options)
