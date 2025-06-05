@@ -161,10 +161,7 @@ if uploaded_file:
                 "JUICE Red Bull",
                 "JUICE Red Bull SF",
                 "JUICE Red Bull Yellow"
-            ],
-            "Southern": ["Basil Hayden", "Jameson", "Grey Goose", "Titos", "Cazadores", "Patron", "Glenlivet"],
-            "Crescent": ["Alaskan", "Blue Moon", "Coors", "Dos", "Juicy Haze", "Truly", "White Claw"],
-            "Hensley": ["Bud", "Mich", "Firestone", "Tower Station", "Church Music", "Zipps"]
+            ]
         }
 
         category_map = {
@@ -198,6 +195,7 @@ if uploaded_file:
         usage_option = st.radio("Select usage average for calculation:", ["YTD Avg", "10Wk Avg", "4Wk Avg"], index=0)
 
         editable_data = summary_df[summary_df['Item'].isin(base_items)][['Item', 'End Inv', usage_option]].copy()
+        editable_data['Current Weeks Left'] = editable_data.apply(lambda row: round(row['End Inv'] / row[usage_option], 2) if row[usage_option] else 0, axis=1)
         editable_data['Add Bottles'] = 0.0
         editable_data['Desired Weeks'] = 0.0
 
@@ -217,6 +215,7 @@ if uploaded_file:
                     'Item': item,
                     usage_option: avg,
                     'End Inv': end_inv,
+                    'Current Weeks Left': round(end_inv / avg, 2) if avg else 0,
                     'Add Bottles': bottles,
                     'Desired Weeks': weeks,
                     'Post-Inv': round(end_inv + bottles, 2),
