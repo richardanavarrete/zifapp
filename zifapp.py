@@ -115,15 +115,21 @@ if uploaded_file:
     with tab_playground:
         st.subheader("🧪 Playground: Inventory Planning")
 
-        category_map = {}
-        for category in [
-            "Well", "Whiskey", "Vokda", "Gin", "Tequila", "Rum", "Scotch",
-            "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice"]:
-            category_map[category] = []
-        for item in summary_df['Item']:
-            for category in category_map:
-                if category.upper() in item.upper():
-                    category_map[category].append(item)
+        category_map = {
+            "Well": [i for i in summary_df['Item'] if 'WELL' in i.upper()],
+            "Whiskey": [i for i in summary_df['Item'] if 'WHISKEY' in i.upper() and 'WELL' not in i.upper()],
+            "Vodka": [i for i in summary_df['Item'] if 'VODKA' in i.upper()],
+            "Gin": [i for i in summary_df['Item'] if 'GIN' in i.upper()],
+            "Tequila": [i for i in summary_df['Item'] if 'TEQUILA' in i.upper()],
+            "Rum": [i for i in summary_df['Item'] if 'RUM' in i.upper()],
+            "Scotch": [i for i in summary_df['Item'] if 'DEWARS' in i.upper() or 'GLENLIVET' in i.upper()],
+            "Liqueur": [i for i in summary_df['Item'] if 'LIQ ' in i.upper() and i.upper() not in ['LIQ BLUE CURACAO','LIQ BUTTERSCOTCH','LIQ PEACH SCHNAPPS','LIQ SOUR APPLE','LIQ WATERMELON SCHNAPPS']],
+            "Cordials": [i for i in summary_df['Item'] if i.upper() in ['LIQ BLUE CURACAO','LIQ BUTTERSCOTCH','LIQ PEACH SCHNAPPS','LIQ SOUR APPLE','LIQ WATERMELON SCHNAPPS']],
+            "Wine": [i for i in summary_df['Item'] if 'WINE' in i.upper()],
+            "Draft Beer": [i for i in summary_df['Item'] if 'BEER DFT' in i.upper()],
+            "Bottled Beer": [i for i in summary_df['Item'] if 'BEER BTL' in i.upper()],
+            "Juice": [i for i in summary_df['Item'] if 'JUICE' in i.upper() or 'BAR CONS' in i.upper()]
+        }
 
         selected_categories = st.multiselect("Select Categories", options=list(category_map.keys()), default=["Whiskey"])
         filtered_items = [item for cat in selected_categories for item in category_map[cat]]
