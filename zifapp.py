@@ -115,16 +115,27 @@ if uploaded_file:
     with tab_playground:
         st.subheader("🧪 Playground: Inventory Planning")
 
-        categories = [
-            "Well", "Whiskey", "Vokda", "Gin", "Tequila", "Rum", "Scotch",
-            "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice"
-        ]
+        item_categories = {
+            "Well": [], "Whiskey": [], "Vokda": [], "Gin": [], "Tequila": [], "Rum": [],
+            "Scotch": [], "Liqueur": [], "Cordials": [], "Wine": [], "Draft Beer": [],
+            "Bottled Beer": [], "Juice": []
+        }
 
-        editable_data = summary_df[['Item', 'YTD Avg']].copy()
-        editable_data['Add Bottles'] = 0.0
-        editable_data['Desired Weeks'] = 0.0
+        for item in summary_df['Item']:
+            for category in item_categories:
+                if category.lower() in item.lower():
+                    item_categories[category].append(item)
+                    break
 
-        edited_df = st.data_editor(editable_data, num_rows="dynamic", use_container_width=True)
+        selected_categories = st.multiselect("Select Categories to View:", options=list(item_categories.keys()))
+        selected_items = [item for cat in selected_categories for item in item_categories[cat]]
+
+        filtered_df = summary_df[summary_df['Item'].isin(selected_items)].copy()
+        filtered_df = filtered_df[['Item', 'YTD Avg']]
+        filtered_df['Add Bottles'] = 0.0
+        filtered_df['Desired Weeks'] = 0.0
+
+        edited_df = st.data_editor(filtered_df, num_rows="dynamic", use_container_width=True, key="editor")
 
         if st.button("Calculate"):
             results = []
