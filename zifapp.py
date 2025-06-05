@@ -89,9 +89,7 @@ if uploaded_file:
         except:
             return ''
 
-    format_dict = {
-        col: '{:,.2f}' for col in summary_df.columns if summary_df[col].dtype in ['float64', 'float32']
-    }
+       format_dict = {col: '{:,.2f}' for col in summary_df.columns if summary_df[col].dtype in ['float64', 'float32']}
 
     styled_df = summary_df.style.format(format_dict).applymap(
         lambda val: highlight_weeks_remaining(val, threshold),
