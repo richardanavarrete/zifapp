@@ -219,8 +219,7 @@ if uploaded_file:
                 'Current Weeks Left': round(end_inv / avg, 2) if avg else 0,
                 'Add Bottles': round(bottles, 2),
                 'Desired Weeks': round(weeks, 2),
-                'Post-Inv': round(end_inv + bottles, 2),
-                'Calc Weeks': round((end_inv + bottles) / avg, 2) if avg else 0,
+                'Post-Inv': round(end_inv + bottles if input_mode == "Add Bottles" else end_inv + (weeks * avg if avg else 0), 2),                'Calc Weeks': round((end_inv + bottles) / avg, 2) if avg else 0,
                 'Calc Bottles': round(max(weeks * avg - end_inv, 0), 2) if avg else 0
             })
         result_df = pd.DataFrame(results)
