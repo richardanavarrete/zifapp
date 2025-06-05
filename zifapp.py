@@ -115,6 +115,34 @@ if uploaded_file:
     with tab_playground:
         st.subheader("🧪 Playground: Inventory Planning")
 
+        vendor_map = {
+            "Breakthru": [
+                "Crown Royal", "Crown Apple", "Jack Daniels", "Jack Fire", "Bulliet", "Buffalo Trace", "Fireball",
+                "Ketel One", "Deep Eddy Orange", "Deep Eddy Ruby Red", "Deep Eddy Lime",
+                "Baileys", "Chambord", "Rumplemintz", "Amaretto", "Apple", "Blue Curaco", "Watermelon", "Peach Schnapps",
+                "Melon", "Triple Sec", "Butterscotch", "Vodka", "Rum", "Gin", "Tequila", "Whiskey", "Scotch", "Brandy",
+                "Don Julio Blanco", "Casamigos", "Corazon Repo", "Captain Morgan", "Tanqueray", "Wycliff Champagne",
+                "LaMarca Prosecco", "Red Bull", "Red Bull SF", "Red Bull Tropical", "Bloody Mix"
+            ],
+            "Southern": [
+                "Basil Hayden", "Jameson", "Jim Beam", "Makers", "Skerewball", "Grey Goose", "Tito's",
+                "Cazadores", "Patron Silver", "Glenlivet", "Dewar's", "Bacardi", "Malibu", "Grand Marnier", "Hazelnut",
+                "Jagermeister", "Kahlua", "Melon", "Kendall Jackson", "La Crema Chard", "La Crema Pinot", "Troublemaker Red",
+                "Villa Sandi", "Bitters", "Simple Syrup", "Sweet Vermouth", "Dry Vermouth"
+            ],
+            "Crescent": [
+                "Alaskan Amber", "Blue Moon", "Coors Light", "Dos XX Lager", "Juicy Haze", "Miller Lite", "Modelo",
+                "Angry Orchard", "Corona", "Corna N/A", "Corona Premier", "Cornitas", "Pacifico", "Big Blue Van",
+                "Guinness", "Heneken 0.0", "Truly Pineapple", "Truly Wild Berry", "Twisted Tea", "Wht Clw Blk Cherry",
+                "Wht Clw Mango", "Wht Clw Peach", "Ginger Beer", "WS Blueberry", "WS Lemon", "WS Original",
+                "WS Prickly Pear", "WS Raspberry"
+            ],
+            "Hensley": [
+                "Bud Light", "Mich Ultra", "Firestone 805", "Tower Station", "Church Music", "Zipps Lager",
+                "Austin Eastcider", "Budweiser", "Bud Light", "Mich Ultra"
+            ]
+        }
+
         category_map = {
             "Well": [], "Whiskey": [], "Vokda": [], "Gin": [], "Tequila": [], "Rum": [], "Scotch": [],
             "Liqueur": [], "Cordials": [], "Wine": [], "Draft Beer": [], "Bottled Beer": [], "Juice": []
@@ -135,8 +163,15 @@ if uploaded_file:
             elif "BEER BTL" in upper_item: category_map["Bottled Beer"].append(item)
             elif "JUICE" in upper_item or "BAR CONS" in upper_item: category_map["Juice"].append(item)
 
-        selected_categories = st.multiselect("Select Categories to Display", options=list(category_map.keys()), default=["Whiskey"])
-        available_items = [item for cat in selected_categories for item in category_map[cat]]
+        vendor_options = list(vendor_map.keys())
+        selected_vendor = st.selectbox("Select Vendor", options=["All Vendors"] + vendor_options, index=0)
+
+        base_items = summary_df['Item'].tolist() if selected_vendor == "All Vendors" else vendor_map[selected_vendor]
+
+        category_options = list(category_map.keys())
+        selected_categories = st.multiselect("Select Categories to Display", options=category_options, default=category_options)
+
+        available_items = [item for cat in selected_categories for item in category_map[cat] if item in base_items]
 
         usage_option = st.radio("Select usage average for calculation:", ["YTD Avg", "10Wk Avg", "4Wk Avg"], index=0)
 
