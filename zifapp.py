@@ -81,7 +81,7 @@ if uploaded_file:
 
     st.subheader("Usage Summary")
 
-    threshold = st.slider("Highlight if weeks remaining is below:", min_value=1, max_value=10, value=2)
+    threshold = st.slider("Highlight if weeks remaining is below:", min_value=1, max_value=10, value=2, step=.1)
 
     def highlight_weeks_remaining(val, threshold=2):
         try:
