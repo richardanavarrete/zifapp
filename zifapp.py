@@ -80,17 +80,23 @@ if uploaded_file:
     )
     summary_df = summary_df.sort_values(by='ItemOrder').drop(columns='ItemOrder')
 
+   tabs = st.tabs(["📊 Summary", "🧪 Playground"])
+
+with tabs[0]:
     st.subheader("Usage Summary")
 
-    threshold = st.slider("Highlight if weeks remaining is below:", min_value=1.0, max_value=10.0, value=2.0, step=0.1)
+    threshold = st.slider("Highlight if weeks remaining is below:", min_value=1, max_value=10, value=2)
 
-    def highlight_weeks_remaining(val, threshold=2.0):
+    def highlight_weeks_remaining(val, threshold=2):
         try:
             return 'background-color: red' if val < threshold else ''
         except:
             return ''
 
-    format_dict = {col: '{:,.2f}' for col in summary_df.columns if summary_df[col].dtype in ['float64', 'float32']}
+    format_dict = {
+        col: '{:,.2f}' for col in summary_df.columns
+        if summary_df[col].dtype in ['float64', 'float32']
+    }
 
     styled_df = summary_df.style.format(format_dict).applymap(
         lambda val: highlight_weeks_remaining(val, threshold),
@@ -108,3 +114,29 @@ if uploaded_file:
 
     csv = summary_df.to_csv(index=False).encode('utf-8')
     st.download_button("Download CSV", data=csv, file_name="beverage_usage_summary.csv")
+
+    with tabs[1]:
+    st.subheader("📦 Playground – Add Inventory Simulator")
+
+    item_list = summary_df['Item'].tolist()
+    selected_item = st.selectbox("Select an item to simulate a purchase for:", item_list)
+
+    added_inventory = st.number_input("Enter number of bottles added:", min_value=0.0, value=0.0, step=0.5)
+
+    usage_option = st.radio(
+        "Use which usage average to estimate weeks gained?",
+        ["YTD Avg", "10Wk Avg", "4Wk Avg"]
+    )
+
+    item_row = summary_df[summary_df['Item'] == selected_item]
+
+    if not item_row.empty:
+        avg_col = usage_option
+        avg_usage = item_row.iloc[0][avg_col]
+        weeks_added = added_inventory / avg_usage if avg_usage and avg_usage > 0 else None
+
+        st.markdown("### Result")
+        if weeks_added is not None:
+            st.success(f"Adding {added_inventory} bottles of **{selected_item}** would add approximately **{weeks_added:.2f} weeks** based on {usage_option}.")
+        else:
+            st.warning("Average usage is zero or unavailable, cannot calculate weeks added.")
