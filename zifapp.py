@@ -128,7 +128,9 @@ if uploaded_file:
         selected_categories = st.multiselect("Select Categories", options=list(category_map.keys()), default=["Whiskey"])
         filtered_items = [item for cat in selected_categories for item in category_map[cat]]
 
-        editable_data = summary_df[summary_df['Item'].isin(filtered_items)][['Item', 'YTD Avg']].copy()
+        usage_option = st.radio("Select usage average for calculation:", ["YTD Avg", "10Wk Avg", "4Wk Avg"], index=0)
+
+        editable_data = summary_df[summary_df['Item'].isin(filtered_items)][['Item', usage_option]].copy()
         editable_data['Add Bottles'] = 0.0
         editable_data['Desired Weeks'] = 0.0
 
@@ -138,14 +140,14 @@ if uploaded_file:
             results = []
             for _, row in edited_df.iterrows():
                 item = row['Item']
-                avg = row['YTD Avg']
+                avg = row[usage_option]
                 bottles = row['Add Bottles']
                 weeks = row['Desired Weeks']
                 calc_weeks = bottles / avg if avg and bottles > 0 else 0
                 calc_bottles = weeks * avg if avg and weeks > 0 else 0
                 results.append({
                     'Item': item,
-                    'YTD Avg': avg,
+                    usage_option: avg,
                     'Add Bottles': bottles,
                     'Desired Weeks': weeks,
                     'Calc Weeks': round(calc_weeks, 2),
