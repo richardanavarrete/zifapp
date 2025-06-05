@@ -154,7 +154,7 @@ if uploaded_file:
 
         usage_option = st.radio("Select usage average for calculation:", ["YTD Avg", "10Wk Avg", "4Wk Avg"], index=0)
 
-        editable_data = summary_df[summary_df['Item'].isin(base_items)][['Item', usage_option]].copy()
+        editable_data = summary_df[summary_df['Item'].isin(base_items)][['Item', 'End Inv', usage_option]].copy()
         editable_data['Add Bottles'] = 0.0
         editable_data['Desired Weeks'] = 0.0
 
@@ -165,15 +165,18 @@ if uploaded_file:
             for _, row in edited_df.iterrows():
                 item = row['Item']
                 avg = row[usage_option]
+                end_inv = row['End Inv']
                 bottles = row['Add Bottles']
                 weeks = row['Desired Weeks']
-                calc_weeks = bottles / avg if avg and bottles > 0 else 0
+                calc_weeks = (end_inv + bottles) / avg if avg and (end_inv + bottles) > 0 else 0
                 calc_bottles = weeks * avg if avg and weeks > 0 else 0
                 results.append({
                     'Item': item,
                     usage_option: avg,
+                    'End Inv': end_inv,
                     'Add Bottles': bottles,
                     'Desired Weeks': weeks,
+                    'Post-Inv': round(end_inv + bottles, 2),
                     'Calc Weeks': round(calc_weeks, 2),
                     'Calc Bottles': round(calc_bottles, 2)
                 })
