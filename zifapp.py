@@ -11,7 +11,6 @@ if uploaded_file:
     xls = pd.ExcelFile(uploaded_file)
     sheet_names = xls.sheet_names
 
-    # Get original item order from first sheet
     original_order_df = xls.parse(sheet_names[0], skiprows=4)
     original_order = original_order_df.iloc[:, 0].dropna().astype(str).tolist()
 
@@ -80,11 +79,10 @@ if uploaded_file:
     )
     summary_df = summary_df.sort_values(by='ItemOrder').drop(columns='ItemOrder')
 
-    tabs = st.tabs(["📊 Summary", "🧪 Playground – Add Inventory Simulator"])
+    tab1, tab2 = st.tabs(["📊 Summary", "🧪 Playground"])
 
-    with tabs[0]:
+    with tab1:
         st.subheader("Usage Summary")
-
         threshold = st.slider("Highlight if weeks remaining is below:", min_value=1, max_value=10, value=2)
 
         def highlight_weeks_remaining(val, threshold=2):
@@ -115,28 +113,19 @@ if uploaded_file:
         csv = summary_df.to_csv(index=False).encode('utf-8')
         st.download_button("Download CSV", data=csv, file_name="beverage_usage_summary.csv")
 
-    with tabs[1]:
+    with tab2:
         st.subheader("📦 Playground – Add Inventory Simulator")
 
-        usage_option = st.radio(
-            "Use which usage average to estimate weeks gained?",
-            ["YTD Avg", "10Wk Avg", "4Wk Avg"]
-        )
+        playground_df = summary_df[['Item', 'YTD Avg']].copy()
+        playground_df['Add Bottles'] = 0.0
+        playground_df['Weeks Added'] = 0.0
 
-        selected_items = st.multiselect("Select items to simulate purchases for:", summary_df['Item'].tolist())
+        edited_df = st.data_editor(playground_df, num_rows="dynamic", key="playground_editor")
 
-        if selected_items:
-            table_data = summary_df[summary_df['Item'].isin(selected_items)][['Item', usage_option]].copy()
-            table_data.rename(columns={usage_option: 'Avg Usage'}, inplace=True)
-            table_data['Added Inventory'] = 0.0
-
-            edited = st.data_editor(table_data, num_rows="dynamic", use_container_width=True)
-
-            # Calculate weeks added
-            edited['Weeks Added'] = edited.apply(
-                lambda row: round(row['Added Inventory'] / row['Avg Usage'], 2)
-                if row['Avg Usage'] and row['Added Inventory'] > 0 else None, axis=1
+        if st.button("Calculate Weeks Added"):
+            updated_df = edited_df.copy()
+            updated_df['Weeks Added'] = updated_df.apply(
+                lambda row: round(row['Add Bottles'] / row['YTD Avg'], 2) if row['YTD Avg'] and row['YTD Avg'] > 0 else None,
+                axis=1
             )
-
-            st.markdown("### Result")
-            st.dataframe(edited, use_container_width=True)
+            st.dataframe(updated_df, use_container_width=True)
