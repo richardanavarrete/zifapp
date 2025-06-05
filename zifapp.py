@@ -115,34 +115,125 @@ if uploaded_file:
     with tab_playground:
         st.subheader("🧪 Playground: Inventory Planning")
 
-        vendor_map = {
-            "Breakthru": [
-                "Crown Royal", "Crown Apple", "Jack Daniels", "Jack Fire", "Bulliet", "Buffalo Trace", "Fireball",
-                "Ketel One", "Deep Eddy Orange", "Deep Eddy Ruby Red", "Deep Eddy Lime",
-                "Baileys", "Chambord", "Rumplemintz", "Amaretto", "Apple", "Blue Curaco", "Watermelon", "Peach Schnapps",
-                "Melon", "Triple Sec", "Butterscotch", "Vodka", "Rum", "Gin", "Tequila", "Whiskey", "Scotch", "Brandy",
-                "Don Julio Blanco", "Casamigos", "Corazon Repo", "Captain Morgan", "Tanqueray", "Wycliff Champagne",
-                "LaMarca Prosecco", "Red Bull", "Red Bull SF", "Red Bull Tropical", "Bloody Mix"
-            ],
-            "Southern": [
-                "Basil Hayden", "Jameson", "Jim Beam", "Makers", "Skerewball", "Grey Goose", "Tito's",
-                "Cazadores", "Patron Silver", "Glenlivet", "Dewar's", "Bacardi", "Malibu", "Grand Marnier", "Hazelnut",
-                "Jagermeister", "Kahlua", "Melon", "Kendall Jackson", "La Crema Chard", "La Crema Pinot", "Troublemaker Red",
-                "Villa Sandi", "Bitters", "Simple Syrup", "Sweet Vermouth", "Dry Vermouth"
-            ],
-            "Crescent": [
-                "Alaskan Amber", "Blue Moon", "Coors Light", "Dos XX Lager", "Juicy Haze", "Miller Lite", "Modelo",
-                "Angry Orchard", "Corona", "Corna N/A", "Corona Premier", "Cornitas", "Pacifico", "Big Blue Van",
-                "Guinness", "Heneken 0.0", "Truly Pineapple", "Truly Wild Berry", "Twisted Tea", "Wht Clw Blk Cherry",
-                "Wht Clw Mango", "Wht Clw Peach", "Ginger Beer", "WS Blueberry", "WS Lemon", "WS Original",
-                "WS Prickly Pear", "WS Raspberry"
-            ],
-            "Hensley": [
-                "Bud Light", "Mich Ultra", "Firestone 805", "Tower Station", "Church Music", "Zipps Lager",
-                "Austin Eastcider", "Budweiser", "Bud Light", "Mich Ultra"
-            ]
-        }
+        vendor_map_full = {
+        "Breakthru": [
+        "WHISKEY Crown Royal",
+        "WHISKEY Crown Royal Regal Apple",
+        "WHISKEY Jack Daniels Black",
+        "WHISKEY Jack Daniels Tennessee Fire",
+        "WHISKEY Bulleit Straight Rye",
+        "WHISKEY Buffalo Trace",
+        "WHISKEY Fireball Cinnamon",
+        "VODKA Ketel One",
+        "VODKA Deep Eddy Orange",
+        "VODKA Deep Eddy Ruby Red",
+        "VODKA Deep Eddy Lime",
+        "LIQ Baileys Irish Cream",
+        "LIQ Chambord",
+        "LIQ Rumpleminze",
+        "LIQ Amaretto",
+        "LIQ Sour Apple",
+        "LIQ Watermelon Schnapps",
+        "LIQ Peach Schnapps",
+        "LIQ Melon",
+        "LIQ Triple Sec",
+        "LIQ Butterscotch",
+        "WELL Vodka",
+        "WELL Rum",
+        "WELL Gin",
+        "WELL Tequila",
+        "WELL Whiskey",
+        "WELL Scotch",
+        "WELL Brandy",
+        "TEQUILA Don Julio Blanco",
+        "TEQUILA Casamigos Blanco",
+        "TEQUILA Corazon Reposado",
+        "RUM Captain Morgan Spiced",
+        "GIN Tanqueray",
+        "WINE William Wycliff Brut Chateauamp",
+        "WINE LaMarca Prosecco",
+        "JUICE Red Bull",
+        "JUICE Red Bull SF",
+        "JUICE Red Bull Yellow",
+        "BAR CONS Bloody Mary"
+    ],
+        "Southern": [
+        "WHISKEY Basil Hayden",
+        "WHISKEY Jameson",
+        "WHISKEY Jim Beam",
+        "WHISKEY Makers Mark",
+        "WHISKEY Skrewball Peanut Butter",
+        "VODKA Grey Goose",
+        "VODKA Titos",
+        "TEQUILA Cazadores Reposado",
+        "TEQUILA Patron Silver",
+        "WHISKEY Glenlivet",
+        "WHISKEY Dewars White Label",
+        "RUM Bacardi Superior White",
+        "RUM Malibu Coconut",
+        "LIQ Grand Marnier",
+        "LIQ Hazelnut",  # Presumed full name if known, confirm if different
+        "LIQ Jagermeister",
+        "LIQ Kahlua",
+        "LIQ Melon",
+        "WINE Kendall Jackson Chardonnay",
+        "WINE La Crema Chardonnay",
+        "WINE La Crema Pinot Noir",
+        "WINE Troublemaker Red",
+        "WINE Villa Sandi Pinot Grigio",
+        "BAR CONS Bitters",
+        "BAR CONS Simple Syrup",
+        "LIQ Vermouth Sweet",
+        "LIQ Vermouth Dry"
+    ],
+        "Crescent": [
+        "BEER DFT Alaskan Amber",
+        "BEER DFT Blue Moon Belgian White",
+        "BEER DFT Coors Light",
+        "BEER DFT Dos Equis Lager",
+        "BEER DFT New Belgium Juicy Haze IPA",
+        "BEER DFT Miller Lite",
+        "BEER DFT Modelo Especial",
+        "BEER BTL Angry Orchard Crisp Apple",
+        "BEER BTL Blue Moon",
+        "BEER BTL Coors Light",
+        "BEER BTL Corona Extra",
+        "BEER BTL Corona NA",
+        "BEER BTL Corona Premier",
+        "BEER BTL Coronita Extra",
+        "BEER BTL Dos Equis Lager",
+        "BEER BTL Pacifico",
+        "BEER BTL College Street Big Blue Van",
+        "BEER BTL Guinness",
+        "BEER BTL Heineken 0.0",
+        "BEER BTL Truly Pineapple",
+        "BEER BTL Truly Wild Berry",
+        "BEER BTL Twisted Tea",
+        "BEER BTL White Claw Black Cherry",
+        "BEER BTL White Claw Mango",
+        "BEER BTL White Claw Peach",
+        "JUICE Ginger Beer",
+        "VODKA Western Son Blueberry",
+        "VODKA Western Son Lemon",
+        "VODKA Western Son Original",
+        "VODKA Western Son Prickly Pear",
+        "VODKA Western Son Raspberry"
+    ],
+        "Hensley": [
+        "BEER DFT Bud Light",
+        "BEER DFT Michelob Ultra",
+        "BEER DFT Firestone Walker 805",
+        "BEER DFT Mother Road Tower Station",
+        "BEER DFT Church Music",
+        "BEER DFT Zipps Lager",
+        "BEER BTL Austin Eastciders",
+        "BEER BTL Budweiser",
+        "BEER BTL Bud Light",
+        "BEER BTL Michelob Ultra"
+    ]
+}
 
+import ace_tools as tools; tools.display_dataframe_to_user(name="Vendor Item Mapping", dataframe=pd.DataFrame([(k, item) for k, v in vendor_map_full.items() for item in v], columns=["Vendor", "Item"]))
         category_map = {
             "Well": [], "Whiskey": [], "Vokda": [], "Gin": [], "Tequila": [], "Rum": [], "Scotch": [],
             "Liqueur": [], "Cordials": [], "Wine": [], "Draft Beer": [], "Bottled Beer": [], "Juice": []
