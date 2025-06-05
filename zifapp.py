@@ -80,7 +80,7 @@ if uploaded_file:
     )
     summary_df = summary_df.sort_values(by='ItemOrder').drop(columns='ItemOrder')
 
-    tabs = st.tabs(["📊 Summary", "🧪 Playground"])
+    tabs = st.tabs(["📊 Summary", "🧪 Playground – Add Inventory Simulator"])
 
     with tabs[0]:
         st.subheader("Usage Summary")
@@ -116,33 +116,33 @@ if uploaded_file:
         st.download_button("Download CSV", data=csv, file_name="beverage_usage_summary.csv")
 
     with tabs[1]:
-    st.subheader("📦 Playground – Add Inventory Simulator")
+        st.subheader("📦 Playground – Add Inventory Simulator")
 
-    usage_option = st.radio(
-        "Use which usage average to estimate weeks gained?",
-        ["YTD Avg", "10Wk Avg", "4Wk Avg"]
-    )
+        usage_option = st.radio(
+            "Use which usage average to estimate weeks gained?",
+            ["YTD Avg", "10Wk Avg", "4Wk Avg"]
+        )
 
-    selected_items = st.multiselect("Select items to simulate purchases for:", summary_df['Item'].tolist())
+        selected_items = st.multiselect("Select items to simulate purchases for:", summary_df['Item'].tolist())
 
-    results = []
+        results = []
 
-    for item in selected_items:
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            added_inventory = st.number_input(f"Added bottles for {item}:", min_value=0.0, step=0.5, key=f"input_{item}")
-        with col2:
-            item_row = summary_df[summary_df['Item'] == item]
-            if not item_row.empty:
-                avg_usage = item_row.iloc[0][usage_option]
-                weeks_added = added_inventory / avg_usage if avg_usage and avg_usage > 0 else None
-                results.append({
-                    "Item": item,
-                    "Added": added_inventory,
-                    "Avg Used": avg_usage,
-                    "Weeks Added": round(weeks_added, 2) if weeks_added is not None else "N/A"
-                })
+        for item in selected_items:
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                added_inventory = st.number_input(f"Added bottles for {item}:", min_value=0.0, step=0.5, key=f"input_{item}")
+            with col2:
+                item_row = summary_df[summary_df['Item'] == item]
+                if not item_row.empty:
+                    avg_usage = item_row.iloc[0][usage_option]
+                    weeks_added = added_inventory / avg_usage if avg_usage and avg_usage > 0 else None
+                    results.append({
+                        "Item": item,
+                        "Added": added_inventory,
+                        "Avg Used": avg_usage,
+                        "Weeks Added": round(weeks_added, 2) if weeks_added is not None else "N/A"
+                    })
 
-    if results:
-        st.markdown("### Summary")
-        st.dataframe(pd.DataFrame(results))
+        if results:
+            st.markdown("### Summary")
+            st.dataframe(pd.DataFrame(results))
