@@ -73,6 +73,7 @@ if uploaded_file:
         })
 
     summary_df = full_df.groupby('Item').apply(compute_metrics).reset_index()
+
     summary_df['Item'] = summary_df['Item'].astype(str)
     summary_df['ItemOrder'] = summary_df['Item'].apply(
         lambda x: original_order.index(x) if x in original_order else float('inf')
@@ -81,15 +82,15 @@ if uploaded_file:
 
     st.subheader("Usage Summary")
 
-    threshold = st.slider("Highlight if weeks remaining is below:", min_value=1, max_value=10, value=2, step=.1)
+    threshold = st.slider("Highlight if weeks remaining is below:", min_value=1.0, max_value=10.0, value=2.0, step=0.1)
 
-    def highlight_weeks_remaining(val, threshold=2):
+    def highlight_weeks_remaining(val, threshold=2.0):
         try:
             return 'background-color: red' if val < threshold else ''
         except:
             return ''
 
-       format_dict = {col: '{:,.2f}' for col in summary_df.columns if summary_df[col].dtype in ['float64', 'float32']}
+    format_dict = {col: '{:,.2f}' for col in summary_df.columns if summary_df[col].dtype in ['float64', 'float32']}
 
     styled_df = summary_df.style.format(format_dict).applymap(
         lambda val: highlight_weeks_remaining(val, threshold),
