@@ -80,20 +80,20 @@ if uploaded_file:
     )
     summary_df = summary_df.sort_values(by='ItemOrder').drop(columns='ItemOrder')
 
-st.subheader("Usage Summary")
+    st.subheader("Usage Summary")
 
 # Add a dynamic threshold slider
-threshold = st.slider("Highlight if weeks remaining is below:", min_value=1, max_value=10, value=2)
+    threshold = st.slider("Highlight if weeks remaining is below:", min_value=1, max_value=10, value=2)
 
 # Define styling function
-def highlight_weeks_remaining(val, threshold=2):
+    def highlight_weeks_remaining(val, threshold=2):
     try:
         return 'background-color: red' if val < threshold else ''
     except:
         return ''
 
 # Apply style to specific columns
-styled_df = summary_df.style.applymap(
+    styled_df = summary_df.style.applymap(
     lambda val: highlight_weeks_remaining(val, threshold),
     subset=[
         'Wks Rmn (10Wk Avg)',
@@ -106,8 +106,8 @@ styled_df = summary_df.style.applymap(
 )
 
 # Display with styling
-st.dataframe(styled_df, use_container_width=True)
+    st.dataframe(styled_df, use_container_width=True)
 
 # Download option
-csv = summary_df.to_csv(index=False).encode('utf-8')
-st.download_button("Download CSV", data=csv, file_name="beverage_usage_summary.csv")
+    csv = summary_df.to_csv(index=False).encode('utf-8')
+    st.download_button("Download CSV", data=csv, file_name="beverage_usage_summary.csv")
