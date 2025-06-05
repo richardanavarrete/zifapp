@@ -116,8 +116,13 @@ if uploaded_file:
         st.subheader("🧪 Playground: Inventory Planning")
 
         vendor_map = {
-            # This should be populated using your correct full item names as in summary_df
-            # e.g., "Breakthru": ["WHISKEY Jack Daniels", "VODKA Titos", ...]
+            vendor: summary_df[summary_df['Item'].str.upper().str.contains('|'.join([kw.upper() for kw in items]))]['Item'].tolist()
+            for vendor, items in {
+                "Breakthru": ["Crown", "Ketel", "Deep Eddy", "Baileys", "Tanqueray", "Wycliff", "LaMarca"],
+                "Southern": ["Basil Hayden", "Jameson", "Grey Goose", "Titos", "Cazadores", "Patron", "Glenlivet"],
+                "Crescent": ["Alaskan", "Blue Moon", "Coors", "Dos", "Juicy Haze", "Truly", "White Claw"],
+                "Hensley": ["Bud", "Mich", "Firestone", "Tower Station", "Church Music", "Zipps"]
+            }.items()
         }
 
         category_map = {
@@ -143,7 +148,7 @@ if uploaded_file:
         vendor_options = ["All Vendors"] + list(vendor_map.keys())
         selected_vendor = st.selectbox("Select Vendor", options=vendor_options, index=0)
 
-        base_items = summary_df['Item'].tolist() if selected_vendor == "All Vendors" else [item for item in summary_df['Item'] if item in vendor_map[selected_vendor]]
+        base_items = summary_df['Item'].tolist() if selected_vendor == "All Vendors" else vendor_map[selected_vendor]
 
         category_options = list(category_map.keys())
         selected_categories = st.multiselect("Select Categories to Display", options=category_options, default=category_options)
