@@ -71,7 +71,7 @@ if uploaded_file:
     summary_df = summary_df.sort_values(by='ItemOrder').drop(columns='ItemOrder')
 
     st.subheader("Usage Summary")
-    st.dataframe(summary_df)
+    st.dataframe(summary_df.reset_index(drop=True), use_container_width=True)
 
     csv = summary_df.to_csv(index=False).encode('utf-8')
     st.download_button("Download CSV", data=csv, file_name="beverage_usage_summary.csv")
