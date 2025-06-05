@@ -39,8 +39,6 @@ if uploaded_file:
     full_df = full_df.dropna(subset=['Usage', 'End Inventory'])
     full_df = full_df.sort_values(by=['Item', 'Date'])
 
-    precision = st.radio("Decimal Precision", options=[1, 2], index=1, horizontal=True)
-
     def compute_metrics(group):
         group = group.sort_values(by='Date').reset_index(drop=True)
         usage = group['Usage']
@@ -56,16 +54,16 @@ if uploaded_file:
         ytd_avg = ytd_usage.mean() if not ytd_usage.empty else None
 
         def safe_div(n, d):
-            return round(n / d, precision) if d and d > 0 else None
+            return round(n / d, 2) if d and d > 0 else None
 
         return pd.Series({
-            'End Inv': round(inventory.iloc[-1], precision),
-            'YTD Avg': round(ytd_avg, precision) if ytd_avg is not None else None,
-            '10Wk Avg': round(last_10.mean(), precision),
-            '4Wk Avg': round(last_4.mean(), precision),
-            'AT-High': round(usage.max(), precision),
-            'Low4 Avg': round(rolling_4.mean().min(), precision) if len(usage) >= 4 else None,
-            'High4 Avg': round(rolling_4.mean().max(), precision) if len(usage) >= 4 else None,
+            'End Inv': round(inventory.iloc[-1], 2),
+            'YTD Avg': round(ytd_avg, 2) if ytd_avg is not None else None,
+            '10Wk Avg': round(last_10.mean(), 2),
+            '4Wk Avg': round(last_4.mean(), 2),
+            'AT-High': round(usage.max(), 2),
+            'Low4 Avg': round(rolling_4.mean().min(), 2) if len(usage) >= 4 else None,
+            'High4 Avg': round(rolling_4.mean().max(), 2) if len(usage) >= 4 else None,
             'Wks Rmn (YTD Avg)': safe_div(inventory.iloc[-1], ytd_avg),
             'Wks Rmn (10Wk Avg)': safe_div(inventory.iloc[-1], last_10.mean()),
             'Wks Rmn (4Wk Avg)': safe_div(inventory.iloc[-1], last_4.mean()),
@@ -91,7 +89,9 @@ if uploaded_file:
         except:
             return ''
 
-        format_dict = {col: '{:,.2f}' for col in summary_df.columns if summary_df[col].dtype in ['float64', 'float32']}
+    format_dict = {
+        col: '{:,.2f}' for col in summary_df.columns if summary_df[col].dtype in ['float64', 'float32']
+    }
 
     styled_df = summary_df.style.format(format_dict).applymap(
         lambda val: highlight_weeks_remaining(val, threshold),
