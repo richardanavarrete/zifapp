@@ -114,31 +114,34 @@ if uploaded_file:
 
     with tab_playground:
         st.subheader("🧪 Playground: Inventory Planning")
-        selected_items = st.multiselect("Select items to include in the playground:", summary_df['Item'].tolist())
 
-        if selected_items:
-            editable_data = summary_df[summary_df['Item'].isin(selected_items)][['Item', 'YTD Avg']].copy()
-            editable_data['Add Bottles'] = 0.0
-            editable_data['Desired Weeks'] = 0.0
+        categories = [
+            "Well", "Whiskey", "Vokda", "Gin", "Tequila", "Rum", "Scotch",
+            "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice"
+        ]
 
-            edited_df = st.data_editor(editable_data, num_rows="dynamic", use_container_width=True)
+        editable_data = summary_df[['Item', 'YTD Avg']].copy()
+        editable_data['Add Bottles'] = 0.0
+        editable_data['Desired Weeks'] = 0.0
 
-            if st.button("Calculate"):
-                results = []
-                for _, row in edited_df.iterrows():
-                    item = row['Item']
-                    avg = row['YTD Avg']
-                    bottles = row['Add Bottles']
-                    weeks = row['Desired Weeks']
-                    calc_weeks = bottles / avg if avg and bottles > 0 else 0
-                    calc_bottles = weeks * avg if avg and weeks > 0 else 0
-                    results.append({
-                        'Item': item,
-                        'YTD Avg': avg,
-                        'Add Bottles': bottles,
-                        'Desired Weeks': weeks,
-                        'Calc Weeks': round(calc_weeks, 2),
-                        'Calc Bottles': round(calc_bottles, 2)
-                    })
-                result_df = pd.DataFrame(results)
-                st.dataframe(result_df, use_container_width=True)
+        edited_df = st.data_editor(editable_data, num_rows="dynamic", use_container_width=True)
+
+        if st.button("Calculate"):
+            results = []
+            for _, row in edited_df.iterrows():
+                item = row['Item']
+                avg = row['YTD Avg']
+                bottles = row['Add Bottles']
+                weeks = row['Desired Weeks']
+                calc_weeks = bottles / avg if avg and bottles > 0 else 0
+                calc_bottles = weeks * avg if avg and weeks > 0 else 0
+                results.append({
+                    'Item': item,
+                    'YTD Avg': avg,
+                    'Add Bottles': bottles,
+                    'Desired Weeks': weeks,
+                    'Calc Weeks': round(calc_weeks, 2),
+                    'Calc Bottles': round(calc_bottles, 2)
+                })
+            result_df = pd.DataFrame(results)
+            st.dataframe(result_df, use_container_width=True)
