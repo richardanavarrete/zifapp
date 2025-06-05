@@ -118,59 +118,50 @@ if uploaded_file:
         mode = st.radio("Select View Mode:", ["By Vendor", "By Category"])
 
         vendor_map = {
-    breakthru_items = [
-    "WHISKEY Buffalo Trace",
-    "WHISKEY Bulleit Straight Rye",
-    "WHISKEY Crown Royal",
-    "WHISKEY Crown Royal Regal Apple",
-    "WHISKEY Fireball Cinnamon",
-    "WHISKEY Jack Daniels Black",
-    "WHISKEY Jack Daniels Tennessee Fire",
-    "WHISKEY Well",
-
-    "VODKA Deep Eddy Lime",
-    "VODKA Deep Eddy Orange",
-    "VODKA Deep Eddy Ruby Red",
-    "VODKA Fleischmann's Cherry",
-    "VODKA Fleischmann's Grape",
-    "VODKA Ketel One",
-    "VODKA Well",
-
-    "LIQ Amaretto",
-    "LIQ Baileys Irish Cream",
-    "LIQ Chambord",
-    "LIQ Melon",
-    "LIQ Rumpleminze",
-    "LIQ Triple Sec",
-    "LIQ Blue Curacao",
-    "LIQ Butterscotch",
-    "LIQ Peach Schnapps",
-    "LIQ Sour Apple",
-    "LIQ Watermelon Schnapps",
-
-    "GIN Tanqueray",
-    "GIN Well",
-
-    "TEQUILA Casamigos Blanco",
-    "TEQUILA Corazon Reposado",
-    "TEQUILA Don Julio Blanco",
-    "TEQUILA Well",
-
-    "RUM Captain Morgan Spiced",
-    "RUM Well",
-
-    "SCOTCH Well",
-    "BRANDY Well",
-
-    "WINE LaMarca Prosecco",
-    "WINE William Wycliff Brut Chateauamp",
-
-    "BAR CONS Bloody Mary",
-
-    "JUICE Red Bull",
-    "JUICE Red Bull SF",
-    "JUICE Red Bull Yellow"
-    ]
+            "Breakthru": [
+                "WHISKEY Buffalo Trace",
+                "WHISKEY Bulleit Straight Rye",
+                "WHISKEY Crown Royal",
+                "WHISKEY Crown Royal Regal Apple",
+                "WHISKEY Fireball Cinnamon",
+                "WHISKEY Jack Daniels Black",
+                "WHISKEY Jack Daniels Tennessee Fire",
+                "WHISKEY Well",
+                "VODKA Deep Eddy Lime",
+                "VODKA Deep Eddy Orange",
+                "VODKA Deep Eddy Ruby Red",
+                "VODKA Fleischmann's Cherry",
+                "VODKA Fleischmann's Grape",
+                "VODKA Ketel One",
+                "VODKA Well",
+                "LIQ Amaretto",
+                "LIQ Baileys Irish Cream",
+                "LIQ Chambord",
+                "LIQ Melon",
+                "LIQ Rumpleminze",
+                "LIQ Triple Sec",
+                "LIQ Blue Curacao",
+                "LIQ Butterscotch",
+                "LIQ Peach Schnapps",
+                "LIQ Sour Apple",
+                "LIQ Watermelon Schnapps",
+                "GIN Tanqueray",
+                "GIN Well",
+                "TEQUILA Casamigos Blanco",
+                "TEQUILA Corazon Reposado",
+                "TEQUILA Don Julio Blanco",
+                "TEQUILA Well",
+                "RUM Captain Morgan Spiced",
+                "RUM Well",
+                "SCOTCH Well",
+                "BRANDY Well",
+                "WINE LaMarca Prosecco",
+                "WINE William Wycliff Brut Chateauamp",
+                "BAR CONS Bloody Mary",
+                "JUICE Red Bull",
+                "JUICE Red Bull SF",
+                "JUICE Red Bull Yellow"
+            ],
             "Southern": ["Basil Hayden", "Jameson", "Grey Goose", "Titos", "Cazadores", "Patron", "Glenlivet"],
             "Crescent": ["Alaskan", "Blue Moon", "Coors", "Dos", "Juicy Haze", "Truly", "White Claw"],
             "Hensley": ["Bud", "Mich", "Firestone", "Tower Station", "Church Music", "Zipps"]
@@ -199,7 +190,7 @@ if uploaded_file:
 
         if mode == "By Vendor":
             vendor = st.selectbox("Select Vendor", list(vendor_map.keys()))
-            base_items = summary_df[summary_df['Item'].str.upper().str.contains('|'.join([kw.upper() for kw in vendor_map[vendor]]))]['Item'].tolist()
+            base_items = vendor_map[vendor]
         else:
             selected_categories = st.multiselect("Select Categories", list(category_map.keys()), default=list(category_map.keys()))
             base_items = [item for cat in selected_categories for item in category_map[cat]]
