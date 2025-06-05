@@ -188,6 +188,8 @@ if uploaded_file:
         if mode == "By Vendor":
             vendor = st.selectbox("Select Vendor", list(vendor_map.keys()))
             base_items = vendor_map[vendor]
+            input_mode = st.radio("Select input mode:", ["Add Bottles", "Desired Weeks"], horizontal=True)
+            input_mode = st.radio("Select input mode:", ["Add Bottles", "Desired Weeks"], horizontal=True)
         else:
             selected_categories = st.multiselect("Select Categories", list(category_map.keys()), default=list(category_map.keys()))
             base_items = [item for cat in selected_categories for item in category_map[cat]]
@@ -201,26 +203,25 @@ if uploaded_file:
 
         edited_df = st.data_editor(editable_data, num_rows="dynamic", use_container_width=True)
 
-        if st.button("Calculate"):
-            results = []
-            for _, row in edited_df.iterrows():
-                item = row['Item']
-                avg = row[usage_option]
-                end_inv = row['End Inv']
-                bottles = row['Add Bottles']
-                weeks = row['Desired Weeks']
-                calc_weeks = (end_inv + bottles) / avg if avg and (end_inv + bottles) > 0 else 0
-                calc_bottles = weeks * avg if avg and weeks > 0 else 0
-                results.append({
-                    'Item': item,
-                    usage_option: avg,
-                    'End Inv': end_inv,
-                    'Current Weeks Left': round(end_inv / avg, 2) if avg else 0,
-                    'Add Bottles': bottles,
-                    'Desired Weeks': weeks,
-                    'Post-Inv': round(end_inv + bottles, 2),
-                    'Calc Weeks': round(calc_weeks, 2),
-                    'Calc Bottles': round(calc_bottles, 2)
-                })
-            result_df = pd.DataFrame(results)
-            st.dataframe(result_df, use_container_width=True)
+            if st.button("Calculate"):
+        results = []
+        for _, row in edited_df.iterrows():
+            item = row['Item']
+            avg = row[usage_option]
+            end_inv = row['End Inv']
+            bottles = row['Add Bottles'] if input_mode == "Add Bottles" else (row['Desired Weeks'] * avg - end_inv) if avg else 0
+            weeks = row['Desired Weeks'] if input_mode == "Desired Weeks" else (end_inv + row['Add Bottles']) / avg if avg else 0
+
+            results.append({
+                'Item': item,
+                usage_option: avg,
+                'End Inv': end_inv,
+                'Current Weeks Left': round(end_inv / avg, 2) if avg else 0,
+                'Add Bottles': round(bottles, 2),
+                'Desired Weeks': round(weeks, 2),
+                'Post-Inv': round(end_inv + bottles, 2),
+                'Calc Weeks': round((end_inv + bottles) / avg, 2) if avg else 0,
+                'Calc Bottles': round(max(weeks * avg - end_inv, 0), 2) if avg else 0
+            })
+        result_df = pd.DataFrame(results)
+        st.dataframe(result_df, use_container_width=True)
