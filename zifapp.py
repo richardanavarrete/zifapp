@@ -49,17 +49,17 @@ if uploaded_file:
             return round(n / d, 2) if d and d > 0 else None
 
         return pd.Series({
-            'Latest End Inventory': round(inventory.iloc[-1], 2),
-            '10-Week Avg': round(last_10.mean(), 2),
-            'Last 4-Week Avg': round(last_4.mean(), 2),
-            'All-Time High': round(usage.max(), 2),
-            'Lowest 4-Week Avg': round(rolling_4.mean().min(), 2) if len(usage) >= 4 else None,
-            'Highest 4-Week Avg': round(rolling_4.mean().max(), 2) if len(usage) >= 4 else None,
-            'Weeks Left (10-Week Avg)': safe_div(inventory.iloc[-1], last_10.mean()),
-            'Weeks Left (Last 4-Week Avg)': safe_div(inventory.iloc[-1], last_4.mean()),
-            'Weeks Left (All-Time High)': safe_div(inventory.iloc[-1], usage.max()),
-            'Weeks Left (Lowest 4-Week Avg)': safe_div(inventory.iloc[-1], rolling_4.mean().min()),
-            'Weeks Left (Highest 4-Week Avg)': safe_div(inventory.iloc[-1], rolling_4.mean().max())
+            'End Inv': round(inventory.iloc[-1], 2),
+            '10Wk Avg': round(last_10.mean(), 2),
+            '4Wk Avg': round(last_4.mean(), 2),
+            'AT-High': round(usage.max(), 2),
+            'Low 4Wk Avg': round(rolling_4.mean().min(), 2) if len(usage) >= 4 else None,
+            'High 4Wk Avg': round(rolling_4.mean().max(), 2) if len(usage) >= 4 else None,
+            'Wks Rmn (10-Week Avg)': safe_div(inventory.iloc[-1], last_10.mean()),
+            'Wks Rmn (Last 4-Week Avg)': safe_div(inventory.iloc[-1], last_4.mean()),
+            'Wks Rmn (All-Time High)': safe_div(inventory.iloc[-1], usage.max()),
+            'Wks Rmn (Lowest 4-Week Avg)': safe_div(inventory.iloc[-1], rolling_4.mean().min()),
+            'Wks Rmn (Highest 4-Week Avg)': safe_div(inventory.iloc[-1], rolling_4.mean().max())
         })
 
     summary_df = full_df.groupby('Item').apply(compute_metrics).reset_index()
