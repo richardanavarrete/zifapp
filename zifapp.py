@@ -11,7 +11,6 @@ if uploaded_file:
     xls = pd.ExcelFile(uploaded_file)
     sheet_names = xls.sheet_names
 
-    # Get original item order from first sheet
     original_order_df = xls.parse(sheet_names[0], skiprows=4)
     original_order = original_order_df.iloc[:, 0].dropna().astype(str).tolist()
 
@@ -79,9 +78,9 @@ if uploaded_file:
     )
     summary_df = summary_df.sort_values(by='ItemOrder').drop(columns='ItemOrder')
 
-    tabs = st.tabs(["\ud83d\udcca Summary", "\ud83e\uddea Playground"])
+    tab_summary, tab_playground = st.tabs(["📊 Summary", "🧪 Playground"])
 
-    with tabs[0]:
+    with tab_summary:
         st.subheader("Usage Summary")
         threshold = st.slider("Highlight if weeks remaining is below:", min_value=1, max_value=10, value=2)
 
@@ -113,13 +112,11 @@ if uploaded_file:
         csv = summary_df.to_csv(index=False).encode('utf-8')
         st.download_button("Download CSV", data=csv, file_name="beverage_usage_summary.csv")
 
-    with tabs[1]:
-        st.subheader("\ud83d\udec6 Playground: Inventory Planning")
+    with tab_playground:
+        st.subheader("🧪 Playground: Inventory Planning")
         editable_data = summary_df[['Item', 'YTD Avg']].copy()
         editable_data['Add Bottles'] = 0.0
         editable_data['Desired Weeks'] = 0.0
-        editable_data['Calc Weeks'] = 0.0
-        editable_data['Calc Bottles'] = 0.0
 
         edited_df = st.data_editor(editable_data, num_rows="dynamic", use_container_width=True)
 
