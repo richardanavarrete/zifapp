@@ -115,23 +115,32 @@ if uploaded_file:
     with tab_playground:
         st.subheader("🧪 Playground: Inventory Planning")
 
-        category_map = {}
-        for category in [
-            "Well", "Whiskey", "Vokda", "Gin", "Tequila", "Rum", "Scotch",
-            "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice"]:
-            category_map[category] = []
+        category_map = {
+            "Well": [], "Whiskey": [], "Vokda": [], "Gin": [], "Tequila": [], "Rum": [], "Scotch": [],
+            "Liqueur": [], "Cordials": [], "Wine": [], "Draft Beer": [], "Bottled Beer": [], "Juice": []
+        }
         for item in summary_df['Item']:
-            for category in category_map:
-                if category.upper() in item.upper():
-                    category_map[category].append(item)
+            upper_item = item.upper()
+            if "WELL" in upper_item: category_map["Well"].append(item)
+            elif "WHISKEY" in upper_item: category_map["Whiskey"].append(item)
+            elif "VODKA" in upper_item: category_map["Vokda"].append(item)
+            elif "GIN" in upper_item: category_map["Gin"].append(item)
+            elif "TEQUILA" in upper_item: category_map["Tequila"].append(item)
+            elif "RUM" in upper_item: category_map["Rum"].append(item)
+            elif "SCOTCH" in upper_item: category_map["Scotch"].append(item)
+            elif "LIQ " in upper_item and any(x in upper_item for x in ["AMARETTO", "BAILEYS", "CHAMBORD", "KAHLUA", "JAGER"]): category_map["Liqueur"].append(item)
+            elif "LIQ " in upper_item or "SCHNAPPS" in upper_item: category_map["Cordials"].append(item)
+            elif "WINE" in upper_item: category_map["Wine"].append(item)
+            elif "BEER DFT" in upper_item: category_map["Draft Beer"].append(item)
+            elif "BEER BTL" in upper_item: category_map["Bottled Beer"].append(item)
+            elif "JUICE" in upper_item or "BAR CONS" in upper_item: category_map["Juice"].append(item)
 
-        selected_categories = st.multiselect("Select Categories", options=list(category_map.keys()), default=["Whiskey"])
+        selected_categories = st.multiselect("Select Categories to Display", options=list(category_map.keys()), default=["Whiskey"])
         available_items = [item for cat in selected_categories for item in category_map[cat]]
-        selected_items = st.multiselect("Select Items to Edit", options=available_items, default=available_items[:10])
 
         usage_option = st.radio("Select usage average for calculation:", ["YTD Avg", "10Wk Avg", "4Wk Avg"], index=0)
 
-        editable_data = summary_df[summary_df['Item'].isin(selected_items)][['Item', usage_option]].copy()
+        editable_data = summary_df[summary_df['Item'].isin(available_items)][['Item', usage_option]].copy()
         editable_data['Add Bottles'] = 0.0
         editable_data['Desired Weeks'] = 0.0
 
