@@ -82,14 +82,14 @@ if uploaded_file:
             '10Wk Avg': round(last_10.mean(), 2) if not last_10.empty else None,
             '4Wk Avg': round(last_4.mean(), 2) if not last_4.empty else None,
             'AT-High': round(usage.max(), 2),
-            'Avg of Lowest 4 (non-zero)': round(avg_of_lowest_4_non_zero, 2) if pd.notna(avg_of_lowest_4_non_zero) else None,
-            'Avg of Highest 4': round(avg_of_highest_4, 2) if pd.notna(avg_of_highest_4) else None,
-            'Wks Rmn (YTD Avg)': safe_div(inventory.iloc[-1], ytd_avg),
-            'Wks Rmn (10Wk Avg)': safe_div(inventory.iloc[-1], last_10.mean()),
-            'Wks Rmn (4Wk Avg)': safe_div(inventory.iloc[-1], last_4.mean()),
-            'Wks Rmn (ATH)': safe_div(inventory.iloc[-1], usage.max()),
-            'Wks Rmn (Lowest 4)': safe_div(inventory.iloc[-1], avg_of_lowest_4_non_zero),
-            'Wks Rmn (Highest 4)': safe_div(inventory.iloc[-1], avg_of_highest_4)
+            '4WkLow Avg (Ø)': round(avg_of_lowest_4_non_zero, 2) if pd.notna(avg_of_lowest_4_non_zero) else None,
+            '4WkHigh Avg': round(avg_of_highest_4, 2) if pd.notna(avg_of_highest_4) else None,
+            'WksRmn(10Wk)': safe_div(inventory.iloc[-1], last_10.mean()),
+            'WksRmn(4Wk)': safe_div(inventory.iloc[-1], last_4.mean()),
+            'WksRmn(YTD)': safe_div(inventory.iloc[-1], ytd_avg),
+            'WksRmn(ATH)': safe_div(inventory.iloc[-1], usage.max()),
+            'WksRmn(Lo4)': safe_div(inventory.iloc[-1], avg_of_lowest_4_non_zero),
+            'WksRmn(Hi4)': safe_div(inventory.iloc[-1], avg_of_highest_4)
         })
 
     summary_df = full_df.groupby('Item').apply(compute_metrics).reset_index()
