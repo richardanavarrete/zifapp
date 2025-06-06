@@ -98,45 +98,59 @@ if uploaded_file:
     )
     summary_df = summary_df.sort_values(by='ItemOrder').drop(columns='ItemOrder')
     
+    # Define vendor_map here so it can be used in both tabs
+    vendor_map = {
+        "Breakthru": ["WHISKEY Buffalo Trace", "WHISKEY Bulleit Straight Rye", "WHISKEY Crown Royal", "WHISKEY Crown Royal Regal Apple", "WHISKEY Fireball Cinnamon", "WHISKEY Jack Daniels Black", "WHISKEY Jack Daniels Tennessee Fire", "VODKA Deep Eddy Lime", "VODKA Deep Eddy Orange", "VODKA Deep Eddy Ruby Red", "VODKA Fleischmann's Cherry", "VODKA Fleischmann's Grape", "VODKA Ketel One", "LIQ Amaretto", "LIQ Baileys Irish Cream", "LIQ Chambord", "LIQ Melon", "LIQ Rumpleminze", "LIQ Triple Sec", "LIQ Blue Curacao", "LIQ Butterscotch", "LIQ Peach Schnapps", "LIQ Sour Apple", "LIQ Watermelon Schnapps", "BRANDY Well", "GIN Well", "RUM Well", "SCOTCH Well", "TEQUILA Well", "VODKA Well", "WHISKEY Well", "GIN Tanqueray", "TEQUILA Casamigos Blanco", "TEQUILA Corazon Reposado", "TEQUILA Don Julio Blanco", "RUM Captain Morgan Spiced", "WINE LaMarca Prosecco", "WINE William Wycliff Brut Chateauamp", "BAR CONS Bloody Mary", "JUICE Red Bull", "JUICE Red Bull SF", "JUICE Red Bull Yellow"],
+        "Southern": ["WHISKEY Basil Hayden", "WHISKEY Jameson", "WHISKEY Jim Beam", "WHISKEY Makers Mark", "WHISKEY Skrewball Peanut Butter", "VODKA Grey Goose", "VODKA Titos", "TEQUILA Cazadores Reposado", "TEQUILA Patron Silver", "RUM Bacardi Superior White", "RUM Malibu Coconut", "WHISKEY Dewars White Label", "WHISKEY Glenlivet", "LIQ Grand Marnier", "LIQ Jagermeister", "LIQ Kahlua", "LIQ Vermouth Dry", "LIQ Vermouth Sweet", "WINE Kendall Jackson Chardonnay", "WINE La Crema Chardonnay", "WINE La Crema Pinot Noir", "WINE Troublemaker Red", "WINE Villa Sandi Pinot Grigio", "BAR CONS Bitters", "BAR CONS Simple Syrup"],
+        "RNDC": ["WHISKEY Four Roses", "GIN Hendricks", "TEQUILA Milagro Anejo", "TEQUILA Milagro Reposado", "TEQUILA Milagro Silver", "WINE Infamous Goose Sauv Blanc", "WINE Salmon Creek Cab", "WINE Salmon Creek Chard", "WINE Salmon Creek Merlot", "WINE Salmon Creek White Zin", "BAR CONS Mango Puree"],
+        "Crescent": ["BEER DFT Alaskan Amber", "BEER DFT Blue Moon Belgian White", "BEER DFT Coors Light", "BEER DFT Dos Equis Lager", "BEER DFT Miller Lite", "BEER DFT Modelo Especial", "BEER DFT New Belgium Juicy Haze IPA", "BEER BTL Coors Banquet", "BEER BTL Coors Light", "BEER BTL Miller Lite", "BEER BTL Angry Orchard Crisp Apple", "BEER BTL College Street Big Blue Van", "BEER BTL Corona NA", "BEER BTL Corona Extra", "BEER BTL Corona Premier", "BEER BTL Coronita Extra", "BEER BTL Dos Equis Lager", "BEER BTL Guinness", "BEER BTL Heineken 0.0", "BEER BTL Modelo Especial", "BEER BTL Pacifico", "BEER BTL Truly Pineapple", "BEER BTL Truly Wild Berry", "BEER BTL Twisted Tea", "BEER BTL White Claw Black Cherry", "BEER BTL White Claw Mango", "BEER BTL White Claw Peach", "JUICE Ginger Beer", "VODKA Western Son Blueberry", "VODKA Western Son Lemon", "VODKA Western Son Original", "VODKA Western Son Prickly Pear", "VODKA Western Son Raspberry"],
+        "Hensley": ["BEER DFT Bud Light", "BEER DFT Church Music", "BEER DFT Firestone Walker 805", "BEER DFT Michelob Ultra", "BEER DFT Mother Road Sunday Drive", "BEER DFT Tower Station", "BEER BTL Bud Light", "BEER BTL Budweiser", "BEER BTL Michelob Ultra", "BEER BTL Austin Eastciders"]
+    }
+    for vendor, items in vendor_map.items():
+        vendor_map[vendor] = [item.strip() for item in items]
 
     # --- UI Tabs ---
     tab_summary, tab_ordering_worksheet = st.tabs(["📊 Summary", "🧪 Ordering Worksheet"])
 
     with tab_summary:
         st.subheader("Usage Summary")
-        threshold = st.slider("Highlight if weeks remaining is below:", min_value=.2, max_value=10.0, value=2.0, step=0.1)
+        
+        # --- NEW: Filter by Vendor ---
+        vendor_options = ["All Vendors"] + list(vendor_map.keys())
+        selected_vendor = st.selectbox("Filter by Vendor", options=vendor_options)
+
+        if selected_vendor != "All Vendors":
+            vendor_items = vendor_map.get(selected_vendor, [])
+            display_df = summary_df[summary_df['Item'].isin(vendor_items)]
+        else:
+            display_df = summary_df
+        # --- End of new filter logic ---
+        
+        threshold = st.slider("Highlight if weeks remaining is below:", min_value=0.2, max_value=10.0, value=2.0, step=0.1)
 
         def highlight_weeks_remaining(val, threshold=2.0):
             if pd.notna(val) and isinstance(val, (int, float)):
                 return 'background-color: #ff4b4b' if val < threshold else ''
             return ''
 
-        format_dict = {col: '{:,.2f}' for col in summary_df.select_dtypes(include=['float64', 'float32']).columns}
+        format_dict = {col: '{:,.2f}' for col in display_df.select_dtypes(include=['float64', 'float32']).columns}
         
-        styled_df = summary_df.style.format(format_dict, na_rep="-").applymap(
+        # CORRECTED: This subset list now matches your new column names
+        styled_df = display_df.style.format(format_dict, na_rep="-").applymap(
             highlight_weeks_remaining, threshold=threshold,
             subset=[
-                'WksRmn(10Wk)', 'WksRmn(4Wk)', 'WksRmn(ATH)',
-                'Wks Rmn (ATH)', 'Wks Rmn (Lowest 4)', 'Wks Rmn (Highest 4)'
+                'WksRmn(YTD)', 'WksRmn(10Wk)', 'WksRmn(4Wk)',
+                'WksRmn(ATH)', 'WksRmn(Lo4)', 'WksRmn(Hi4)'
             ]
         )
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
-        csv = summary_df.to_csv(index=False).encode('utf-8')
-        st.download_button("Download Summary CSV", data=csv, file_name="beverage_usage_summary.csv")
+        
+        csv = display_df.to_csv(index=False).encode('utf-8')
+        st.download_button("Download Summary CSV", data=csv, file_name=f"beverage_summary_{selected_vendor}.csv")
 
     with tab_ordering_worksheet:
         st.subheader("🧪 Ordering Worksheet: Inventory Planning")
         mode = st.radio("Select View Mode:", ["By Vendor", "By Category"])
-
-        vendor_map = {
-            "Breakthru": ["WHISKEY Buffalo Trace", "WHISKEY Bulleit Straight Rye", "WHISKEY Crown Royal", "WHISKEY Crown Royal Regal Apple", "WHISKEY Fireball Cinnamon", "WHISKEY Jack Daniels Black", "WHISKEY Jack Daniels Tennessee Fire", "VODKA Deep Eddy Lime", "VODKA Deep Eddy Orange", "VODKA Deep Eddy Ruby Red", "VODKA Fleischmann's Cherry", "VODKA Fleischmann's Grape", "VODKA Ketel One", "LIQ Amaretto", "LIQ Baileys Irish Cream", "LIQ Chambord", "LIQ Melon", "LIQ Rumpleminze", "LIQ Triple Sec", "LIQ Blue Curacao", "LIQ Butterscotch", "LIQ Peach Schnapps", "LIQ Sour Apple", "LIQ Watermelon Schnapps", "BRANDY Well", "GIN Well", "RUM Well", "SCOTCH Well", "TEQUILA Well", "VODKA Well", "WHISKEY Well", "GIN Tanqueray", "TEQUILA Casamigos Blanco", "TEQUILA Corazon Reposado", "TEQUILA Don Julio Blanco", "RUM Captain Morgan Spiced", "WINE LaMarca Prosecco", "WINE William Wycliff Brut Chateauamp", "BAR CONS Bloody Mary", "JUICE Red Bull", "JUICE Red Bull SF", "JUICE Red Bull Yellow"],
-            "Southern": ["WHISKEY Basil Hayden", "WHISKEY Jameson", "WHISKEY Jim Beam", "WHISKEY Makers Mark", "WHISKEY Skrewball Peanut Butter", "VODKA Grey Goose", "VODKA Titos", "TEQUILA Cazadores Reposado", "TEQUILA Patron Silver", "RUM Bacardi Superior White", "RUM Malibu Coconut", "WHISKEY Dewars White Label", "WHISKEY Glenlivet", "LIQ Grand Marnier", "LIQ Jagermeister", "LIQ Kahlua", "LIQ Vermouth Dry", "LIQ Vermouth Sweet", "WINE Kendall Jackson Chardonnay", "WINE La Crema Chardonnay", "WINE La Crema Pinot Noir", "WINE Troublemaker Red", "WINE Villa Sandi Pinot Grigio", "BAR CONS Bitters", "BAR CONS Simple Syrup"],
-            "RNDC": ["WHISKEY Four Roses", "GIN Hendricks", "TEQUILA Milagro Anejo", "TEQUILA Milagro Reposado", "TEQUILA Milagro Silver", "WINE Infamous Goose Sauv Blanc", "WINE Salmon Creek Cab", "WINE Salmon Creek Chard", "WINE Salmon Creek Merlot", "WINE Salmon Creek White Zin", "BAR CONS Mango Puree"],
-            "Crescent": ["BEER DFT Alaskan Amber", "BEER DFT Blue Moon Belgian White", "BEER DFT Coors Light", "BEER DFT Dos Equis Lager", "BEER DFT Miller Lite", "BEER DFT Modelo Especial", "BEER DFT New Belgium Juicy Haze IPA", "BEER BTL Coors Banquet", "BEER BTL Coors Light", "BEER BTL Miller Lite", "BEER BTL Angry Orchard Crisp Apple", "BEER BTL College Street Big Blue Van", "BEER BTL Corona NA", "BEER BTL Corona Extra", "BEER BTL Corona Premier", "BEER BTL Coronita Extra", "BEER BTL Dos Equis Lager", "BEER BTL Guinness", "BEER BTL Heineken 0.0", "BEER BTL Modelo Especial", "BEER BTL Pacifico", "BEER BTL Truly Pineapple", "BEER BTL Truly Wild Berry", "BEER BTL Twisted Tea", "BEER BTL White Claw Black Cherry", "BEER BTL White Claw Mango", "BEER BTL White Claw Peach", "JUICE Ginger Beer", "VODKA Western Son Blueberry", "VODKA Western Son Lemon", "VODKA Western Son Original", "VODKA Western Son Prickly Pear", "VODKA Western Son Raspberry"],
-            "Hensley": ["BEER DFT Bud Light", "BEER DFT Church Music", "BEER DFT Firestone Walker 805", "BEER DFT Michelob Ultra", "BEER DFT Mother Road Sunday Drive", "BEER DFT Tower Station", "BEER BTL Bud Light", "BEER BTL Budweiser", "BEER BTL Michelob Ultra", "BEER BTL Austin Eastciders"]
-        }
-        for vendor, items in vendor_map.items():
-            vendor_map[vendor] = [item.strip() for item in items]
 
         category_map = {cat: [] for cat in ["Well", "Whiskey", "Vodka", "Gin", "Tequila", "Rum", "Scotch", "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice", "Bar Consumables"]}
         for item in summary_df['Item']:
@@ -164,6 +178,7 @@ if uploaded_file:
             selected_categories = st.multiselect("Select Categories", list(category_map.keys()), default=list(category_map.keys()), key="category_multiselect")
             base_items = [item for cat in selected_categories for item in category_map.get(cat, [])]
 
+        # CORRECTED: This list now matches your new metric names
         usage_option = st.radio(
             "Select usage average for calculation:",
             ["10Wk Avg", "4Wk Avg", "YTD Avg", "Low4wk Avg", "High4wk Avg"],
@@ -175,33 +190,29 @@ if uploaded_file:
         
         editor_df_data = {
             'Item': filtered_df['Item'],
-            'End Inv': filtered_df['End Inv'],
+            'On Hand': filtered_df['End Inv'],
             'Selected Avg': filtered_df[usage_option],
-            'Add Bottles': 0, # Use integers for bottle counts
-            'Add Weeks': 0    # Use integers for week counts
+            'Add Bottles': 0,
+            'Add Weeks': 0
         }
         editable_df = pd.DataFrame(editor_df_data)
         editable_df['Selected Avg'] = pd.to_numeric(editable_df['Selected Avg'], errors='coerce').fillna(0)
 
-        # ADDED: New "Current Wks Left" column
         def temp_safe_div(n, d):
             return round(n / d, 1) if d and pd.notna(d) and d > 0 else 0.0
-        editable_df['Current Wks Left'] = editable_df.apply(lambda row: temp_safe_div(row['End Inv'], row['Selected Avg']), axis=1)
+        editable_df['Current Wks Left'] = editable_df.apply(lambda row: temp_safe_div(row['On Hand'], row['Selected Avg']), axis=1)
 
-        # Reorder columns for a more logical layout
-        editable_df = editable_df[['Item', 'End Inv', 'Current Wks Left', 'Selected Avg', 'Add Bottles', 'Add Weeks']]
+        editable_df = editable_df[['Item', 'On Hand', 'Current Wks Left', 'Selected Avg', 'Add Bottles', 'Add Weeks']]
 
-        # --- Display the data editor ---
         edited_df = st.data_editor(
             editable_df,
             hide_index=True,
-            # REMOVED num_rows="dynamic" to fix the checkbox issue
             use_container_width=True,
             key="order_editor",
             column_config={
                 "Item": st.column_config.TextColumn(disabled=True),
-                "End Inv": st.column_config.NumberColumn(format="%.2f", disabled=True),
-                "Current Wks Left": st.column_config.NumberColumn(format="%.1f", help="End Inv / Selected Avg", disabled=True),
+                "On Hand": st.column_config.NumberColumn(format="%.2f", disabled=True),
+                "Current Wks Left": st.column_config.NumberColumn(format="%.1f", help="On Hand / Selected Avg", disabled=True),
                 "Selected Avg": st.column_config.NumberColumn(f"Avg Usage ({usage_option})", format="%.2f", disabled=True),
                 "Add Bottles": st.column_config.NumberColumn("Order (Bottles)", min_value=0, step=1, format="%d"),
                 "Add Weeks": st.column_config.NumberColumn("Order (Weeks)", min_value=0, step=1, format="%d")
@@ -213,7 +224,7 @@ if uploaded_file:
         if st.button("Calculate Order"):
             results = []
             for _, row in edited_df.iterrows():
-                item, end_inv, avg_usage = row['Item'], row['End Inv'], row['Selected Avg']
+                item, end_inv, avg_usage = row['Item'], row['On Hand'], row['Selected Avg']
                 add_bottles, add_weeks = row['Add Bottles'], row['Add Weeks']
 
                 def final_safe_div(n, d):
@@ -233,17 +244,17 @@ if uploaded_file:
                 results.append({
                     'Item': item,
                     f'Avg Usage ({usage_option})': avg_usage,
-                    'End Inv': end_inv,
+                    'On Hand': end_inv,
                     'Current Supply (Wks)': final_safe_div(end_inv, avg_usage),
                     'Bottles to Order': round(bottles_to_order, 2),
                     'Weeks to Order': round(weeks_to_order, 2),
-                    'New End Inv': round(new_inv, 2),
+                    'New On Hand': round(new_inv, 2),
                     'New Supply (Wks)': round(weeks_to_order, 2),
                 })
             
             if results:
                 result_df = pd.DataFrame(results)
-                st.dataframe(result_df, use_container_width=True)
+                st.dataframe(result_df, use_container_width=True, hide_index=True)
                 csv_order = result_df.to_csv(index=False).encode('utf-8')
                 st.download_button("Download Order CSV", data=csv_order, file_name="beverage_order_worksheet.csv")
 
