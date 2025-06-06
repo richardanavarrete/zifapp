@@ -176,7 +176,7 @@ if uploaded_file:
                 avg = row[usage_option]
                 end_inv = row['End Inv']
                 bottles = row['Add Bottles'] if input_mode == "Add Bottles" else (row['Desired Weeks'] * avg - end_inv) if avg else 0
-                weeks = row['Desired Weeks'] if input_mode == "Desired Weeks" else (end_inv + row['Add Bottles']) / avg if avg else 0
+                weeks = row['Add Weeks'] if input_mode == "Add Weeks" else (end_inv + row['Add Bottles']) / avg if avg else 0
 
                 results.append({
                     'Item': item,
