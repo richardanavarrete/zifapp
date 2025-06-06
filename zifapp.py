@@ -193,6 +193,7 @@ if uploaded_file:
         # --- Display the data editor ---
         edited_df = st.data_editor(
             editable_df,
+            hide_index=True,
             # REMOVED num_rows="dynamic" to fix the checkbox issue
             use_container_width=True,
             key="order_editor",
