@@ -118,13 +118,46 @@ if uploaded_file:
         mode = st.radio("Select View Mode:", ["By Vendor", "By Category"])
 
         vendor_map = {
-            "Breakthru": [...]
+            "Breakthru": [item for item in summary_df['Item'] if item.upper() in {
+                "WHISKEY BUFFALO TRACE",
+                "WHISKEY BULLEIT STRAIGHT RYE",
+                "WHISKEY CROWN ROYAL",
+                "WHISKEY CROWN ROYAL REGAL APPLE",
+                "WHISKEY FIREBALL CINNAMON",
+                "WHISKEY JACK DANIELS BLACK",
+                "WHISKEY JACK DANIELS TENNESSEE FIRE",
+                "VODKA DEEP EDDY LIME",
+                "VODKA DEEP EDDY ORANGE",
+                "VODKA DEEP EDDY RUBY RED",
+                "VODKA FLEISCHMANN'S CHERRY",
+                "VODKA FLEISCHMANN'S GRAPE",
+                "VODKA KETEL ONE",
+                "LIQ AMARETTO",
+                "LIQ BAILEYS IRISH CREAM",
+                "LIQ CHAMBORD",
+                "LIQ MELON",
+                "LIQ RUMPLEMINZE",
+                "LIQ TRIPLE SEC",
+                "LIQ BLUE CURACAO",
+                "LIQ BUTTERSCOTCH",
+                "LIQ PEACH SCHNAPPS",
+                "LIQ SOUR APPLE",
+                "LIQ WATERMELON SCHNAPPS",
+                "GIN TANQUERAY",
+                "TEQUILA CASAMIGOS BLANCO",
+                "TEQUILA CORAZON REPOSADO",
+                "TEQUILA DON JULIO BLANCO",
+                "RUM CAPTAIN MORGAN SPICED",
+                "WINE LAMARCA PROSECCO",
+                "WINE WILLIAM WYCLIFF BRUT CHATEAUAMP",
+                "BAR CONS BLOODY MARY",
+                "JUICE RED BULL",
+                "JUICE RED BULL SF",
+                "JUICE RED BULL YELLOW"
+            }}
         }
 
-        category_map = {
-            "Well": [], "Whiskey": [], "Vodka": [], "Gin": [], "Tequila": [], "Rum": [], "Scotch": [],
-            "Liqueur": [], "Cordials": [], "Wine": [], "Draft Beer": [], "Bottled Beer": [], "Juice": []
-        }
+        category_map = {cat: [] for cat in ["Well", "Whiskey", "Vodka", "Gin", "Tequila", "Rum", "Scotch", "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice"]}
 
         for item in summary_df['Item']:
             upper_item = item.upper()
@@ -150,7 +183,6 @@ if uploaded_file:
             base_items = [item for cat in selected_categories for item in category_map[cat]]
 
         usage_option = st.radio("Select usage average for calculation:", ["YTD Avg", "10Wk Avg", "4Wk Avg"], index=0)
-        input_mode = st.radio("Select input mode:", ["Add Bottles", "Desired Weeks"], horizontal=True)
 
         editable_data = summary_df[summary_df['Item'].isin(base_items)][['Item', 'End Inv', usage_option]].copy()
         editable_data['Current Weeks Left'] = editable_data.apply(lambda row: round(row['End Inv'] / row[usage_option], 2) if row[usage_option] else 0, axis=1)
@@ -159,15 +191,16 @@ if uploaded_file:
 
         edited_df = st.data_editor(editable_data, num_rows="dynamic", use_container_width=True)
 
+        input_mode = st.radio("Select input mode:", ["Add Bottles", "Desired Weeks"], horizontal=True)
+
         if st.button("Calculate"):
             results = []
             for _, row in edited_df.iterrows():
                 item = row['Item']
                 avg = row[usage_option]
                 end_inv = row['End Inv']
-                bottles = row['Add Bottles'] if input_mode == "Add Bottles" else max((row['Desired Weeks'] * avg - end_inv), 0) if avg else 0
+                bottles = row['Add Bottles'] if input_mode == "Add Bottles" else (row['Desired Weeks'] * avg - end_inv) if avg else 0
                 weeks = row['Desired Weeks'] if input_mode == "Desired Weeks" else (end_inv + row['Add Bottles']) / avg if avg else 0
-                post_inv = end_inv + bottles
 
                 results.append({
                     'Item': item,
@@ -176,10 +209,9 @@ if uploaded_file:
                     'Current Weeks Left': round(end_inv / avg, 2) if avg else 0,
                     'Add Bottles': round(bottles, 2),
                     'Desired Weeks': round(weeks, 2),
-                    'Post-Inv': round(post_inv, 2),
-                    'Calc Weeks': round(post_inv / avg, 2) if avg else 0,
+                    'Post-Inv': round(end_inv + bottles if input_mode == "Add Bottles" else end_inv + (weeks * avg if avg else 0), 2),
+                    'Calc Weeks': round((end_inv + bottles) / avg, 2) if avg else 0,
                     'Calc Bottles': round(max(weeks * avg - end_inv, 0), 2) if avg else 0
                 })
-
             result_df = pd.DataFrame(results)
             st.dataframe(result_df, use_container_width=True)
