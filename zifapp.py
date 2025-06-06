@@ -231,32 +231,37 @@ if uploaded_file:
 
         if sales_mix_file:
             try:
-                sales_df = pd.read_csv(sales_mix_file, header=None, sep=r'\s{2,}|,', engine='python', skip_blank_lines=True)
+                # --- NEW Text-Scanning Logic ---
+                sales_mix_file.seek(0)
+                sales_lines = [line.decode('utf-8').strip() for line in sales_mix_file.readlines()]
                 
                 st.markdown("---")
-                st.markdown("#### Please select the column number for your quantities:")
-                qty_col_index = st.selectbox("Which column contains the QUANTITY SOLD?", sales_df.columns, index=len(sales_df.columns)-1)
+                st.markdown("#### Please confirm the position of your quantity number:")
+                qty_position = st.number_input(
+                    "On a line with a sold item, which number from the end is the quantity? (1 = last, 2 = second-to-last)",
+                    min_value=1, value=1, step=1,
+                    help="If a line reads '123 Bud Light... 45', the quantity is the 1st number from the end. If it reads 'Bud Light 45 ... 123', it's the 2nd number from the end."
+                )
 
                 all_inventory_items = list(summary_df['Item'].unique())
                 item_lookup = {re.sub(r'^(BEER BTL|BEER DFT|WHISKEY|VODKA|LIQ|GIN|RUM|SCOTCH|TEQUILA|WINE)\s+', '', item).upper(): item for item in all_inventory_items}
                 
                 sales_counts = {}
-                for _, row in sales_df.iterrows():
+                for line in sales_lines:
+                    if not line: continue
                     found_item = None
-                    for cell in row:
-                        if isinstance(cell, str):
-                            for base_name, full_name in item_lookup.items():
-                                if base_name in cell.upper():
-                                    found_item = full_name
-                                    break
-                        if found_item:
+                    for base_name, full_name in item_lookup.items():
+                        if re.search(r'\b' + re.escape(base_name) + r'\b', line.upper()):
+                            found_item = full_name
                             break
                     
                     if found_item:
-                        qty_sold = pd.to_numeric(row[qty_col_index], errors='coerce')
-                        if pd.notna(qty_sold):
+                        numbers_on_line = re.findall(r'\d+\.?\d*', line)
+                        if len(numbers_on_line) >= qty_position:
+                            qty_sold = float(numbers_on_line[-qty_position])
                             sales_counts[found_item] = sales_counts.get(found_item, 0) + qty_sold
                 
+                # --- Variance Calculation ---
                 variance_data = []
                 latest_date = full_df['Date'].max()
                 actual_usage_df = full_df[full_df['Date'] == latest_date][['Item', 'Usage']].set_index('Item')
@@ -288,4 +293,4 @@ if uploaded_file:
                     st.warning("No matching items found. Please check your sales mix file.")
             
             except Exception as e:
-                st.error(f"Could not process the Sales Mix file. The format may be unexpected or the selected columns are incorrect. Error: {e}")
+                st.error(f"Could not process the Sales Mix file. Error: {e}")
