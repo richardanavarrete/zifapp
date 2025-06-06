@@ -15,7 +15,6 @@ def load_and_process_data(uploaded_file):
     xls = pd.ExcelFile(uploaded_file)
     sheet_names = xls.sheet_names
 
-    # --- Data Ingestion and Cleaning ---
     original_order_df = xls.parse(sheet_names[0], skiprows=4)
     original_order = original_order_df.iloc[:, 0].dropna().astype(str).tolist()
 
@@ -49,29 +48,22 @@ def load_and_process_data(uploaded_file):
     full_df = full_df.dropna(subset=['Usage', 'End Inventory'])
     full_df = full_df.sort_values(by=['Item', 'Date'])
 
-    # --- Metric Calculation ---
     def compute_metrics(group):
         group = group.sort_values(by='Date').reset_index(drop=True)
         usage = group['Usage']
         inventory = group['End Inventory']
         dates = group['Date']
-
         last_10 = usage.tail(10)
         last_4 = usage.tail(4)
-        
         current_year = datetime.now().year
         ytd_usage = group[dates.dt.year == current_year]['Usage'] if pd.api.types.is_datetime64_any_dtype(dates) else pd.Series(dtype='float64')
         ytd_avg = ytd_usage.mean() if not ytd_usage.empty else None
-
         def safe_div(n, d):
-            if pd.notna(d) and d > 0:
-                return round(n / d, 2)
+            if pd.notna(d) and d > 0: return round(n / d, 2)
             return None
-        
         avg_of_highest_4 = usage.nlargest(4).mean() if not usage.empty else None
         non_zero_usage = usage[usage > 0]
         avg_of_lowest_4_non_zero = non_zero_usage.nsmallest(4).mean() if not non_zero_usage.empty else None
-
         return pd.Series({
             'End Inv': round(inventory.iloc[-1], 2),
             'YTD Avg': round(ytd_avg, 2) if pd.notna(ytd_avg) else None,
@@ -131,10 +123,9 @@ uploaded_file = st.file_uploader("Upload BEVWEEKLY Excel File", type="xlsx")
 
 if uploaded_file:
     try:
-        # Call the cached function to load data
         summary_df, vendor_map, category_map = load_and_process_data(uploaded_file)
     except Exception as e:
-        st.error(f"An error occurred while processing the Excel file: {e}")
+        st.error(f"An error occurred during data processing: {e}")
         st.stop()
 
     # --- UI Tabs ---
@@ -142,15 +133,13 @@ if uploaded_file:
 
     with tab_summary:
         st.subheader("Usage Summary")
-        
-        filter_type = st.radio("Filter By:", ["Vendor", "Category"], horizontal=True)
-
-        display_df = summary_df 
+        filter_type = st.radio("Filter By:", ["Vendor", "Category"], horizontal=True, key="summary_filter_type")
+        display_df = summary_df
         download_filename = "beverage_summary_full.csv"
 
         if filter_type == "Vendor":
             vendor_options = ["All Vendors"] + list(vendor_map.keys())
-            selected_vendor = st.selectbox("Select Vendor", options=vendor_options)
+            selected_vendor = st.selectbox("Select Vendor", options=vendor_options, key="summary_vendor_select")
             if selected_vendor != "All Vendors":
                 vendor_items = vendor_map.get(selected_vendor, [])
                 display_df = summary_df[summary_df['Item'].isin(vendor_items)]
@@ -158,7 +147,7 @@ if uploaded_file:
         
         elif filter_type == "Category":
             category_options = ["All Categories"] + list(category_map.keys())
-            selected_category = st.selectbox("Select Category", options=category_options)
+            selected_category = st.selectbox("Select Category", options=category_options, key="summary_category_select")
             if selected_category != "All Categories":
                 category_items = category_map.get(selected_category, [])
                 display_df = summary_df[summary_df['Item'].isin(category_items)]
@@ -172,16 +161,11 @@ if uploaded_file:
             return ''
 
         format_dict = {col: '{:,.2f}' for col in display_df.select_dtypes(include=['float64', 'float32']).columns}
-        
         styled_df = display_df.style.format(format_dict, na_rep="-").applymap(
             highlight_weeks_remaining, threshold=threshold,
-            subset=[
-                'WksRmn(YTD)', 'WksRmn(10Wk)', 'WksRmn(4Wk)',
-                'WksRmn(ATH)', 'WksRmn(Lo4)', 'WksRmn(Hi4)'
-            ]
+            subset=['WksRmn(YTD)', 'WksRmn(10Wk)', 'WksRmn(4Wk)', 'WksRmn(ATH)', 'WksRmn(Lo4)', 'WksRmn(Hi4)']
         )
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
-        
         csv = display_df.to_csv(index=False).encode('utf-8')
         st.download_button("Download Summary CSV", data=csv, file_name=download_filename)
 
@@ -189,14 +173,17 @@ if uploaded_file:
         st.subheader("🧪 Ordering Worksheet: Inventory Planning")
         
         mode = st.selectbox("Select View Mode:", ["By Vendor", "By Category"])
-
         base_items = []
+        filter_selection = None
+
         if mode == "By Vendor":
             vendor = st.selectbox("Select Vendor", list(vendor_map.keys()), key="vendor_select")
             base_items = vendor_map.get(vendor, [])
+            filter_selection = vendor
         else: # By Category
             selected_category = st.selectbox("Select Category", list(category_map.keys()), key="category_select")
             base_items = category_map.get(selected_category, [])
+            filter_selection = selected_category
 
         usage_option = st.selectbox(
             "Select usage average for calculation:",
@@ -204,27 +191,37 @@ if uploaded_file:
             index=1,
             key="usage_radio"
         )
+        input_mode = st.radio("Select input mode:", ["Add Bottles", "Add Weeks"], horizontal=True)
+
+        # --- Interactive Worksheet Logic using Session State ---
         
-        filtered_df = summary_df[summary_df['Item'].isin(base_items)]
-        
-        editor_df_data = {
-            'Item': filtered_df['Item'],
-            'On Hand': filtered_df['End Inv'],
-            'Selected Avg': filtered_df[usage_option],
-            'Add Bottles': 0,
-            'Add Weeks': 0
-        }
-        editable_df = pd.DataFrame(editor_df_data)
-        editable_df['Selected Avg'] = pd.to_numeric(editable_df['Selected Avg'], errors='coerce').fillna(0)
+        # Create a unique key for the session state based on the filters
+        worksheet_state_key = f"worksheet_df_{mode}_{filter_selection}_{usage_option}"
 
-        def temp_safe_div(n, d):
-            return round(n / d, 1) if d and pd.notna(d) and d > 0 else 0.0
-        editable_df['Current Wks Left'] = editable_df.apply(lambda row: temp_safe_div(row['On Hand'], row['Selected Avg']), axis=1)
+        # Initialize or update the worksheet dataframe in session state
+        if 'current_worksheet_key' not in st.session_state or st.session_state.current_worksheet_key != worksheet_state_key:
+            filtered_df = summary_df[summary_df['Item'].isin(base_items)]
+            editor_df_data = {
+                'Item': filtered_df['Item'],
+                'On Hand': filtered_df['End Inv'],
+                'Current Wks Left': 0.0,
+                'Selected Avg': filtered_df[usage_option],
+                'Add Bottles': 0,
+                'Add Weeks': 0
+            }
+            worksheet_df = pd.DataFrame(editor_df_data)
+            worksheet_df['Selected Avg'] = pd.to_numeric(worksheet_df['Selected Avg'], errors='coerce').fillna(0)
+            
+            def temp_safe_div(n, d):
+                return round(n / d, 1) if d and pd.notna(d) and d > 0 else 0.0
+            worksheet_df['Current Wks Left'] = worksheet_df.apply(lambda row: temp_safe_div(row['On Hand'], row['Selected Avg']), axis=1)
+            
+            st.session_state.worksheet_df = worksheet_df[['Item', 'On Hand', 'Current Wks Left', 'Selected Avg', 'Add Bottles', 'Add Weeks']]
+            st.session_state.current_worksheet_key = worksheet_state_key
 
-        editable_df = editable_df[['Item', 'On Hand', 'Current Wks Left', 'Selected Avg', 'Add Bottles', 'Add Weeks']]
-
+        # The data editor uses the dataframe stored in session state
         edited_df = st.data_editor(
-            editable_df,
+            st.session_state.worksheet_df,
             hide_index=True,
             use_container_width=True,
             key="order_editor",
@@ -238,28 +235,37 @@ if uploaded_file:
             }
         )
 
-        input_mode = st.radio("Select input mode:", ["Add Bottles", "Add Weeks"], horizontal=True)
+        # --- Perform interactive calculations ---
+        # Compare the edited dataframe with the one in session state to see if a change was made
+        if not edited_df.equals(st.session_state.worksheet_df):
+            if input_mode == 'Add Bottles':
+                # User is typing in 'Add Bottles', so we calculate 'Add Weeks'
+                st.session_state.worksheet_df['Add Bottles'] = edited_df['Add Bottles']
+                st.session_state.worksheet_df['Add Weeks'] = st.session_state.worksheet_df.apply(
+                    lambda row: round((row['On Hand'] + row['Add Bottles']) / row['Selected Avg']) if row['Selected Avg'] > 0 else 0,
+                    axis=1
+                )
+            elif input_mode == 'Add Weeks':
+                # User is typing in 'Add Weeks', so we calculate 'Add Bottles'
+                st.session_state.worksheet_df['Add Weeks'] = edited_df['Add Weeks']
+                st.session_state.worksheet_df['Add Bottles'] = st.session_state.worksheet_df.apply(
+                    lambda row: max(0, round((row['Add Weeks'] * row['Selected Avg']) - row['On Hand'])),
+                    axis=1
+                )
+            st.rerun()
 
-        if st.button("Calculate Order"):
+        # --- Final Calculation Button ---
+        if st.button("Calculate Final Order"):
             results = []
-            for _, row in edited_df.iterrows():
+            for _, row in st.session_state.worksheet_df.iterrows():
+                # This logic now uses the fully updated session state dataframe
                 item, end_inv, avg_usage = row['Item'], row['On Hand'], row['Selected Avg']
-                add_bottles, add_weeks = row['Add Bottles'], row['Add Weeks']
+                bottles_to_order, weeks_to_order = row['Add Bottles'], row['Add Weeks']
+                new_inv = end_inv + bottles_to_order
 
                 def final_safe_div(n, d):
                     return round(n / d, 2) if d and pd.notna(d) and d > 0 else 0
-
-                if input_mode == "Add Bottles":
-                    bottles_to_order = add_bottles
-                    weeks_to_order = final_safe_div(end_inv + bottles_to_order, avg_usage)
-                else: # Add Weeks
-                    target_inv = add_weeks * avg_usage
-                    needed_bottles = target_inv - end_inv
-                    bottles_to_order = max(0, needed_bottles)
-                    weeks_to_order = add_weeks
                 
-                new_inv = end_inv + bottles_to_order
-
                 results.append({
                     'Item': item,
                     f'Avg Usage ({usage_option})': avg_usage,
@@ -268,11 +274,12 @@ if uploaded_file:
                     'Bottles to Order': round(bottles_to_order, 2),
                     'Weeks to Order': round(weeks_to_order, 2),
                     'New On Hand': round(new_inv, 2),
-                    'New Supply (Wks)': round(weeks_to_order, 2),
+                    'New Supply (Wks)': weeks_to_order,
                 })
             
             if results:
                 result_df = pd.DataFrame(results)
+                st.subheader("Final Order Calculation")
                 st.dataframe(result_df, use_container_width=True, hide_index=True)
                 csv_order = result_df.to_csv(index=False).encode('utf-8')
                 st.download_button("Download Order CSV", data=csv_order, file_name="beverage_order_worksheet.csv")
