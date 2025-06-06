@@ -121,7 +121,7 @@ if uploaded_file:
         st.error(f"An error occurred during data processing: {e}")
         st.stop()
 
-    tab_summary, tab_ordering_worksheet, tab_sales_analysis = st.tabs(["📊 Summary", "🧪 Ordering Worksheet",]) #"🔬 Sales Mix Analysis"])
+    tab_summary, tab_ordering_worksheet, tab_sales_analysis = st.tabs(["📊 Summary", "🧪 Ordering Worksheet",])
 
     with tab_summary:
         st.subheader("Usage Summary")
