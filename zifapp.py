@@ -64,12 +64,10 @@ if uploaded_file:
         rolling_4 = usage.rolling(window=4)
         
         current_year = datetime.now().year
-        # Handle cases where Date might be NaT
         ytd_usage = group[group['Date'].dt.year == current_year]['Usage'] if pd.api.types.is_datetime64_any_dtype(group['Date']) else pd.Series(dtype='float64')
         ytd_avg = ytd_usage.mean() if not ytd_usage.empty else None
 
         def safe_div(n, d):
-            # Check if d is not None, not NaN, and not zero
             if pd.notna(d) and d > 0:
                 return round(n / d, 2)
             return None
@@ -112,7 +110,9 @@ if uploaded_file:
             return ''
 
         format_dict = {col: '{:,.2f}' for col in summary_df.select_dtypes(include=['float64', 'float32']).columns}
-        styled_df = summary_df.style.format(format_dict, na_rep="-").apply(
+        
+        # CORRECTED THIS LINE TO USE .applymap()
+        styled_df = summary_df.style.format(format_dict, na_rep="-").applymap(
             highlight_weeks_remaining, threshold=threshold,
             subset=[
                 'Wks Rmn (10Wk Avg)', 'Wks Rmn (4Wk Avg)', 'Wks Rmn (YTD Avg)',
@@ -165,18 +165,11 @@ if uploaded_file:
 
         usage_option = st.radio("Select usage average for calculation:", ["10Wk Avg", "4Wk Avg", "YTD Avg", "Low4 Avg", "High4 Avg"], index=1)
         
-        # --- This is the new, robust way to prepare data for the editor ---
-        # 1. Filter the main dataframe based on the user's selection
+        # --- Robust way to prepare data for the editor ---
         filtered_df = summary_df[summary_df['Item'].isin(base_items)]
-        
-        # 2. Select only the columns needed for the worksheet
         cols_to_edit = ['Item', 'End Inv', usage_option]
         editable_df = filtered_df[cols_to_edit].copy()
-
-        # 3. Handle potential empty/None values ONLY in the usage column for calculations
         editable_df[usage_option] = pd.to_numeric(editable_df[usage_option], errors='coerce').fillna(0)
-        
-        # 4. Add the interactive columns
         editable_df['Add Bottles'] = 0.0
         editable_df['Add Weeks'] = 0.0
 
