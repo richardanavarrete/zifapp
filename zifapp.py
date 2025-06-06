@@ -16,8 +16,10 @@ def load_and_process_data(uploaded_file):
     """
     xls = pd.ExcelFile(uploaded_file)
     sheet_names = xls.sheet_names
+
     original_order_df = xls.parse(sheet_names[0], skiprows=4)
     original_order = original_order_df.iloc[:, 0].dropna().astype(str).tolist()
+
     compiled_data = []
     for sheet in sheet_names:
         try:
@@ -32,6 +34,7 @@ def load_and_process_data(uploaded_file):
             compiled_data.append(df)
         except Exception:
             continue
+            
     full_df = pd.concat(compiled_data, ignore_index=True)
     full_df = full_df.dropna(subset=['Item', 'Usage'])
     full_df['Item'] = full_df['Item'].astype(str).str.strip()
@@ -47,14 +50,17 @@ def load_and_process_data(uploaded_file):
         dates = group['Date']
         last_10, last_4 = usage.tail(10), usage.tail(4)
         ytd_avg = group[dates.dt.year == datetime.now().year]['Usage'].mean() if pd.api.types.is_datetime64_any_dtype(dates) else None
+        
         def safe_div(n, d):
             if pd.notna(d) and d > 0: return round(n / d, 2)
             return None
+            
         avg_of_highest_4 = usage.nlargest(4).mean() if not usage.empty else None
         non_zero_usage = usage[usage > 0]
         avg_of_lowest_4_non_zero = non_zero_usage.nsmallest(4).mean() if not non_zero_usage.empty else None
+        
         return pd.Series({
-            'End Inventory': round(inventory.iloc[-1], 2),
+            'On Hand': round(inventory.iloc[-1], 2),
             'Year-to-Date Average': round(ytd_avg, 2) if pd.notna(ytd_avg) else None,
             '10-Week Average': round(last_10.mean(), 2) if not last_10.empty else None,
             '4-Week Average': round(last_4.mean(), 2) if not last_4.empty else None,
@@ -84,7 +90,6 @@ def load_and_process_data(uploaded_file):
     }
     for vendor, items in vendor_map.items(): vendor_map[vendor] = [item.strip() for item in items]
     
-    # CORRECTED and COMPLETED: This loop now correctly populates all categories
     category_map = {cat: [] for cat in ["Well", "Whiskey", "Vodka", "Gin", "Tequila", "Rum", "Scotch", "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice", "Bar Consumables"]}
     for item in summary_df['Item']:
         upper_item = item.upper().strip()
@@ -122,6 +127,7 @@ if uploaded_file:
         filter_type = st.radio("Filter By:", ["Vendor", "Category"], horizontal=True, key="summary_filter_type")
         display_df = summary_df
         download_filename = "beverage_summary_full.csv"
+
         if filter_type == "Vendor":
             vendor_options = ["All Vendors"] + list(vendor_map.keys())
             selected_vendor = st.selectbox("Select Vendor", options=vendor_options, key="summary_vendor_select")
@@ -134,14 +140,20 @@ if uploaded_file:
             if selected_category != "All Categories":
                 display_df = summary_df[summary_df['Item'].isin(category_map.get(selected_category, []))]
                 download_filename = f"beverage_summary_{selected_category}.csv"
+
         threshold = st.slider("Highlight if weeks remaining is below:", min_value=0.2, max_value=10.0, value=2.0, step=0.1)
+        
         def highlight_weeks_remaining(val, threshold=2.0):
             if pd.notna(val) and isinstance(val, (int, float)) and val < threshold: return 'background-color: #ff4b4b'
             return ''
+
         format_dict = {col: '{:,.2f}' for col in display_df.select_dtypes(include=['float64', 'float32']).columns}
         styled_df = display_df.style.format(format_dict, na_rep="-").applymap(
             highlight_weeks_remaining, threshold=threshold,
-            subset=['Weeks Remaining (YTD)', 'Weeks Remaining (10 Wk)', 'Weeks Remaining (4 Wk)', 'Weeks Remaining (ATH)', 'Weeks Remaining (Lowest 4)', 'Weeks Remaining (Highest 4)']
+            subset=[
+                'Weeks Remaining (YTD)', 'Weeks Remaining (10 Wk)', 'Weeks Remaining (4 Wk)', 
+                'Weeks Remaining (ATH)', 'Weeks Remaining (Lowest 4)', 'Weeks Remaining (Highest 4)'
+            ]
         )
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
         csv = display_df.to_csv(index=False).encode('utf-8')
@@ -156,7 +168,7 @@ if uploaded_file:
         st.markdown("This tool scans your Sales Mix report to compare what you sold to what you actually used.")
         
         with st.expander("Click to view Sales Mix Configuration"):
-            st.warning("This configuration is not yet used in the simplified parser below, but will be needed later.")
+            st.warning("This configuration will be required when analyzing Draft, Liquor, and Wine.")
             VOLUME_CONFIG = {"16oz": 16, "32oz": 32, "Pitcher": 64, "Liquor Pour": 1.5, "Wine Pour": 6, "Half Barrel Keg": 1984, "Sixtel Keg": 661, "Standard Liquor/Wine Bottle": 25.4, "Liter Liquor Bottle": 33.8}
             st.json(VOLUME_CONFIG)
             ITEM_CONTAINER_MAP = {"BEER DFT Alaskan Amber": "Half Barrel Keg", "WHISKEY Buffalo Trace": "Standard Liquor/Wine Bottle"}
@@ -166,34 +178,32 @@ if uploaded_file:
 
         if sales_mix_file:
             try:
-                # --- NEW PARSING LOGIC ---
-                # Read the unstructured file, assuming space or comma delimiters might be used.
-                # header=None tells pandas to number the columns instead of looking for names.
-                sales_df = pd.read_csv(sales_mix_file, header=None, sep=r'\s{2,}|,', engine='python', skip_blank_lines=True)
+                # --- NEW Text-Scanning Logic ---
+                # Read the file line by line
+                sales_mix_file.seek(0)
+                sales_lines = [line.decode('utf-8').strip() for line in sales_mix_file.readlines()]
                 
-                st.markdown("---")
-                st.markdown("#### Please select the column number for your quantities:")
-                qty_col_index = st.selectbox("Which column contains the QUANTITY SOLD?", sales_df.columns, index=len(sales_df.columns)-1)
-
                 all_inventory_items = list(summary_df['Item'].unique())
                 item_lookup = {re.sub(r'^(BEER BTL|BEER DFT|WHISKEY|VODKA|LIQ|GIN|RUM|SCOTCH|TEQUILA|WINE)\s+', '', item).upper(): item for item in all_inventory_items}
                 
                 sales_counts = {}
-                for _, row in sales_df.iterrows():
+                # Iterate through each line of the raw text file
+                for line in sales_lines:
+                    if not line: continue
+
                     found_item = None
-                    # Scan every cell in the row to find a matching item name
-                    for cell in row:
-                        if isinstance(cell, str):
-                            for base_name, full_name in item_lookup.items():
-                                if base_name in cell.upper():
-                                    found_item = full_name
-                                    break
-                        if found_item:
+                    # Scan the line for any known item base name
+                    for base_name, full_name in item_lookup.items():
+                        if base_name in line.upper():
+                            found_item = full_name
                             break
                     
                     if found_item:
-                        qty_sold = pd.to_numeric(row[qty_col_index], errors='coerce')
-                        if pd.notna(qty_sold):
+                        # If an item is found, find all numbers on that line
+                        numbers_on_line = re.findall(r'\d+', line)
+                        if numbers_on_line:
+                            # Assume the last number is the quantity
+                            qty_sold = int(numbers_on_line[-1])
                             sales_counts[found_item] = sales_counts.get(found_item, 0) + qty_sold
                 
                 # --- Variance Calculation ---
@@ -206,7 +216,8 @@ if uploaded_file:
                     actual_usage = actual_usage_df.loc[item, 'Usage'] if item in actual_usage_df.index else 0
                     variance = actual_usage - theoretical_usage
                     variance_data.append({
-                        "Item": item, "Actual Usage": actual_usage, "Theoretical Usage (Sold)": theoretical_usage, "Variance": variance
+                        "Item": item, "Actual Usage": actual_usage,
+                        "Theoretical Usage (Sold)": theoretical_usage, "Variance": variance
                     })
 
                 if variance_data:
@@ -220,11 +231,13 @@ if uploaded_file:
                     st.subheader("Variance Report (Unit-Based)")
                     st.markdown("_Note: This simple view assumes all sold items are 1-to-1 units (like bottled beer)._")
                     st.dataframe(
-                        variance_df.style.format({"Actual Usage": "{:.1f}", "Theoretical Usage (Sold)": "{:.0f}", "Variance": "{:+.1f}"}).applymap(style_variance, subset=['Variance']),
+                        variance_df.style.format({
+                            "Actual Usage": "{:.1f}", "Theoretical Usage (Sold)": "{:.0f}", "Variance": "{:+.1f}"
+                        }).applymap(style_variance, subset=['Variance']),
                         use_container_width=True, hide_index=True
                     )
                 else:
-                    st.warning("No matching items found between your sales mix and inventory. Please check item names in your sales file.")
+                    st.warning("No matching items found. Please check your sales mix file.")
             
             except Exception as e:
-                st.error(f"Could not process the Sales Mix file. The format may be unexpected or the selected columns are incorrect. Error: {e}")
+                st.error(f"Could not process the Sales Mix file. Error: {e}")
