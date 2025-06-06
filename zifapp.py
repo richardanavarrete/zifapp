@@ -258,10 +258,10 @@ if uploaded_file:
                 csv_order = result_df.to_csv(index=False).encode('utf-8')
                 st.download_button("Download Order CSV", data=csv_order, file_name="beverage_order_worksheet.csv")
 
-    with st.expander("Show Debug Information"):
-        st.subheader("Debug Info")
-        st.markdown("**Unique Items found in Excel file:**")
-        st.write(summary_df['Item'].unique().tolist())
-        if base_items:
-            st.markdown("**Items currently selected for the worksheet above:**")
-            st.write(base_items)
+#    with st.expander("Show Debug Information"):
+#        st.subheader("Debug Info")
+#        st.markdown("**Unique Items found in Excel file:**")
+#        st.write(summary_df['Item'].unique().tolist())
+#        if base_items:
+#            st.markdown("**Items currently selected for the worksheet above:**")
+#            st.write(base_items)
