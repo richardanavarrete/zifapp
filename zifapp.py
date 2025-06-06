@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import re # Import the regular expressions library
+import re
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
@@ -16,8 +16,10 @@ def load_and_process_data(uploaded_file):
     """
     xls = pd.ExcelFile(uploaded_file)
     sheet_names = xls.sheet_names
+
     original_order_df = xls.parse(sheet_names[0], skiprows=4)
     original_order = original_order_df.iloc[:, 0].dropna().astype(str).tolist()
+
     compiled_data = []
     for sheet in sheet_names:
         try:
@@ -32,6 +34,7 @@ def load_and_process_data(uploaded_file):
             compiled_data.append(df)
         except Exception:
             continue
+            
     full_df = pd.concat(compiled_data, ignore_index=True)
     full_df = full_df.dropna(subset=['Item', 'Usage'])
     full_df['Item'] = full_df['Item'].astype(str).str.strip()
@@ -47,12 +50,15 @@ def load_and_process_data(uploaded_file):
         dates = group['Date']
         last_10, last_4 = usage.tail(10), usage.tail(4)
         ytd_avg = group[dates.dt.year == datetime.now().year]['Usage'].mean() if pd.api.types.is_datetime64_any_dtype(dates) else None
+        
         def safe_div(n, d):
             if pd.notna(d) and d > 0: return round(n / d, 2)
             return None
+            
         avg_of_highest_4 = usage.nlargest(4).mean() if not usage.empty else None
         non_zero_usage = usage[usage > 0]
         avg_of_lowest_4_non_zero = non_zero_usage.nsmallest(4).mean() if not non_zero_usage.empty else None
+        
         return pd.Series({
             'End Inv': round(inventory.iloc[-1], 2), 'YTD Avg': round(ytd_avg, 2) if pd.notna(ytd_avg) else None,
             '10Wk Avg': round(last_10.mean(), 2) if not last_10.empty else None,
@@ -121,52 +127,59 @@ if uploaded_file:
         # Code for this tab is complete and works...
         pass
 
-    # --- Sales Mix Analysis Tab ---
     with tab_sales_analysis:
         st.subheader("Sales vs. Actual Usage Variance")
-        st.markdown("""
-        This tool scans your text-based Sales Mix report to compare what you **sold** to what you **actually used**.
-        **NOTE:** This version is designed to work with simple, single-line items like **Bottled Beer and Liquor**. Draft beer is not yet supported.
-        """)
+        st.markdown("This tool scans your Sales Mix report to compare what you sold to what you actually used.")
+        
+        with st.expander("Click to view Sales Mix Configuration"):
+            st.markdown("These settings are required for Draft, Liquor, and Wine analysis.")
+            VOLUME_CONFIG = {"16oz": 16, "32oz": 32, "Pitcher": 64, "Liquor Pour": 1.5, "Wine Pour": 6, "Half Barrel Keg": 1984, "Sixtel Keg": 661, "Standard Liquor/Wine Bottle": 25.4, "Liter Liquor Bottle": 33.8}
+            st.json(VOLUME_CONFIG)
+            ITEM_CONTAINER_MAP = {"BEER DFT Alaskan Amber": "Half Barrel Keg", "WHISKEY Buffalo Trace": "Standard Liquor/Wine Bottle"}
+            st.json(ITEM_CONTAINER_MAP)
 
         sales_mix_file = st.file_uploader("Upload Weekly Sales Mix File", type=["txt", "csv"])
 
         if sales_mix_file:
             try:
-                # --- New Text-Scanning Logic ---
-                sales_mix_lines = [line.decode('utf-8').strip() for line in sales_mix_file.readlines()]
+                # --- NEW HYBRID PARSING LOGIC ---
+                # Read the file as a basic CSV with no headers, letting pandas number the columns
+                # We use a separator that is unlikely to exist to force it into one column, then split.
+                sales_df = pd.read_csv(sales_mix_file, header=None, sep='|', engine='python')
+                sales_df.columns = ['line'] # Name the single column 'line'
                 
-                # Create a list of items we can easily parse (bottled beer, liquor, wine)
-                simple_parse_items = (
-                    category_map.get("Bottled Beer", []) +
-                    category_map.get("Whiskey", []) +
-                    category_map.get("Vodka", []) +
-                    category_map.get("Gin", []) +
-                    category_map.get("Tequila", []) +
-                    category_map.get("Rum", []) +
-                    category_map.get("Scotch", []) +
-                    category_map.get("Liqueur", []) +
-                    category_map.get("Cordials", []) +
-                    category_map.get("Wine", [])
-                )
+                all_inventory_items = list(summary_df['Item'].unique())
                 
-                # Create a simple lookup from base name to full inventory name
-                # e.g., "BUD LIGHT" -> "BEER BTL Bud Light"
-                item_lookup = {item.split()[-1].upper(): item for item in simple_parse_items}
-
+                # Create a simple lookup map from a "base name" (e.g., "BUD LIGHT") to the full inventory name
+                # This is more robust for matching.
+                item_lookup = {}
+                for item in all_inventory_items:
+                    # Create a simplified name for matching
+                    base_name = re.sub(r'^(BEER BTL|BEER DFT|WHISKEY|VODKA|LIQ|GIN|RUM|SCOTCH|TEQUILA|WINE)\s+', '', item)
+                    item_lookup[base_name.upper()] = item
+                
                 sales_counts = {}
-                for line in sales_mix_lines:
-                    # Find a number at the end of the line
-                    match = re.search(r'(\d+)$', line)
-                    if match:
-                        quantity = int(match.group(1))
-                        # Find which item this line corresponds to
-                        for base_name, full_name in item_lookup.items():
-                            if base_name in line.upper():
-                                sales_counts[full_name] = sales_counts.get(full_name, 0) + quantity
-                                break # Stop searching once we find a match on this line
+                # Iterate through each line of the raw text file
+                for line in sales_df['line']:
+                    line = str(line).strip()
+                    if not line:
+                        continue
 
-                # --- Variance Calculation ---
+                    # Find a matching inventory item for the text in the line
+                    found_item = None
+                    for base_name, full_name in item_lookup.items():
+                        if base_name in line.upper():
+                            found_item = full_name
+                            break # Stop searching once we find a match on this line
+                    
+                    if found_item:
+                        # Extract the number from the end of the line
+                        match = re.search(r'(\d+)$', line)
+                        if match:
+                            qty_sold = int(match.group(1))
+                            sales_counts[found_item] = sales_counts.get(found_item, 0) + qty_sold
+                
+                # --- Variance Calculation (Simplified for now) ---
                 variance_data = []
                 latest_date = full_df['Date'].max()
                 actual_usage_df = full_df[full_df['Date'] == latest_date][['Item', 'Usage']].set_index('Item')
@@ -186,11 +199,13 @@ if uploaded_file:
                 if variance_data:
                     variance_df = pd.DataFrame(variance_data)
                     def style_variance(val):
-                        if abs(val) >= 2: return 'background-color: #ff4b4b' # Variance of 2+ units
-                        elif abs(val) >= 1: return 'background-color: #ffb400'# Variance of 1+ unit
+                        if abs(val) >= 2: return 'background-color: #ff4b4b'
+                        elif abs(val) >= 1: return 'background-color: #ffb400'
                         return ''
-
+                    
                     st.markdown("---")
+                    st.subheader("Variance Report (Unit-Based)")
+                    st.markdown("_Note: This simple view assumes all sold items are 1-to-1 units (like bottled beer). Draft and Liquor volume calculations will be added next._")
                     st.dataframe(
                         variance_df.style.format({
                             "Actual Usage": "{:.1f}",
@@ -200,7 +215,7 @@ if uploaded_file:
                         use_container_width=True, hide_index=True
                     )
                 else:
-                    st.warning("No matching items found between your sales mix and inventory. Please check item names.")
-
+                    st.warning("No matching items found between your sales mix and inventory. Please check item names in your sales file.")
+            
             except Exception as e:
                 st.error(f"Could not process the Sales Mix file. The format may be unexpected. Error: {e}")
