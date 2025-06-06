@@ -191,91 +191,84 @@ if uploaded_file:
             index=1,
             key="usage_radio"
         )
-        input_mode = st.radio("Select input mode:", ["Add Bottles", "Add Weeks"], horizontal=True)
-
-        # --- Interactive Worksheet Logic using Session State ---
         
-        # Create a unique key for the session state based on the filters
+        # --- Interactive Worksheet Logic using Session State ---
         worksheet_state_key = f"worksheet_df_{mode}_{filter_selection}_{usage_option}"
 
-        # Initialize or update the worksheet dataframe in session state
         if 'current_worksheet_key' not in st.session_state or st.session_state.current_worksheet_key != worksheet_state_key:
             filtered_df = summary_df[summary_df['Item'].isin(base_items)]
             editor_df_data = {
                 'Item': filtered_df['Item'],
                 'On Hand': filtered_df['End Inv'],
-                'Current Wks Left': 0.0,
                 'Selected Avg': filtered_df[usage_option],
                 'Add Bottles': 0,
-                'Add Weeks': 0
+                'Add Weeks': 0.0
             }
             worksheet_df = pd.DataFrame(editor_df_data)
             worksheet_df['Selected Avg'] = pd.to_numeric(worksheet_df['Selected Avg'], errors='coerce').fillna(0)
-            
-            def temp_safe_div(n, d):
-                return round(n / d, 1) if d and pd.notna(d) and d > 0 else 0.0
-            worksheet_df['Current Wks Left'] = worksheet_df.apply(lambda row: temp_safe_div(row['On Hand'], row['Selected Avg']), axis=1)
-            
-            st.session_state.worksheet_df = worksheet_df[['Item', 'On Hand', 'Current Wks Left', 'Selected Avg', 'Add Bottles', 'Add Weeks']]
+            st.session_state.worksheet_df = worksheet_df
             st.session_state.current_worksheet_key = worksheet_state_key
+            st.session_state.last_edited_column = None
 
-        # The data editor uses the dataframe stored in session state
         edited_df = st.data_editor(
             st.session_state.worksheet_df,
-            hide_index=True,
-            use_container_width=True,
-            key="order_editor",
+            hide_index=True, use_container_width=True, key="order_editor",
             column_config={
                 "Item": st.column_config.TextColumn(disabled=True),
                 "On Hand": st.column_config.NumberColumn(format="%.2f", disabled=True),
-                "Current Wks Left": st.column_config.NumberColumn(format="%.1f", help="On Hand / Selected Avg", disabled=True),
                 "Selected Avg": st.column_config.NumberColumn(f"Avg Usage ({usage_option})", format="%.2f", disabled=True),
                 "Add Bottles": st.column_config.NumberColumn("Order (Bottles)", min_value=0, step=1, format="%d"),
-                "Add Weeks": st.column_config.NumberColumn("Order (Weeks)", min_value=0, step=1, format="%d")
+                "Add Weeks": st.column_config.NumberColumn("Order For (Weeks)", min_value=0.0, step=0.5, format="%.1f")
             }
         )
 
         # --- Perform interactive calculations ---
-        # Compare the edited dataframe with the one in session state to see if a change was made
         if not edited_df.equals(st.session_state.worksheet_df):
-            if input_mode == 'Add Bottles':
-                # User is typing in 'Add Bottles', so we calculate 'Add Weeks'
-                st.session_state.worksheet_df['Add Bottles'] = edited_df['Add Bottles']
-                st.session_state.worksheet_df['Add Weeks'] = st.session_state.worksheet_df.apply(
-                    lambda row: round((row['On Hand'] + row['Add Bottles']) / row['Selected Avg']) if row['Selected Avg'] > 0 else 0,
+            # Determine which column was last edited by comparing them
+            if not edited_df['Add Bottles'].equals(st.session_state.worksheet_df['Add Bottles']):
+                st.session_state.last_edited_column = 'Add Bottles'
+            elif not edited_df['Add Weeks'].equals(st.session_state.worksheet_df['Add Weeks']):
+                st.session_state.last_edited_column = 'Add Weeks'
+
+            # Create a copy to perform calculations on
+            new_df = edited_df.copy()
+
+            # Based on the last edited column, recalculate the other
+            if st.session_state.last_edited_column == 'Add Bottles':
+                new_df['Add Weeks'] = new_df.apply(
+                    lambda row: (row['On Hand'] + row['Add Bottles']) / row['Selected Avg'] if row['Selected Avg'] > 0 else 0,
                     axis=1
                 )
-            elif input_mode == 'Add Weeks':
-                # User is typing in 'Add Weeks', so we calculate 'Add Bottles'
-                st.session_state.worksheet_df['Add Weeks'] = edited_df['Add Weeks']
-                st.session_state.worksheet_df['Add Bottles'] = st.session_state.worksheet_df.apply(
-                    lambda row: max(0, round((row['Add Weeks'] * row['Selected Avg']) - row['On Hand'])),
+            elif st.session_state.last_edited_column == 'Add Weeks':
+                new_df['Add Bottles'] = new_df.apply(
+                    lambda row: max(0, (row['Add Weeks'] * row['Selected Avg']) - row['On Hand']),
                     axis=1
                 )
+            
+            st.session_state.worksheet_df = new_df
             st.rerun()
 
-        # --- Final Calculation Button ---
-        if st.button("Calculate Final Order"):
+        if st.button("Finalize Order"):
             results = []
             for _, row in st.session_state.worksheet_df.iterrows():
-                # This logic now uses the fully updated session state dataframe
-                item, end_inv, avg_usage = row['Item'], row['On Hand'], row['Selected Avg']
-                bottles_to_order, weeks_to_order = row['Add Bottles'], row['Add Weeks']
-                new_inv = end_inv + bottles_to_order
+                if row['Add Bottles'] > 0 or row['Add Weeks'] > 0:
+                    item, end_inv, avg_usage = row['Item'], row['On Hand'], row['Selected Avg']
+                    bottles_to_order, weeks_to_order = row['Add Bottles'], row['Add Weeks']
+                    new_inv = end_inv + bottles_to_order
 
-                def final_safe_div(n, d):
-                    return round(n / d, 2) if d and pd.notna(d) and d > 0 else 0
-                
-                results.append({
-                    'Item': item,
-                    f'Avg Usage ({usage_option})': avg_usage,
-                    'On Hand': end_inv,
-                    'Current Supply (Wks)': final_safe_div(end_inv, avg_usage),
-                    'Bottles to Order': round(bottles_to_order, 2),
-                    'Weeks to Order': round(weeks_to_order, 2),
-                    'New On Hand': round(new_inv, 2),
-                    'New Supply (Wks)': weeks_to_order,
-                })
+                    def final_safe_div(n, d):
+                        return round(n / d, 2) if d and pd.notna(d) and d > 0 else 0
+                    
+                    results.append({
+                        'Item': item,
+                        f'Avg Usage ({usage_option})': avg_usage,
+                        'On Hand': end_inv,
+                        'Current Supply (Wks)': final_safe_div(end_inv, avg_usage),
+                        'Bottles to Order': int(round(bottles_to_order)),
+                        'Order For (Wks)': round(weeks_to_order, 1),
+                        'New On Hand': round(new_inv, 2),
+                        'New Supply (Wks)': round(weeks_to_order, 1),
+                    })
             
             if results:
                 result_df = pd.DataFrame(results)
@@ -283,11 +276,3 @@ if uploaded_file:
                 st.dataframe(result_df, use_container_width=True, hide_index=True)
                 csv_order = result_df.to_csv(index=False).encode('utf-8')
                 st.download_button("Download Order CSV", data=csv_order, file_name="beverage_order_worksheet.csv")
-
-    with st.expander("Show Debug Information"):
-        st.subheader("Debug Info")
-        st.markdown("**Unique Items found in Excel file:**")
-        st.write(summary_df['Item'].unique().tolist())
-        if 'base_items' in locals() and base_items:
-            st.markdown("**Items currently selected for the worksheet above:**")
-            st.write(base_items)
