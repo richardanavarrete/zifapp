@@ -9,11 +9,14 @@ from datetime import datetime
 VOLUME_CONFIG = {
     "16oz": 16, "32oz": 32, "Pitcher": 64,
     "Liquor Pour": 1.5, "Wine Pour": 6,
-    "Half Barrel Keg": 1984, "Sixtel Keg": 661,
+    "Half Barrel Keg": 1984, "50L Keg": 1690,
     "Standard Liquor/Wine Bottle": 25.4, "Liter Liquor Bottle": 33.8,
 }
 ITEM_CONTAINER_MAP = {
     "BEER DFT Alaskan Amber": "Half Barrel Keg",
+    "BEER DFT Blue Moon Belgian White": "Half Barrel Keg",
+    "BEER DFT Bud Light": "Half Barrel Keg",
+    "
     # ... etc
 }
 """
