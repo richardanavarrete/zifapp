@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-st.set_page_config(page_title="Beverage Usage Analyzer", layout="wide")
-st.title("🍺 Beverage Usage Analyzer")
+st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
+st.title("🍺 Bev Usage Analyzer")
 
 uploaded_file = st.file_uploader("Upload BEVWEEKLY Excel File", type="xlsx")
 
