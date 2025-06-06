@@ -133,4 +133,109 @@ if uploaded_file:
         vendor_map = {
             "Breakthru": ["WHISKEY Buffalo Trace", "WHISKEY Bulleit Straight Rye", "WHISKEY Crown Royal", "WHISKEY Crown Royal Regal Apple", "WHISKEY Fireball Cinnamon", "WHISKEY Jack Daniels Black", "WHISKEY Jack Daniels Tennessee Fire", "VODKA Deep Eddy Lime", "VODKA Deep Eddy Orange", "VODKA Deep Eddy Ruby Red", "VODKA Fleischmann's Cherry", "VODKA Fleischmann's Grape", "VODKA Ketel One", "LIQ Amaretto", "LIQ Baileys Irish Cream", "LIQ Chambord", "LIQ Melon", "LIQ Rumpleminze", "LIQ Triple Sec", "LIQ Blue Curacao", "LIQ Butterscotch", "LIQ Peach Schnapps", "LIQ Sour Apple", "LIQ Watermelon Schnapps", "BRANDY Well", "GIN Well", "RUM Well", "SCOTCH Well", "TEQUILA Well", "VODKA Well", "WHISKEY Well", "GIN Tanqueray", "TEQUILA Casamigos Blanco", "TEQUILA Corazon Reposado", "TEQUILA Don Julio Blanco", "RUM Captain Morgan Spiced", "WINE LaMarca Prosecco", "WINE William Wycliff Brut Chateauamp", "BAR CONS Bloody Mary", "JUICE Red Bull", "JUICE Red Bull SF", "JUICE Red Bull Yellow"],
             "Southern": ["WHISKEY Basil Hayden", "WHISKEY Jameson", "WHISKEY Jim Beam", "WHISKEY Makers Mark", "WHISKEY Skrewball Peanut Butter", "VODKA Grey Goose", "VODKA Titos", "TEQUILA Cazadores Reposado", "TEQUILA Patron Silver", "RUM Bacardi Superior White", "RUM Malibu Coconut", "WHISKEY Dewars White Label", "WHISKEY Glenlivet", "LIQ Grand Marnier", "LIQ Jagermeister", "LIQ Kahlua", "LIQ Vermouth Dry", "LIQ Vermouth Sweet", "WINE Kendall Jackson Chardonnay", "WINE La Crema Chardonnay", "WINE La Crema Pinot Noir", "WINE Troublemaker Red", "WINE Villa Sandi Pinot Grigio", "BAR CONS Bitters", "BAR CONS Simple Syrup"],
-            "RNDC": ["WHISKEY Four Roses", "GIN Hendricks", "TEQUILA Milagro Anejo", "TEQUILA Milagro Reposado", "TEQUILA Milagro Silver",
+            "RNDC": ["WHISKEY Four Roses", "GIN Hendricks", "TEQUILA Milagro Anejo", "TEQUILA Milagro Reposado", "TEQUILA Milagro Silver", "WINE Infamous Goose Sauv Blanc", "WINE Salmon Creek Cab", "WINE Salmon Creek Chard", "WINE Salmon Creek Merlot", "WINE Salmon Creek White Zin", "BAR CONS Mango Puree"],
+            "Crescent": ["BEER DFT Alaskan Amber", "BEER DFT Blue Moon Belgian White", "BEER DFT Coors Light", "BEER DFT Dos Equis Lager", "BEER DFT Miller Lite", "BEER DFT Modelo Especial", "BEER DFT New Belgium Juicy Haze IPA", "BEER BTL Coors Banquet", "BEER BTL Coors Light", "BEER BTL Miller Lite", "BEER BTL Angry Orchard Crisp Apple", "BEER BTL College Street Big Blue Van", "BEER BTL Corona NA", "BEER BTL Corona Extra", "BEER BTL Corona Premier", "BEER BTL Coronita Extra", "BEER BTL Dos Equis Lager", "BEER BTL Guinness", "BEER BTL Heineken 0.0", "BEER BTL Modelo Especial", "BEER BTL Pacifico", "BEER BTL Truly Pineapple", "BEER BTL Truly Wild Berry", "BEER BTL Twisted Tea", "BEER BTL White Claw Black Cherry", "BEER BTL White Claw Mango", "BEER BTL White Claw Peach", "JUICE Ginger Beer", "VODKA Western Son Blueberry", "VODKA Western Son Lemon", "VODKA Western Son Original", "VODKA Western Son Prickly Pear", "VODKA Western Son Raspberry"],
+            "Hensley": ["BEER DFT Bud Light", "BEER DFT Church Music", "BEER DFT Firestone Walker 805", "BEER DFT Michelob Ultra", "BEER DFT Mother Road Sunday Drive", "BEER DFT Tower Station", "BEER BTL Bud Light", "BEER BTL Budweiser", "BEER BTL Michelob Ultra", "BEER BTL Austin Eastciders"]
+        }
+        for vendor, items in vendor_map.items():
+            vendor_map[vendor] = [item.strip() for item in items]
+
+        category_map = {cat: [] for cat in ["Well", "Whiskey", "Vodka", "Gin", "Tequila", "Rum", "Scotch", "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice", "Bar Consumables"]}
+        for item in summary_df['Item']:
+            upper_item = item.upper().strip()
+            if "WELL" in upper_item: category_map["Well"].append(item)
+            elif "WHISKEY" in upper_item: category_map["Whiskey"].append(item)
+            elif "VODKA" in upper_item: category_map["Vodka"].append(item)
+            elif "GIN" in upper_item: category_map["Gin"].append(item)
+            elif "TEQUILA" in upper_item: category_map["Tequila"].append(item)
+            elif "RUM" in upper_item: category_map["Rum"].append(item)
+            elif "SCOTCH" in upper_item: category_map["Scotch"].append(item)
+            elif "LIQ" in upper_item and "SCHNAPPS" not in upper_item: category_map["Liqueur"].append(item)
+            elif "SCHNAPPS" in upper_item: category_map["Cordials"].append(item)
+            elif "WINE" in upper_item: category_map["Wine"].append(item)
+            elif "BEER DFT" in upper_item: category_map["Draft Beer"].append(item)
+            elif "BEER BTL" in upper_item: category_map["Bottled Beer"].append(item)
+            elif "JUICE" in upper_item: category_map["Juice"].append(item)
+            elif "BAR CONS" in upper_item: category_map["Bar Consumables"].append(item)
+
+        base_items = []
+        if mode == "By Vendor":
+            vendor = st.selectbox("Select Vendor", list(vendor_map.keys()), key="vendor_select")
+            base_items = vendor_map.get(vendor, [])
+        else: # By Category
+            selected_categories = st.multiselect("Select Categories", list(category_map.keys()), default=list(category_map.keys()), key="category_multiselect")
+            base_items = [item for cat in selected_categories for item in category_map.get(cat, [])]
+
+        usage_option = st.radio(
+            "Select usage average for calculation:",
+            ["10Wk Avg", "4Wk Avg", "YTD Avg", "Avg of Lowest 4 (non-zero)", "Avg of Highest 4"],
+            index=1
+        )
+        
+        # --- Robust way to prepare data for the editor ---
+        filtered_df = summary_df[summary_df['Item'].isin(base_items)]
+        cols_to_edit = ['Item', 'End Inv', usage_option]
+        editable_df = filtered_df[cols_to_edit].copy()
+        editable_df[usage_option] = pd.to_numeric(editable_df[usage_option], errors='coerce').fillna(0)
+        editable_df['Add Bottles'] = 0.0
+        editable_df['Add Weeks'] = 0.0
+
+        # --- Display the data editor ---
+        edited_df = st.data_editor(
+            editable_df,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="order_editor",
+            column_config={
+                "End Inv": st.column_config.NumberColumn(format="%.2f"),
+                usage_option: st.column_config.NumberColumn(format="%.2f"),
+            }
+        )
+
+        input_mode = st.radio("Select input mode:", ["Add Bottles", "Add Weeks"], horizontal=True)
+
+        if st.button("Calculate Order"):
+            results = []
+            for _, row in edited_df.iterrows():
+                item, end_inv, avg_usage = row['Item'], row['End Inv'], row[usage_option]
+                add_bottles, add_weeks = row['Add Bottles'], row['Add Weeks']
+
+                def final_safe_div(n, d):
+                    return round(n / d, 2) if d and pd.notna(d) and d > 0 else 0
+
+                if input_mode == "Add Bottles":
+                    bottles_to_order = add_bottles
+                    weeks_to_order = final_safe_div(end_inv + bottles_to_order, avg_usage)
+                else: # Add Weeks
+                    target_inv = add_weeks * avg_usage
+                    needed_bottles = target_inv - end_inv
+                    bottles_to_order = max(0, needed_bottles)
+                    weeks_to_order = add_weeks
+                
+                new_inv = end_inv + bottles_to_order
+
+                results.append({
+                    'Item': item,
+                    f'Avg Usage ({usage_option})': avg_usage,
+                    'On Hand': end_inv,
+                    'Current Supply (Wks)': final_safe_div(end_inv, avg_usage),
+                    'Bottles to Order': round(bottles_to_order, 2),
+                    'Weeks to Order': round(weeks_to_order, 2),
+                    'New On Hand': round(new_inv, 2),
+                    'New Supply (Wks)': round(weeks_to_order, 2),
+                })
+            
+            if results:
+                result_df = pd.DataFrame(results)
+                st.dataframe(result_df, use_container_width=True)
+                csv_order = result_df.to_csv(index=False).encode('utf-8')
+                st.download_button("Download Order CSV", data=csv_order, file_name="beverage_order_worksheet.csv")
+
+    # --- Debug Information Expander ---
+    with st.expander("Show Debug Information"):
+        st.subheader("Debug Info")
+        st.markdown("**Unique Items found in Excel file:**")
+        st.write(summary_df['Item'].unique().tolist())
+        if base_items:
+            st.markdown("**Items currently selected for the worksheet above:**")
+            st.write(base_items)
