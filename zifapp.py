@@ -170,32 +170,39 @@ if uploaded_file:
             key="usage_radio"
         )
         
-        # --- NEW: Create a dataframe with a STATIC structure for the editor ---
         filtered_df = summary_df[summary_df['Item'].isin(base_items)]
         
-        # Create the editor dataframe with fixed column names
         editor_df_data = {
             'Item': filtered_df['Item'],
             'On Hand': filtered_df['End Inv'],
             'Selected Avg': filtered_df[usage_option],
-            'Add Bottles': 0.0,
-            'Add Weeks': 0.0
+            'Add Bottles': 0, # Use integers for bottle counts
+            'Add Weeks': 0    # Use integers for week counts
         }
         editable_df = pd.DataFrame(editor_df_data)
         editable_df['Selected Avg'] = pd.to_numeric(editable_df['Selected Avg'], errors='coerce').fillna(0)
 
-        # --- Display the data editor with the static structure ---
+        # ADDED: New "Current Wks Left" column
+        def temp_safe_div(n, d):
+            return round(n / d, 1) if d and pd.notna(d) and d > 0 else 0.0
+        editable_df['Current Wks Left'] = editable_df.apply(lambda row: temp_safe_div(row['On Hand'], row['Selected Avg']), axis=1)
+
+        # Reorder columns for a more logical layout
+        editable_df = editable_df[['Item', 'On Hand', 'Current Wks Left', 'Selected Avg', 'Add Bottles', 'Add Weeks']]
+
+        # --- Display the data editor ---
         edited_df = st.data_editor(
             editable_df,
-            num_rows="dynamic",
+            # REMOVED num_rows="dynamic" to fix the checkbox issue
             use_container_width=True,
             key="order_editor",
             column_config={
                 "Item": st.column_config.TextColumn(disabled=True),
                 "On Hand": st.column_config.NumberColumn(format="%.2f", disabled=True),
+                "Current Wks Left": st.column_config.NumberColumn(format="%.1f", help="On Hand / Selected Avg", disabled=True),
                 "Selected Avg": st.column_config.NumberColumn(f"Avg Usage ({usage_option})", format="%.2f", disabled=True),
-                "Add Bottles": st.column_config.NumberColumn("Order (Btls)", min_value=0, format="%d"),
-                "Add Weeks": st.column_config.NumberColumn("Order (Wks)", min_value=0, format="%d")
+                "Add Bottles": st.column_config.NumberColumn("Order (Bottles)", min_value=0, step=1, format="%d"),
+                "Add Weeks": st.column_config.NumberColumn("Order (Weeks)", min_value=0, step=1, format="%d")
             }
         )
 
@@ -203,9 +210,7 @@ if uploaded_file:
 
         if st.button("Calculate Order"):
             results = []
-            # Use the 'edited_df' which contains the user's edits
             for _, row in edited_df.iterrows():
-                # Use the static column names from the editor
                 item, end_inv, avg_usage = row['Item'], row['On Hand'], row['Selected Avg']
                 add_bottles, add_weeks = row['Add Bottles'], row['Add Weeks']
 
