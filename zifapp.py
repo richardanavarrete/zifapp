@@ -217,7 +217,7 @@ if uploaded_file:
             if results:
                 st.dataframe(pd.DataFrame(results))
 
-    with tab_sales_analysis:
+#    with tab_sales_analysis:
         st.subheader("Sales vs. Actual Usage Variance")
         st.markdown("This tool scans your Sales Mix report to compare what you sold to what you actually used.")
         
