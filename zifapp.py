@@ -118,43 +118,19 @@ if uploaded_file:
         mode = st.radio("Select View Mode:", ["By Vendor", "By Category"])
 
         vendor_map = {
-            "Breakthru": [item for item in summary_df['Item'] if item.upper() in {
-                "WHISKEY BUFFALO TRACE",
-                "WHISKEY BULLEIT STRAIGHT RYE",
-                "WHISKEY CROWN ROYAL",
-                "WHISKEY CROWN ROYAL REGAL APPLE",
-                "WHISKEY FIREBALL CINNAMON",
-                "WHISKEY JACK DANIELS BLACK",
-                "WHISKEY JACK DANIELS TENNESSEE FIRE",
-                "VODKA DEEP EDDY LIME",
-                "VODKA DEEP EDDY ORANGE",
-                "VODKA DEEP EDDY RUBY RED",
-                "VODKA FLEISCHMANN'S CHERRY",
-                "VODKA FLEISCHMANN'S GRAPE",
-                "VODKA KETEL ONE",
-                "LIQ AMARETTO",
-                "LIQ BAILEYS IRISH CREAM",
-                "LIQ CHAMBORD",
-                "LIQ MELON",
-                "LIQ RUMPLEMINZE",
-                "LIQ TRIPLE SEC",
-                "LIQ BLUE CURACAO",
-                "LIQ BUTTERSCOTCH",
-                "LIQ PEACH SCHNAPPS",
-                "LIQ SOUR APPLE",
-                "LIQ WATERMELON SCHNAPPS",
-                "GIN TANQUERAY",
-                "TEQUILA CASAMIGOS BLANCO",
-                "TEQUILA CORAZON REPOSADO",
-                "TEQUILA DON JULIO BLANCO",
-                "RUM CAPTAIN MORGAN SPICED",
-                "WINE LAMARCA PROSECCO",
-                "WINE WILLIAM WYCLIFF BRUT CHATEAUAMP",
-                "BAR CONS BLOODY MARY",
-                "JUICE RED BULL",
-                "JUICE RED BULL SF",
-                "JUICE RED BULL YELLOW"
-            }}
+            "Breakthru": [
+                "WHISKEY Buffalo Trace", "WHISKEY Bulleit Straight Rye", "WHISKEY Crown Royal",
+                "WHISKEY Crown Royal Regal Apple", "WHISKEY Fireball Cinnamon", "WHISKEY Jack Daniels Black",
+                "WHISKEY Jack Daniels Tennessee Fire", "VODKA Deep Eddy Lime", "VODKA Deep Eddy Orange",
+                "VODKA Deep Eddy Ruby Red", "VODKA Fleischmann's Cherry", "VODKA Fleischmann's Grape",
+                "VODKA Ketel One", "LIQ Amaretto", "LIQ Baileys Irish Cream", "LIQ Chambord",
+                "LIQ Melon", "LIQ Rumpleminze", "LIQ Triple Sec", "LIQ Blue Curacao",
+                "LIQ Butterscotch", "LIQ Peach Schnapps", "LIQ Sour Apple", "LIQ Watermelon Schnapps",
+                "GIN Tanqueray", "TEQUILA Casamigos Blanco", "TEQUILA Corazon Reposado",
+                "TEQUILA Don Julio Blanco", "RUM Captain Morgan Spiced", "WINE LaMarca Prosecco",
+                "WINE William Wycliff Brut Chateauamp", "BAR CONS Bloody Mary", "JUICE Red Bull",
+                "JUICE Red Bull SF", "JUICE Red Bull Yellow"
+            ]
         }
 
         category_map = {cat: [] for cat in ["Well", "Whiskey", "Vodka", "Gin", "Tequila", "Rum", "Scotch", "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice"]}
@@ -209,7 +185,7 @@ if uploaded_file:
                     'Current Weeks Left': round(end_inv / avg, 2) if avg else 0,
                     'Add Bottles': round(bottles, 2),
                     'Desired Weeks': round(weeks, 2),
-                    'Post-Inv': round(end_inv + bottles if input_mode == "Add Bottles" else end_inv + (weeks * avg if avg else 0), 2),
+                    'Post-Inv': round(end_inv + bottles if input_mode == "Add Bottles" else weeks * avg, 2),
                     'Calc Weeks': round((end_inv + bottles) / avg, 2) if avg else 0,
                     'Calc Bottles': round(max(weeks * avg - end_inv, 0), 2) if avg else 0
                 })
