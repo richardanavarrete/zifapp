@@ -221,12 +221,9 @@ if uploaded_file:
         st.subheader("Sales vs. Actual Usage Variance")
         st.markdown("This tool scans your Sales Mix report to compare what you sold to what you actually used.")
         
-        with st.expander("Click to view Sales Mix Configuration"):
-            st.warning("This configuration will be required when analyzing Draft, Liquor, and Wine.")
-            VOLUME_CONFIG = {"16oz": 16, "32oz": 32, "Pitcher": 64, "Liquor Pour": 1.5, "Wine Pour": 6, "Half Barrel Keg": 1984, "Sixtel Keg": 661, "Standard Liquor/Wine Bottle": 25.4, "Liter Liquor Bottle": 33.8}
-            st.json(VOLUME_CONFIG)
-            ITEM_CONTAINER_MAP = {"BEER DFT Alaskan Amber": "Half Barrel Keg", "WHISKEY Buffalo Trace": "Standard Liquor/Wine Bottle"}
-            st.json(ITEM_CONTAINER_MAP)
+        # NOTE: Config is hidden for now as we focus on unit-based variance
+        # with st.expander("Click to view Sales Mix Configuration"):
+        #     ...
 
         sales_mix_file = st.file_uploader("Upload Weekly Sales Mix File", type=["docx", "txt", "csv"])
 
@@ -242,34 +239,44 @@ if uploaded_file:
 
                 with st.expander("Click to view content of uploaded Sales Mix file"):
                     st.code('\n'.join(sales_lines))
-
+                
+                # --- New Parsing Logic with Debugging ---
                 all_inventory_items = list(summary_df['Item'].unique())
                 item_lookup = {re.sub(r'^(BEER BTL|BEER DFT|WHISKEY|VODKA|LIQ|GIN|RUM|SCOTCH|TEQUILA|WINE)\s+', '', item, flags=re.IGNORECASE).upper(): item for item in all_inventory_items}
                 
                 sales_counts = {}
-                # --- NEW 7-LINE PATTERN LOGIC ---
+                debug_log = []
+
                 for i in range(len(sales_lines)):
-                    # A line that starts with a number is a quantity line. The item name is on the line before it.
                     current_line = sales_lines[i]
-                    if i > 0 and re.match(r'^\d', current_line):
-                        previous_line = sales_lines[i-1]
-                        
-                        # Find a matching inventory item from the PREVIOUS line
+                    # Heuristic: a line that seems to contain an item name but not section headers
+                    if not current_line.startswith('---') and "Page " not in current_line and "Item ID" not in current_line and len(current_line) > 3:
                         found_item = None
                         best_match_len = 0
-                        # Find the best, most specific match for the item name
+                        
+                        # Find the best, most specific match for the item name in the current line
                         for base_name, full_name in item_lookup.items():
-                            if re.search(r'\b' + re.escape(base_name) + r'\b', previous_line.upper()):
+                            if re.search(r'\b' + re.escape(base_name) + r'\b', current_line.upper()):
                                 if len(base_name) > best_match_len:
                                     best_match_len = len(base_name)
                                     found_item = full_name
                         
                         if found_item:
-                            # The quantity is the SECOND number on the CURRENT line
-                            numbers_on_line = re.findall(r'\d+', current_line)
-                            if len(numbers_on_line) >= 2:
-                                qty_sold = int(numbers_on_line[1])
-                                sales_counts[found_item] = sales_counts.get(found_item, 0) + qty_sold
+                            # If we found an item, the quantity is on the NEXT line
+                            if i + 1 < len(sales_lines):
+                                next_line = sales_lines[i+1]
+                                numbers_on_next_line = re.findall(r'\d+', next_line)
+                                if len(numbers_on_next_line) >= 2:
+                                    qty_sold = int(numbers_on_next_line[1])
+                                    sales_counts[found_item] = sales_counts.get(found_item, 0) + qty_sold
+                                    debug_log.append(f"✅ MATCH: Found '{found_item}' on line {i}. Extracted Qty '{qty_sold}' from next line.")
+                                else:
+                                    debug_log.append(f"⚠️  WARN: Found '{found_item}' on line {i}, but next line did not have at least 2 numbers.")
+                            else:
+                                debug_log.append(f"⚠️  WARN: Found '{found_item}' on last line of file, no quantity line available.")
+
+                with st.expander("Show Parsing Details (for debugging)"):
+                    st.code('\n'.join(debug_log))
                 
                 # --- Variance Calculation ---
                 variance_data = []
@@ -294,13 +301,12 @@ if uploaded_file:
                     
                     st.markdown("---")
                     st.subheader("Variance Report (Unit-Based)")
-                    st.markdown("_Note: This view assumes all sold items are 1-to-1 units (like bottled beer & liquor pours)._")
                     st.dataframe(
                         variance_df.style.format({"Actual Usage": "{:.1f}", "Theoretical Usage (Sold)": "{:.0f}", "Variance": "{:+.1f}"}).applymap(style_variance, subset=['Variance']),
                         use_container_width=True, hide_index=True
                     )
                 else:
-                    st.warning("No matching items found. Please check your sales mix file.")
+                    st.warning("No matching items found. Please check the parsing details above to see why.")
             
             except Exception as e:
                 st.error(f"Could not process the Sales Mix file. Error: {e}")
