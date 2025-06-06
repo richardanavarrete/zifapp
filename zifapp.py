@@ -78,7 +78,7 @@ if uploaded_file:
     )
     summary_df = summary_df.sort_values(by='ItemOrder').drop(columns='ItemOrder')
 
-    tab_summary, tab_playground = st.tabs(["📊 Summary", "🧪 Playground"])
+    tab_summary, tab_ordering_worksheet = st.tabs(["📊 Summary", "🧪 Ordering Worksheet"])
 
     with tab_summary:
         st.subheader("Usage Summary")
@@ -112,8 +112,8 @@ if uploaded_file:
         csv = summary_df.to_csv(index=False).encode('utf-8')
         st.download_button("Download CSV", data=csv, file_name="beverage_usage_summary.csv")
 
-    with tab_playground:
-        st.subheader("🧪 Playground: Inventory Planning")
+    with tab_ordering_worksheet:
+        st.subheader("🧪 Ordering Worksheet: Inventory Planning")
 
         mode = st.radio("Select View Mode:", ["By Vendor", "By Category"])
 
