@@ -150,7 +150,7 @@ if uploaded_file:
 
     with tab_ordering_worksheet:
         st.subheader("🧪 Ordering Worksheet: Inventory Planning")
-        mode = st.radio("Select View Mode:", ["By Vendor", "By Category"])
+        mode = st.selectbox("View Mode:", ["By Vendor", "By Category"])
 
         category_map = {cat: [] for cat in ["Well", "Whiskey", "Vodka", "Gin", "Tequila", "Rum", "Scotch", "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice", "Bar Consumables"]}
         for item in summary_df['Item']:
@@ -179,8 +179,8 @@ if uploaded_file:
             base_items = [item for cat in selected_categories for item in category_map.get(cat, [])]
 
         # CORRECTED: This list now matches your new metric names
-        usage_option = st.radio(
-            "Select usage average for calculation:",
+        usage_option = st.selectbox(
+            "change usage average:",
             ["10Wk Avg", "4Wk Avg", "YTD Avg", "Low4wk Avg", "High4wk Avg"],
             index=1,
             key="usage_radio"
