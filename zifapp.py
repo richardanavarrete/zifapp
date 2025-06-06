@@ -137,7 +137,7 @@ if uploaded_file:
         for vendor, items in vendor_map.items():
             vendor_map[vendor] = [item.strip() for item in items]
 
-        category_map = {cat: [] for cat in ["Well", "Whiskey", "Vodka", "Gin", "T tequila", "Rum", "Scotch", "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice", "Bar Consumables"]}
+        category_map = {cat: [] for cat in ["Well", "Whiskey", "Vodka", "Gin", "Tequila", "Rum", "Scotch", "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice", "Bar Consumables"]}
         for item in summary_df['Item']:
             upper_item = item.upper().strip()
             if "WELL" in upper_item: category_map["Well"].append(item)
