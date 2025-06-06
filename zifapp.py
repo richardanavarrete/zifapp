@@ -247,20 +247,22 @@ if uploaded_file:
                 item_lookup = {re.sub(r'^(BEER BTL|BEER DFT|WHISKEY|VODKA|LIQ|GIN|RUM|SCOTCH|TEQUILA|WINE)\s+', '', item, flags=re.IGNORECASE).upper(): item for item in all_inventory_items}
                 
                 sales_counts = {}
-                # Iterate through the file lines with an index, stepping by 7
+                # --- NEW 7-LINE PATTERN LOGIC ---
                 for i in range(len(sales_lines)):
-                    # A line that starts with a number is a quantity line.
-                    # The item name is on the line before it.
+                    # A line that starts with a number is a quantity line. The item name is on the line before it.
                     current_line = sales_lines[i]
                     if i > 0 and re.match(r'^\d', current_line):
                         previous_line = sales_lines[i-1]
                         
                         # Find a matching inventory item from the PREVIOUS line
                         found_item = None
+                        best_match_len = 0
+                        # Find the best, most specific match for the item name
                         for base_name, full_name in item_lookup.items():
                             if re.search(r'\b' + re.escape(base_name) + r'\b', previous_line.upper()):
-                                found_item = full_name
-                                break
+                                if len(base_name) > best_match_len:
+                                    best_match_len = len(base_name)
+                                    found_item = full_name
                         
                         if found_item:
                             # The quantity is the SECOND number on the CURRENT line
@@ -268,7 +270,7 @@ if uploaded_file:
                             if len(numbers_on_line) >= 2:
                                 qty_sold = int(numbers_on_line[1])
                                 sales_counts[found_item] = sales_counts.get(found_item, 0) + qty_sold
-
+                
                 # --- Variance Calculation ---
                 variance_data = []
                 latest_date = full_df['Date'].max()
@@ -292,7 +294,7 @@ if uploaded_file:
                     
                     st.markdown("---")
                     st.subheader("Variance Report (Unit-Based)")
-                    st.markdown("_Note: This simple view assumes all sold items are 1-to-1 units (like bottled beer)._")
+                    st.markdown("_Note: This view assumes all sold items are 1-to-1 units (like bottled beer & liquor pours)._")
                     st.dataframe(
                         variance_df.style.format({"Actual Usage": "{:.1f}", "Theoretical Usage (Sold)": "{:.0f}", "Variance": "{:+.1f}"}).applymap(style_variance, subset=['Variance']),
                         use_container_width=True, hide_index=True
