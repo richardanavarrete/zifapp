@@ -25,7 +25,12 @@ if uploaded_file:
             })
             df = df[['Item', 'Usage', 'End Inventory']]
             df['Week'] = sheet
-            df['Date'] = pd.to_datetime(xls.parse(sheet).iloc[1, 0], errors='coerce')
+            # Handle potential non-datetime values for date
+            date_value = xls.parse(sheet).iloc[1, 0]
+            if isinstance(date_value, datetime):
+                df['Date'] = pd.to_datetime(date_value)
+            else:
+                df['Date'] = pd.NA # Assign a missing value if not a datetime
             compiled_data.append(df)
         except Exception as e:
             st.warning(f"Skipped {sheet}: {e}")
@@ -33,6 +38,10 @@ if uploaded_file:
 
     full_df = pd.concat(compiled_data, ignore_index=True)
     full_df = full_df.dropna(subset=['Item', 'Usage'])
+
+    # Clean 'Item' column: strip whitespace and convert to string
+    full_df['Item'] = full_df['Item'].astype(str).str.strip()
+
     full_df['Usage'] = pd.to_numeric(full_df['Usage'], errors='coerce')
     full_df['End Inventory'] = pd.to_numeric(full_df['End Inventory'], errors='coerce')
     full_df = full_df.dropna(subset=['Usage', 'End Inventory'])
@@ -73,8 +82,10 @@ if uploaded_file:
 
     summary_df = full_df.groupby('Item').apply(compute_metrics).reset_index()
     summary_df['Item'] = summary_df['Item'].astype(str)
+    # Ensure original_order items are also stripped of whitespace
+    original_order_cleaned = [item.strip() for item in original_order]
     summary_df['ItemOrder'] = summary_df['Item'].apply(
-        lambda x: original_order.index(x) if x in original_order else float('inf')
+        lambda x: original_order_cleaned.index(x) if x in original_order_cleaned else float('inf')
     )
     summary_df = summary_df.sort_values(by='ItemOrder').drop(columns='ItemOrder')
 
@@ -117,6 +128,7 @@ if uploaded_file:
 
         mode = st.radio("Select View Mode:", ["By Vendor", "By Category"])
 
+        # Vendor mapping - ensure all items are stripped of whitespace
         vendor_map = {
             "Breakthru": ["WHISKEY Buffalo Trace", "WHISKEY Bulleit Straight Rye", "WHISKEY Crown Royal", "WHISKEY Crown Royal Regal Apple", "WHISKEY Fireball Cinnamon", "WHISKEY Jack Daniels Black", "WHISKEY Jack Daniels Tennessee Fire", "VODKA Deep Eddy Lime", "VODKA Deep Eddy Orange", "VODKA Deep Eddy Ruby Red", "VODKA Fleischmann's Cherry", "VODKA Fleischmann's Grape", "VODKA Ketel One", "LIQ Amaretto", "LIQ Baileys Irish Cream", "LIQ Chambord", "LIQ Melon", "LIQ Rumpleminze", "LIQ Triple Sec", "LIQ Blue Curacao", "LIQ Butterscotch", "LIQ Peach Schnapps", "LIQ Sour Apple", "LIQ Watermelon Schnapps", "BRANDY Well", "GIN Well", "RUM Well", "SCOTCH Well", "TEQUILA Well", "VODKA Well", "WHISKEY Well", "GIN Tanqueray", "TEQUILA Casamigos Blanco", "TEQUILA Corazon Reposado", "TEQUILA Don Julio Blanco", "RUM Captain Morgan Spiced", "WINE LaMarca Prosecco", "WINE William Wycliff Brut Chateauamp", "BAR CONS Bloody Mary", "JUICE Red Bull", "JUICE Red Bull SF", "JUICE Red Bull Yellow"],
             "Southern": ["WHISKEY Basil Hayden", "WHISKEY Jameson", "WHISKEY Jim Beam", "WHISKEY Makers Mark", "WHISKEY Skrewball Peanut Butter", "VODKA Grey Goose", "VODKA Titos", "TEQUILA Cazadores Reposado", "TEQUILA Patron Silver", "RUM Bacardi Superior White", "RUM Malibu Coconut", "WHISKEY Dewars White Label", "WHISKEY Glenlivet", "LIQ Grand Marnier", "LIQ Jagermeister", "LIQ Kahlua", "LIQ Vermouth Dry", "LIQ Vermouth Sweet", "WINE Kendall Jackson Chardonnay", "WINE La Crema Chardonnay", "WINE La Crema Pinot Noir", "WINE Troublemaker Red", "WINE Villa Sandi Pinot Grigio", "BAR CONS Bitters", "BAR CONS Simple Syrup"],
@@ -124,6 +136,9 @@ if uploaded_file:
             "Crescent": ["BEER DFT Alaskan Amber", "BEER DFT Blue Moon Belgian White", "BEER DFT Coors Light", "BEER DFT Dos Equis Lager", "BEER DFT Miller Lite", "BEER DFT Modelo Especial", "BEER DFT New Belgium Juicy Haze IPA", "BEER BTL Coors Banquet", "BEER BTL Coors Light", "BEER BTL Miller Lite", "BEER BTL Angry Orchard Crisp Apple", "BEER BTL College Street Big Blue Van", "BEER BTL Corona NA", "BEER BTL Corona Extra", "BEER BTL Corona Premier", "BEER BTL Coronita Extra", "BEER BTL Dos Equis Lager", "BEER BTL Guinness", "BEER BTL Heineken 0.0", "BEER BTL Modelo Especial", "BEER BTL Pacifico", "BEER BTL Truly Pineapple", "BEER BTL Truly Wild Berry", "BEER BTL Twisted Tea", "BEER BTL White Claw Black Cherry", "BEER BTL White Claw Mango", "BEER BTL White Claw Peach", "JUICE Ginger Beer", "VODKA Western Son Blueberry", "VODKA Western Son Lemon", "VODKA Western Son Original", "VODKA Western Son Prickly Pear", "VODKA Western Son Raspberry"],
             "Hensley": ["BEER DFT Bud Light", "BEER DFT Church Music", "BEER DFT Firestone Walker 805", "BEER DFT Michelob Ultra", "BEER DFT Mother Road Sunday Drive", "BEER DFT Tower Station", "BEER BTL Bud Light", "BEER BTL Budweiser", "BEER BTL Michelob Ultra", "BEER BTL Austin Eastciders"]
         }
+        # Apply .strip() to all items in vendor_map lists to match cleaned summary_df['Item']
+        for vendor, items in vendor_map.items():
+            vendor_map[vendor] = [item.strip() for item in items]
 
         category_map = {cat: [] for cat in [
             "Well", "Whiskey", "Vodka", "Gin", "Tequila", "Rum", "Scotch",
@@ -131,7 +146,7 @@ if uploaded_file:
         ]}
 
         for item in summary_df['Item']:
-            upper_item = item.upper()
+            upper_item = item.upper().strip() # Also strip whitespace from upper_item
             if "WELL" in upper_item: category_map["Well"].append(item)
             elif "WHISKEY" in upper_item: category_map["Whiskey"].append(item)
             elif "VODKA" in upper_item: category_map["Vodka"].append(item)
@@ -147,10 +162,24 @@ if uploaded_file:
             elif "JUICE" in upper_item: category_map["Juice"].append(item)
             elif "BAR CONS" in upper_item: category_map["Bar Consumables"].append(item)
 
+        # --- Debugging Step 1: Print unique items from summary_df ---
+        st.write("--- Debug Info ---")
+        st.write("Unique Items found in your Excel file:")
+        st.write(summary_df['Item'].unique().tolist())
+        st.write("------------------")
+        # --- End Debugging Step 1 ---
+
 
         if mode == "By Vendor":
             vendor = st.selectbox("Select Vendor", list(vendor_map.keys()))
             base_items = vendor_map[vendor]
+
+            # --- Debugging Step 2: Print selected base_items ---
+            st.write(f"Items selected for vendor '{vendor}':")
+            st.write(base_items)
+            st.write("------------------")
+            # --- End Debugging Step 2 ---
+
         else:
             selected_categories = st.multiselect("Select Categories", list(category_map.keys()), default=list(category_map.keys()))
             base_items = [item for cat in selected_categories for item in category_map[cat]]
@@ -159,6 +188,7 @@ if uploaded_file:
             "10Wk Avg", "4Wk Avg", "YTD Avg", "Low4 Avg", "High4 Avg"
         ], index=0)
 
+        # Filter editable_data based on base_items (which are now cleaned)
         editable_data = summary_df[summary_df['Item'].isin(base_items)][['Item', 'End Inv', usage_option]].copy()
         editable_data['Current Weeks Left'] = editable_data.apply(
             lambda row: round(row['End Inv'] / row[usage_option], 2) if row[usage_option] and row[usage_option] > 0 else 0, axis=1)
@@ -175,19 +205,17 @@ if uploaded_file:
                 item = row['Item']
                 avg = row[usage_option]
                 end_inv = row['End Inv']
-                
-                # Ensure avg is not zero to avoid division by zero
+
                 if avg == 0 or pd.isna(avg):
                     bottles = row['Add Bottles'] if input_mode == "Add Bottles" else 0
                     weeks = row['Add Weeks'] if input_mode == "Add Weeks" else 0
                     post_delivery_inv = end_inv + bottles
-                    post_delivery_wkslft = 0 # Cannot calculate if average is 0
+                    post_delivery_wkslft = 0
                 else:
                     bottles = row['Add Bottles'] if input_mode == "Add Bottles" else (row['Add Weeks'] * avg - end_inv)
                     weeks = row['Add Weeks'] if input_mode == "Add Weeks" else (end_inv + row['Add Bottles']) / avg
                     post_delivery_inv = end_inv + bottles if input_mode == "Add Bottles" else weeks * avg
                     post_delivery_wkslft = (end_inv + bottles) / avg if input_mode == "Add Bottles" else weeks
-
 
                 results.append({
                     'Item': item,
@@ -201,3 +229,4 @@ if uploaded_file:
                 })
             result_df = pd.DataFrame(results)
             st.dataframe(result_df, use_container_width=True)
+
