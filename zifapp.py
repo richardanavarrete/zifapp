@@ -104,7 +104,7 @@ if uploaded_file:
 
     with tab_summary:
         st.subheader("Usage Summary")
-        threshold = st.slider("Highlight if weeks remaining is below:", min_value=1.0, max_value=10.0, value=2.0, step=0.5)
+        threshold = st.slider("Highlight if weeks remaining is below:", min_value=.2, max_value=10.0, value=2.0, step=0.1)
 
         def highlight_weeks_remaining(val, threshold=2.0):
             if pd.notna(val) and isinstance(val, (int, float)):
