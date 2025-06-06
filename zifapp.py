@@ -40,6 +40,7 @@ if uploaded_file:
         full_df = pd.concat(compiled_data, ignore_index=True)
         full_df = full_df.dropna(subset=['Item', 'Usage'])
         full_df['Item'] = full_df['Item'].astype(str).str.strip()
+        full_df = full_df[~full_df['Item'].str.upper().str.startswith('TOTAL')]
         full_df['Usage'] = pd.to_numeric(full_df['Usage'], errors='coerce')
         full_df['End Inventory'] = pd.to_numeric(full_df['End Inventory'], errors='coerce')
         full_df = full_df.dropna(subset=['Usage', 'End Inventory'])
@@ -119,7 +120,7 @@ if uploaded_file:
                 'Wks Rmn (ATH)', 'Wks Rmn (Lowest 4)', 'Wks Rmn (Highest 4)'
             ]
         )
-        st.dataframe(styled_df, use_container_width=True)
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
         csv = summary_df.to_csv(index=False).encode('utf-8')
         st.download_button("Download Summary CSV", data=csv, file_name="beverage_usage_summary.csv")
 
