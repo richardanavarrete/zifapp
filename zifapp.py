@@ -122,12 +122,12 @@ if uploaded_file:
             "Southern": ["WHISKEY Basil Hayden", "WHISKEY Jameson", "WHISKEY Jim Beam", "WHISKEY Makers Mark", "WHISKEY Skrewball Peanut Butter", "VODKA Grey Goose", "VODKA Titos", "TEQUILA Cazadores Reposado", "TEQUILA Patron Silver", "RUM Bacardi Superior White", "RUM Malibu Coconut", "WHISKEY Dewars White Label", "WHISKEY Glenlivet", "LIQ Grand Marnier", "LIQ Jagermeister", "LIQ Kahlua", "LIQ Vermouth Dry", "LIQ Vermouth Sweet", "WINE Kendall Jackson Chardonnay", "WINE La Crema Chardonnay", "WINE La Crema Pinot Noir", "WINE Troublemaker Red", "WINE Villa Sandi Pinot Grigio", "BAR CONS Bitters", "BAR CONS Simple Syrup"],
             "RNDC": ["WHISKEY Four Roses", "GIN Hendricks", "TEQUILA Milagro Anejo", "TEQUILA Milagro Reposado", "TEQUILA Milagro Silver", "WINE Infamous Goose Sauv Blanc", "WINE Salmon Creek Cab", "WINE Salmon Creek Chard", "WINE Salmon Creek Merlot", "WINE Salmon Creek White Zin", "BAR CONS Mango Puree"],
             "Crescent": ["BEER DFT Alaskan Amber", "BEER DFT Blue Moon Belgian White", "BEER DFT Coors Light", "BEER DFT Dos Equis Lager", "BEER DFT Miller Lite", "BEER DFT Modelo Especial", "BEER DFT New Belgium Juicy Haze IPA", "BEER BTL Coors Banquet", "BEER BTL Coors Light", "BEER BTL Miller Lite", "BEER BTL Angry Orchard Crisp Apple", "BEER BTL College Street Big Blue Van", "BEER BTL Corona NA", "BEER BTL Corona Extra", "BEER BTL Corona Premier", "BEER BTL Coronita Extra", "BEER BTL Dos Equis Lager", "BEER BTL Guinness", "BEER BTL Heineken 0.0", "BEER BTL Modelo Especial", "BEER BTL Pacifico", "BEER BTL Truly Pineapple", "BEER BTL Truly Wild Berry", "BEER BTL Twisted Tea", "BEER BTL White Claw Black Cherry", "BEER BTL White Claw Mango", "BEER BTL White Claw Peach", "JUICE Ginger Beer", "VODKA Western Son Blueberry", "VODKA Western Son Lemon", "VODKA Western Son Original", "VODKA Western Son Prickly Pear", "VODKA Western Son Raspberry"],
-            "Hensley": ["BEER DFT Bud Light", "BEER DFT Church Music", "BEER DFT Firestone Walker 805", "BEER DFT Michelob Ultra", "BEER DFT Mother Road Sunday Drive", "BEER DFT Mother Road Tower Station", "BEER BTL Bud Light", "BEER BTL Budweiser", "BEER BTL Michelob Ultra", "BEER BTL Austin Eastciders"],
+            "Hensley": ["BEER DFT Bud Light", "BEER DFT Church Music", "BEER DFT Firestone Walker 805", "BEER DFT Michelob Ultra", "BEER DFT Mother Road Sunday Drive", "BEER DFT Tower Station", "BEER BTL Bud Light", "BEER BTL Budweiser", "BEER BTL Michelob Ultra", "BEER BTL Austin Eastciders"]
         }
 
         category_map = {cat: [] for cat in [
             "Well", "Whiskey", "Vodka", "Gin", "Tequila", "Rum", "Scotch",
-            "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice"
+            "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice", "Bar Consumables"
         ]}
 
         for item in summary_df['Item']:
@@ -139,12 +139,14 @@ if uploaded_file:
             elif "TEQUILA" in upper_item: category_map["Tequila"].append(item)
             elif "RUM" in upper_item: category_map["Rum"].append(item)
             elif "SCOTCH" in upper_item: category_map["Scotch"].append(item)
-            elif "LIQ" in upper_item: category_map["Liqueur"].append(item)
+            elif "LIQ" in upper_item and "SCHNAPPS" not in upper_item: category_map["Liqueur"].append(item)
             elif "SCHNAPPS" in upper_item: category_map["Cordials"].append(item)
             elif "WINE" in upper_item: category_map["Wine"].append(item)
             elif "BEER DFT" in upper_item: category_map["Draft Beer"].append(item)
             elif "BEER BTL" in upper_item: category_map["Bottled Beer"].append(item)
-            elif "JUICE" in upper_item or "BAR CONS" in upper_item: category_map["Juice"].append(item)
+            elif "JUICE" in upper_item: category_map["Juice"].append(item)
+            elif "BAR CONS" in upper_item: category_map["Bar Consumables"].append(item)
+
 
         if mode == "By Vendor":
             vendor = st.selectbox("Select Vendor", list(vendor_map.keys()))
@@ -159,7 +161,7 @@ if uploaded_file:
 
         editable_data = summary_df[summary_df['Item'].isin(base_items)][['Item', 'End Inv', usage_option]].copy()
         editable_data['Current Weeks Left'] = editable_data.apply(
-            lambda row: round(row['End Inv'] / row[usage_option], 2) if row[usage_option] else 0, axis=1)
+            lambda row: round(row['End Inv'] / row[usage_option], 2) if row[usage_option] and row[usage_option] > 0 else 0, axis=1)
         editable_data['Add Bottles'] = 0.0
         editable_data['Add Weeks'] = 0.0
 
@@ -173,18 +175,29 @@ if uploaded_file:
                 item = row['Item']
                 avg = row[usage_option]
                 end_inv = row['End Inv']
-                bottles = row['Add Bottles'] if input_mode == "Add Bottles" else (row['Add Weeks'] * avg - end_inv) if avg else 0
-                weeks = row['Add Weeks'] if input_mode == "Add Weeks" else (end_inv + row['Add Bottles']) / avg if avg else 0
+                
+                # Ensure avg is not zero to avoid division by zero
+                if avg == 0 or pd.isna(avg):
+                    bottles = row['Add Bottles'] if input_mode == "Add Bottles" else 0
+                    weeks = row['Add Weeks'] if input_mode == "Add Weeks" else 0
+                    post_delivery_inv = end_inv + bottles
+                    post_delivery_wkslft = 0 # Cannot calculate if average is 0
+                else:
+                    bottles = row['Add Bottles'] if input_mode == "Add Bottles" else (row['Add Weeks'] * avg - end_inv)
+                    weeks = row['Add Weeks'] if input_mode == "Add Weeks" else (end_inv + row['Add Bottles']) / avg
+                    post_delivery_inv = end_inv + bottles if input_mode == "Add Bottles" else weeks * avg
+                    post_delivery_wkslft = (end_inv + bottles) / avg if input_mode == "Add Bottles" else weeks
+
 
                 results.append({
                     'Item': item,
                     usage_option: avg,
                     'End Inv': end_inv,
-                    'Current Weeks Left': round(end_inv / avg, 2) if avg else 0,
+                    'Current Weeks Left': round(end_inv / avg, 2) if avg and avg > 0 else 0,
                     'Add Bottles': round(bottles, 2),
                     'Add Weeks': round(weeks, 2),
-                    'Post-Delivery Inv': round(end_inv + bottles if input_mode == "Add Bottles" else weeks * avg, 2),
-                    'Post-Delivery WksLft': round((end_inv + bottles) / avg, 2) if avg else 0,
+                    'Post-Delivery Inv': round(post_delivery_inv, 2),
+                    'Post-Delivery WksLft': round(post_delivery_wkslft, 2),
                 })
             result_df = pd.DataFrame(results)
             st.dataframe(result_df, use_container_width=True)
