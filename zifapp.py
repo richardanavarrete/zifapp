@@ -184,10 +184,9 @@ if uploaded_file:
                     'End Inv': end_inv,
                     'Current Weeks Left': round(end_inv / avg, 2) if avg else 0,
                     'Add Bottles': round(bottles, 2),
-                    'Desired Weeks': round(weeks, 2),
-                    'Post-Inv': round(end_inv + bottles if input_mode == "Add Bottles" else weeks * avg, 2),
-                    'Calc Weeks': round((end_inv + bottles) / avg, 2) if avg else 0,
-                    'Calc Bottles': round(max(weeks * avg - end_inv, 0), 2) if avg else 0
+                    'Add Weeks': round(weeks, 2),
+                    'Post-Delivery Inv': round(end_inv + bottles if input_mode == "Add Bottles" else weeks * avg, 2),
+                    'Post-Delivery WksLft': round((end_inv + bottles) / avg, 2) if avg else 0,
                 })
             result_df = pd.DataFrame(results)
             st.dataframe(result_df, use_container_width=True)
