@@ -9,14 +9,11 @@ from datetime import datetime
 VOLUME_CONFIG = {
     "16oz": 16, "32oz": 32, "Pitcher": 64,
     "Liquor Pour": 1.5, "Wine Pour": 6,
-    "Half Barrel Keg": 1984, "50L Keg": 1690,
+    "Half Barrel Keg": 1984, "Sixtel Keg": 661,
     "Standard Liquor/Wine Bottle": 25.4, "Liter Liquor Bottle": 33.8,
 }
 ITEM_CONTAINER_MAP = {
     "BEER DFT Alaskan Amber": "Half Barrel Keg",
-    "BEER DFT Blue Moon Belgian White": "Half Barrel Keg",
-    "BEER DFT Bud Light": "Half Barrel Keg",
-    "
     # ... etc
 }
 """
@@ -152,4 +149,39 @@ if uploaded_file:
                     item_name = row['Item Name']
                     qty_sold = row['Qty']
                     
-                    # For bottled beer,
+                    # For bottled beer, theoretical usage is a simple 1-to-1 count
+                    theoretical_usage = qty_sold
+                    
+                    actual_usage = actual_usage_df.loc[item_name, 'Usage'] if item_name in actual_usage_df.index else 0
+                    
+                    variance = actual_usage - theoretical_usage
+
+                    variance_data.append({
+                        "Item": item_name,
+                        "Actual Usage (Bottles)": actual_usage,
+                        "Theoretical Usage (Sold)": theoretical_usage,
+                        "Variance (Bottles)": variance
+                    })
+
+                if variance_data:
+                    variance_df = pd.DataFrame(variance_data)
+                    
+                    def style_variance(val):
+                        if abs(val) >= 2: return 'background-color: #ff4b4b' # Variance of 2+ bottles
+                        elif abs(val) >= 1: return 'background-color: #ffb400'# Variance of 1+ bottle
+                        return ''
+
+                    st.dataframe(
+                        variance_df.style.format({
+                            "Actual Usage (Bottles)": "{:.1f}",
+                            "Theoretical Usage (Sold)": "{:.0f}",
+                            "Variance (Bottles)": "{:.1f}"
+                        }).applymap(style_variance, subset=['Variance (Bottles)']),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.warning("No bottled beer sales found in the uploaded Sales Mix file. Please check the 'Item Name' column to ensure names match your inventory.")
+
+            except Exception as e:
+                st.error(f"Could not process the Sales Mix file. Please check the file format and column names ('Item Name', 'Qty'). Error: {e}")
