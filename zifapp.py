@@ -123,7 +123,7 @@ if uploaded_file:
         csv = summary_df.to_csv(index=False).encode('utf-8')
         st.download_button("Download CSV", data=csv, file_name="beverage_usage_summary.csv")
 
-    with tab_ordering_worksheet:
+with tab_ordering_worksheet:
         st.subheader("🧪 Ordering Worksheet: Inventory Planning")
 
         mode = st.radio("Select View Mode:", ["By Vendor", "By Category"])
@@ -162,15 +162,18 @@ if uploaded_file:
             elif "JUICE" in upper_item: category_map["Juice"].append(item)
             elif "BAR CONS" in upper_item: category_map["Bar Consumables"].append(item)
 
+        if mode == "By Vendor":
+            vendor = st.selectbox("Select Vendor", list(vendor_map.keys()), key="vendor_select")
+            base_items = vendor_map[vendor]
+
         else:
-            selected_categories = st.multiselect("Select Categories", list(category_map.keys()), default=list(category_map.keys()))
+            selected_categories = st.multiselect("Select Categories", list(category_map.keys()), default=list(category_map.keys()), key="category_multiselect")
             base_items = [item for cat in selected_categories for item in category_map[cat]]
 
         usage_option = st.radio("Select usage average for calculation:", [
             "10Wk Avg", "4Wk Avg", "YTD Avg", "Low4 Avg", "High4 Avg"
         ], index=0)
 
-        # Filter editable_data based on base_items (which are now cleaned)
         editable_data = summary_df[summary_df['Item'].isin(base_items)][['Item', 'End Inv', usage_option]].copy()
         editable_data['Current Weeks Left'] = editable_data.apply(
             lambda row: round(row['End Inv'] / row[usage_option], 2) if row[usage_option] and row[usage_option] > 0 else 0, axis=1)
@@ -211,8 +214,6 @@ if uploaded_file:
                 })
             result_df = pd.DataFrame(results)
             st.dataframe(result_df, use_container_width=True)
-
-# ... your existing code for the 'Calculate' button and result_df ...
 
     # NEW: Add this collapsible expander at the end of the script
     with st.expander("Show Debug Information"):
