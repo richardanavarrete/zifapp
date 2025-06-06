@@ -158,7 +158,7 @@ if uploaded_file:
             selected_categories = st.multiselect("Select Categories", list(category_map.keys()), default=list(category_map.keys()))
             base_items = [item for cat in selected_categories for item in category_map[cat]]
 
-        usage_option = st.radio("Select usage average for calculation:", ["10wk Avg", "4Wk Avg", "YTD Avg, ATH, Low4AVG, High4AVG"], index=0)
+        usage_option = st.radio("Select usage average for calculation:", ["10wk Avg", "4Wk Avg", "YTD Avg", "ATH", "Low4AVG", "High4AVG"], index=0)
 
         editable_data = summary_df[summary_df['Item'].isin(base_items)][['Item', 'End Inv', usage_option]].copy()
         editable_data['Current Weeks Left'] = editable_data.apply(lambda row: round(row['End Inv'] / row[usage_option], 2) if row[usage_option] else 0, axis=1)
