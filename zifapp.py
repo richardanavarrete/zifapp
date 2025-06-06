@@ -69,10 +69,7 @@ if uploaded_file:
                 return round(n / d, 2)
             return None
         
-        # Logic for Highest 4: Average of the 4 largest values overall
         avg_of_highest_4 = usage.nlargest(4).mean() if not usage.empty else None
-
-        # Logic for Lowest 4: Filter out zeros, then find the average of the 4 smallest non-zero values
         non_zero_usage = usage[usage > 0]
         avg_of_lowest_4_non_zero = non_zero_usage.nsmallest(4).mean() if not non_zero_usage.empty else None
 
@@ -82,14 +79,14 @@ if uploaded_file:
             '10Wk Avg': round(last_10.mean(), 2) if not last_10.empty else None,
             '4Wk Avg': round(last_4.mean(), 2) if not last_4.empty else None,
             'AT-High': round(usage.max(), 2),
-            '4WkLow Avg (Ø)': round(avg_of_lowest_4_non_zero, 2) if pd.notna(avg_of_lowest_4_non_zero) else None,
-            '4WkHigh Avg': round(avg_of_highest_4, 2) if pd.notna(avg_of_highest_4) else None,
-            'WksRmn(10Wk)': safe_div(inventory.iloc[-1], last_10.mean()),
-            'WksRmn(4Wk)': safe_div(inventory.iloc[-1], last_4.mean()),
-            'WksRmn(YTD)': safe_div(inventory.iloc[-1], ytd_avg),
-            'WksRmn(ATH)': safe_div(inventory.iloc[-1], usage.max()),
-            'WksRmn(Lo4)': safe_div(inventory.iloc[-1], avg_of_lowest_4_non_zero),
-            'WksRmn(Hi4)': safe_div(inventory.iloc[-1], avg_of_highest_4)
+            'Avg of Lowest 4 (non-zero)': round(avg_of_lowest_4_non_zero, 2) if pd.notna(avg_of_lowest_4_non_zero) else None,
+            'Avg of Highest 4': round(avg_of_highest_4, 2) if pd.notna(avg_of_highest_4) else None,
+            'Wks Rmn (YTD Avg)': safe_div(inventory.iloc[-1], ytd_avg),
+            'Wks Rmn (10Wk Avg)': safe_div(inventory.iloc[-1], last_10.mean()),
+            'Wks Rmn (4Wk Avg)': safe_div(inventory.iloc[-1], last_4.mean()),
+            'Wks Rmn (ATH)': safe_div(inventory.iloc[-1], usage.max()),
+            'Wks Rmn (Lowest 4)': safe_div(inventory.iloc[-1], avg_of_lowest_4_non_zero),
+            'Wks Rmn (Highest 4)': safe_div(inventory.iloc[-1], avg_of_highest_4)
         })
 
     summary_df = full_df.groupby('Item').apply(compute_metrics).reset_index()
@@ -115,12 +112,11 @@ if uploaded_file:
 
         format_dict = {col: '{:,.2f}' for col in summary_df.select_dtypes(include=['float64', 'float32']).columns}
         
-        # CORRECTED this subset to use your new column names
         styled_df = summary_df.style.format(format_dict, na_rep="-").applymap(
             highlight_weeks_remaining, threshold=threshold,
             subset=[
-                'WksRmn(10Wk)', 'WksRmn(4Wk)', 'WksRmn(YTD)',
-                'WksRmn(ATH)', 'WksRmn(Lo4)', 'WksRmn(Hi4)'
+                'Wks Rmn (10Wk Avg)', 'Wks Rmn (4Wk Avg)', 'Wks Rmn (YTD Avg)',
+                'Wks Rmn (ATH)', 'Wks Rmn (Lowest 4)', 'Wks Rmn (Highest 4)'
             ]
         )
         st.dataframe(styled_df, use_container_width=True)
@@ -167,10 +163,9 @@ if uploaded_file:
             selected_categories = st.multiselect("Select Categories", list(category_map.keys()), default=list(category_map.keys()), key="category_multiselect")
             base_items = [item for cat in selected_categories for item in category_map.get(cat, [])]
 
-        # CORRECTED this list to use your new metric names
         usage_option = st.radio(
             "Select usage average for calculation:",
-            ["10Wk Avg", "4Wk Avg", "YTD Avg", "4WkLow Avg (Ø)", "4WkHigh Avg"],
+            ["10Wk Avg", "4Wk Avg", "YTD Avg", "Avg of Lowest 4 (non-zero)", "Avg of Highest 4"],
             index=1
         )
         
@@ -181,14 +176,37 @@ if uploaded_file:
         editable_df['Add Bottles'] = 0.0
         editable_df['Add Weeks'] = 0.0
 
+        # --- Display the data editor with explicit column configurations ---
         edited_df = st.data_editor(
             editable_df,
             num_rows="dynamic",
             use_container_width=True,
             key="order_editor",
             column_config={
-                "End Inv": st.column_config.NumberColumn(format="%.2f"),
-                usage_option: st.column_config.NumberColumn(format="%.2f"),
+                "Item": st.column_config.TextColumn(
+                    "Item",
+                    disabled=True,
+                ),
+                "End Inv": st.column_config.NumberColumn(
+                    "On Hand",
+                    format="%.2f",
+                    disabled=True,
+                ),
+                usage_option: st.column_config.NumberColumn(
+                    "Avg Usage",
+                    format="%.2f",
+                    disabled=True,
+                ),
+                "Add Bottles": st.column_config.NumberColumn(
+                    "Order (Btls)",
+                    min_value=0,
+                    format="%d",
+                ),
+                "Add Weeks": st.column_config.NumberColumn(
+                    "Order (Wks)",
+                    min_value=0,
+                    format="%d",
+                )
             }
         )
 
@@ -231,7 +249,6 @@ if uploaded_file:
                 csv_order = result_df.to_csv(index=False).encode('utf-8')
                 st.download_button("Download Order CSV", data=csv_order, file_name="beverage_order_worksheet.csv")
 
-    # --- Debug Information Expander ---
     with st.expander("Show Debug Information"):
         st.subheader("Debug Info")
         st.markdown("**Unique Items found in Excel file:**")
