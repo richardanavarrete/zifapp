@@ -154,7 +154,7 @@ if uploaded_file:
             base_items = [item for cat in selected_categories for item in category_map[cat]]
 
         usage_option = st.radio("Select usage average for calculation:", [
-            "10Wk Avg", "4Wk Avg", "YTD Avg", "ATH", "Low4 Avg", "High4 Avg"
+            "10Wk Avg", "4Wk Avg", "YTD Avg", "Low4 Avg", "High4 Avg"
         ], index=0)
 
         editable_data = summary_df[summary_df['Item'].isin(base_items)][['Item', 'End Inv', usage_option]].copy()
