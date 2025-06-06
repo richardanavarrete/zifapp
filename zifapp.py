@@ -31,7 +31,7 @@ if uploaded_file:
                 if isinstance(date_value, datetime):
                     df['Date'] = pd.to_datetime(date_value)
                 else:
-                    df['Date'] = pd.NaT # Use NaT for proper datetime handling
+                    df['Date'] = pd.NaT
                 compiled_data.append(df)
             except Exception as e:
                 st.warning(f"Skipped sheet {sheet}: {e}")
@@ -137,7 +137,7 @@ if uploaded_file:
         for vendor, items in vendor_map.items():
             vendor_map[vendor] = [item.strip() for item in items]
 
-        category_map = {cat: [] for cat in ["Well", "Whiskey", "Vodka", "Gin", "Tequila", "Rum", "Scotch", "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice", "Bar Consumables"]}
+        category_map = {cat: [] for cat in ["Well", "Whiskey", "Vodka", "Gin", "T tequila", "Rum", "Scotch", "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice", "Bar Consumables"]}
         for item in summary_df['Item']:
             upper_item = item.upper().strip()
             if "WELL" in upper_item: category_map["Well"].append(item)
@@ -166,47 +166,36 @@ if uploaded_file:
         usage_option = st.radio(
             "Select usage average for calculation:",
             ["10Wk Avg", "4Wk Avg", "YTD Avg", "Avg of Lowest 4 (non-zero)", "Avg of Highest 4"],
-            index=1
+            index=1,
+            key="usage_radio"
         )
         
+        # --- NEW: Create a dataframe with a STATIC structure for the editor ---
         filtered_df = summary_df[summary_df['Item'].isin(base_items)]
-        cols_to_edit = ['Item', 'End Inv', usage_option]
-        editable_df = filtered_df[cols_to_edit].copy()
-        editable_df[usage_option] = pd.to_numeric(editable_df[usage_option], errors='coerce').fillna(0)
-        editable_df['Add Bottles'] = 0.0
-        editable_df['Add Weeks'] = 0.0
+        
+        # Create the editor dataframe with fixed column names
+        editor_df_data = {
+            'Item': filtered_df['Item'],
+            'On Hand': filtered_df['End Inv'],
+            'Selected Avg': filtered_df[usage_option],
+            'Add Bottles': 0.0,
+            'Add Weeks': 0.0
+        }
+        editable_df = pd.DataFrame(editor_df_data)
+        editable_df['Selected Avg'] = pd.to_numeric(editable_df['Selected Avg'], errors='coerce').fillna(0)
 
-        # --- Display the data editor with explicit column configurations ---
+        # --- Display the data editor with the static structure ---
         edited_df = st.data_editor(
             editable_df,
             num_rows="dynamic",
             use_container_width=True,
             key="order_editor",
             column_config={
-                "Item": st.column_config.TextColumn(
-                    "Item",
-                    disabled=True,
-                ),
-                "End Inv": st.column_config.NumberColumn(
-                    "On Hand",
-                    format="%.2f",
-                    disabled=True,
-                ),
-                usage_option: st.column_config.NumberColumn(
-                    "Avg Usage",
-                    format="%.2f",
-                    disabled=True,
-                ),
-                "Add Bottles": st.column_config.NumberColumn(
-                    "Order (Btls)",
-                    min_value=0,
-                    format="%d",
-                ),
-                "Add Weeks": st.column_config.NumberColumn(
-                    "Order (Wks)",
-                    min_value=0,
-                    format="%d",
-                )
+                "Item": st.column_config.TextColumn(disabled=True),
+                "On Hand": st.column_config.NumberColumn(format="%.2f", disabled=True),
+                "Selected Avg": st.column_config.NumberColumn(f"Avg Usage ({usage_option})", format="%.2f", disabled=True),
+                "Add Bottles": st.column_config.NumberColumn("Order (Btls)", min_value=0, format="%d"),
+                "Add Weeks": st.column_config.NumberColumn("Order (Wks)", min_value=0, format="%d")
             }
         )
 
@@ -214,8 +203,10 @@ if uploaded_file:
 
         if st.button("Calculate Order"):
             results = []
+            # Use the 'edited_df' which contains the user's edits
             for _, row in edited_df.iterrows():
-                item, end_inv, avg_usage = row['Item'], row['End Inv'], row[usage_option]
+                # Use the static column names from the editor
+                item, end_inv, avg_usage = row['Item'], row['On Hand'], row['Selected Avg']
                 add_bottles, add_weeks = row['Add Bottles'], row['Add Weeks']
 
                 def final_safe_div(n, d):
