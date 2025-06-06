@@ -2,9 +2,13 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
+# --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
+st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
+st.title("🍺 Bev Usage Analyzer")
+
 # --- CONFIGURATION ---
+# Please review and adjust these values to match your business operations.
 # Note: The complex configurations are commented out while we focus on bottled beer.
-# We will use these again when we add draft and liquor to the analysis.
 """
 VOLUME_CONFIG = {
     "16oz": 16, "32oz": 32, "Pitcher": 64,
@@ -18,15 +22,19 @@ ITEM_CONTAINER_MAP = {
 }
 """
 
-st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
-st.title("🍺 Bev Usage Analyzer")
-
+# --- Caching the data processing ---
 @st.cache_data
 def load_and_process_data(uploaded_file):
+    """
+    Reads the uploaded Excel file, processes all data, and calculates summary metrics.
+    This function is cached to prevent re-running on every widget interaction.
+    """
     xls = pd.ExcelFile(uploaded_file)
     sheet_names = xls.sheet_names
+
     original_order_df = xls.parse(sheet_names[0], skiprows=4)
     original_order = original_order_df.iloc[:, 0].dropna().astype(str).tolist()
+
     compiled_data = []
     for sheet in sheet_names:
         try:
@@ -41,6 +49,7 @@ def load_and_process_data(uploaded_file):
             compiled_data.append(df)
         except Exception:
             continue
+            
     full_df = pd.concat(compiled_data, ignore_index=True)
     full_df = full_df.dropna(subset=['Item', 'Usage'])
     full_df['Item'] = full_df['Item'].astype(str).str.strip()
@@ -56,12 +65,15 @@ def load_and_process_data(uploaded_file):
         dates = group['Date']
         last_10, last_4 = usage.tail(10), usage.tail(4)
         ytd_avg = group[dates.dt.year == datetime.now().year]['Usage'].mean() if pd.api.types.is_datetime64_any_dtype(dates) else None
+        
         def safe_div(n, d):
             if pd.notna(d) and d > 0: return round(n / d, 2)
             return None
+            
         avg_of_highest_4 = usage.nlargest(4).mean() if not usage.empty else None
         non_zero_usage = usage[usage > 0]
         avg_of_lowest_4_non_zero = non_zero_usage.nsmallest(4).mean() if not non_zero_usage.empty else None
+        
         return pd.Series({
             'End Inv': round(inventory.iloc[-1], 2), 'YTD Avg': round(ytd_avg, 2) if pd.notna(ytd_avg) else None,
             '10Wk Avg': round(last_10.mean(), 2) if not last_10.empty else None,
@@ -96,10 +108,10 @@ def load_and_process_data(uploaded_file):
         upper_item = item.upper().strip()
         if "WELL" in upper_item: category_map["Well"].append(item)
         elif "BEER BTL" in upper_item: category_map["Bottled Beer"].append(item)
-        # ... and so on for all other categories
+        # ... and so on
     return summary_df, full_df, vendor_map, category_map
 
-# --- Main App ---
+# --- Main App UI ---
 uploaded_file = st.file_uploader("Upload BEVWEEKLY Excel File", type="xlsx")
 
 if uploaded_file:
@@ -112,17 +124,17 @@ if uploaded_file:
     tab_summary, tab_ordering_worksheet, tab_sales_analysis = st.tabs(["📊 Summary", "🧪 Ordering Worksheet", "🔬 Sales Mix Analysis"])
 
     with tab_summary:
-        # Code for summary tab is unchanged and remains here...
+        # Code for summary tab...
         pass
 
     with tab_ordering_worksheet:
-        # Code for ordering worksheet is unchanged and remains here...
+        # Code for ordering worksheet...
         pass
 
     with tab_sales_analysis:
         st.subheader("Sales vs. Actual Usage Variance (Bottled Beer Only)")
         st.markdown("""
-        This tool compares what you **sold** (from a Point-of-Sale report) to what you **actually used** (from your inventory count).
+        This tool compares what you **sold** to what you **actually used**.
         We are currently focusing only on **Bottled Beer** to verify the logic.
         """)
 
@@ -140,8 +152,6 @@ if uploaded_file:
                 
                 bottled_beer_items = category_map.get("Bottled Beer", [])
                 
-                # Filter sales data to only include bottled beer
-                # This assumes item names in sales mix match inventory item names
                 sales_df['Item Name'] = sales_df['Item Name'].str.strip()
                 filtered_sales_df = sales_df[sales_df['Item Name'].isin(bottled_beer_items)]
 
@@ -149,11 +159,8 @@ if uploaded_file:
                     item_name = row['Item Name']
                     qty_sold = row['Qty']
                     
-                    # For bottled beer, theoretical usage is a simple 1-to-1 count
                     theoretical_usage = qty_sold
-                    
                     actual_usage = actual_usage_df.loc[item_name, 'Usage'] if item_name in actual_usage_df.index else 0
-                    
                     variance = actual_usage - theoretical_usage
 
                     variance_data.append({
@@ -165,20 +172,18 @@ if uploaded_file:
 
                 if variance_data:
                     variance_df = pd.DataFrame(variance_data)
-                    
                     def style_variance(val):
-                        if abs(val) >= 2: return 'background-color: #ff4b4b' # Variance of 2+ bottles
-                        elif abs(val) >= 1: return 'background-color: #ffb400'# Variance of 1+ bottle
+                        if abs(val) >= 2: return 'background-color: #ff4b4b'
+                        elif abs(val) >= 1: return 'background-color: #ffb400'
                         return ''
-
+                    
                     st.dataframe(
                         variance_df.style.format({
                             "Actual Usage (Bottles)": "{:.1f}",
                             "Theoretical Usage (Sold)": "{:.0f}",
                             "Variance (Bottles)": "{:.1f}"
                         }).applymap(style_variance, subset=['Variance (Bottles)']),
-                        use_container_width=True,
-                        hide_index=True
+                        use_container_width=True, hide_index=True
                     )
                 else:
                     st.warning("No bottled beer sales found in the uploaded Sales Mix file. Please check the 'Item Name' column to ensure names match your inventory.")
