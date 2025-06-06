@@ -80,14 +80,14 @@ if uploaded_file:
             '10Wk Avg': round(last_10.mean(), 2) if not last_10.empty else None,
             '4Wk Avg': round(last_4.mean(), 2) if not last_4.empty else None,
             'AT-High': round(usage.max(), 2),
-            'Avg of Lowest 4 (non-zero)': round(avg_of_lowest_4_non_zero, 2) if pd.notna(avg_of_lowest_4_non_zero) else None,
-            'Avg of Highest 4': round(avg_of_highest_4, 2) if pd.notna(avg_of_highest_4) else None,
-            'Wks Rmn (YTD Avg)': safe_div(inventory.iloc[-1], ytd_avg),
-            'Wks Rmn (10Wk Avg)': safe_div(inventory.iloc[-1], last_10.mean()),
-            'Wks Rmn (4Wk Avg)': safe_div(inventory.iloc[-1], last_4.mean()),
-            'Wks Rmn (ATH)': safe_div(inventory.iloc[-1], usage.max()),
-            'Wks Rmn (Lowest 4)': safe_div(inventory.iloc[-1], avg_of_lowest_4_non_zero),
-            'Wks Rmn (Highest 4)': safe_div(inventory.iloc[-1], avg_of_highest_4)
+            'Low4wk Avg': round(avg_of_lowest_4_non_zero, 2) if pd.notna(avg_of_lowest_4_non_zero) else None,
+            'High4wk Avg': round(avg_of_highest_4, 2) if pd.notna(avg_of_highest_4) else None,
+            'WksRmn(YTD)': safe_div(inventory.iloc[-1], ytd_avg),
+            'WksRmn(10Wk)': safe_div(inventory.iloc[-1], last_10.mean()),
+            'WksRmn(4Wk)': safe_div(inventory.iloc[-1], last_4.mean()),
+            'WksRmn(ATH)': safe_div(inventory.iloc[-1], usage.max()),
+            'WksRmn(Lo4)': safe_div(inventory.iloc[-1], avg_of_lowest_4_non_zero),
+            'WksRmn(Hi4)': safe_div(inventory.iloc[-1], avg_of_highest_4)
         })
 
     summary_df = full_df.groupby('Item').apply(compute_metrics).reset_index()
@@ -116,7 +116,7 @@ if uploaded_file:
         styled_df = summary_df.style.format(format_dict, na_rep="-").applymap(
             highlight_weeks_remaining, threshold=threshold,
             subset=[
-                'Wks Rmn (10Wk Avg)', 'Wks Rmn (4Wk Avg)', 'Wks Rmn (YTD Avg)',
+                'WksRmn(10Wk)', 'WksRmn(4Wk)', 'WksRmn(ATH)',
                 'Wks Rmn (ATH)', 'Wks Rmn (Lowest 4)', 'Wks Rmn (Highest 4)'
             ]
         )
@@ -166,7 +166,7 @@ if uploaded_file:
 
         usage_option = st.radio(
             "Select usage average for calculation:",
-            ["10Wk Avg", "4Wk Avg", "YTD Avg", "Avg of Lowest 4 (non-zero)", "Avg of Highest 4"],
+            ["10Wk Avg", "4Wk Avg", "YTD Avg", "Low4wk Avg", "High4wk Avg"],
             index=1,
             key="usage_radio"
         )
@@ -175,7 +175,7 @@ if uploaded_file:
         
         editor_df_data = {
             'Item': filtered_df['Item'],
-            'On Hand': filtered_df['End Inv'],
+            'End Inv': filtered_df['End Inv'],
             'Selected Avg': filtered_df[usage_option],
             'Add Bottles': 0, # Use integers for bottle counts
             'Add Weeks': 0    # Use integers for week counts
@@ -186,10 +186,10 @@ if uploaded_file:
         # ADDED: New "Current Wks Left" column
         def temp_safe_div(n, d):
             return round(n / d, 1) if d and pd.notna(d) and d > 0 else 0.0
-        editable_df['Current Wks Left'] = editable_df.apply(lambda row: temp_safe_div(row['On Hand'], row['Selected Avg']), axis=1)
+        editable_df['Current Wks Left'] = editable_df.apply(lambda row: temp_safe_div(row['End Inv'], row['Selected Avg']), axis=1)
 
         # Reorder columns for a more logical layout
-        editable_df = editable_df[['Item', 'On Hand', 'Current Wks Left', 'Selected Avg', 'Add Bottles', 'Add Weeks']]
+        editable_df = editable_df[['Item', 'End Inv', 'Current Wks Left', 'Selected Avg', 'Add Bottles', 'Add Weeks']]
 
         # --- Display the data editor ---
         edited_df = st.data_editor(
@@ -200,8 +200,8 @@ if uploaded_file:
             key="order_editor",
             column_config={
                 "Item": st.column_config.TextColumn(disabled=True),
-                "On Hand": st.column_config.NumberColumn(format="%.2f", disabled=True),
-                "Current Wks Left": st.column_config.NumberColumn(format="%.1f", help="On Hand / Selected Avg", disabled=True),
+                "End Inv": st.column_config.NumberColumn(format="%.2f", disabled=True),
+                "Current Wks Left": st.column_config.NumberColumn(format="%.1f", help="End Inv / Selected Avg", disabled=True),
                 "Selected Avg": st.column_config.NumberColumn(f"Avg Usage ({usage_option})", format="%.2f", disabled=True),
                 "Add Bottles": st.column_config.NumberColumn("Order (Bottles)", min_value=0, step=1, format="%d"),
                 "Add Weeks": st.column_config.NumberColumn("Order (Weeks)", min_value=0, step=1, format="%d")
@@ -213,7 +213,7 @@ if uploaded_file:
         if st.button("Calculate Order"):
             results = []
             for _, row in edited_df.iterrows():
-                item, end_inv, avg_usage = row['Item'], row['On Hand'], row['Selected Avg']
+                item, end_inv, avg_usage = row['Item'], row['End Inv'], row['Selected Avg']
                 add_bottles, add_weeks = row['Add Bottles'], row['Add Weeks']
 
                 def final_safe_div(n, d):
@@ -233,11 +233,11 @@ if uploaded_file:
                 results.append({
                     'Item': item,
                     f'Avg Usage ({usage_option})': avg_usage,
-                    'On Hand': end_inv,
+                    'End Inv': end_inv,
                     'Current Supply (Wks)': final_safe_div(end_inv, avg_usage),
                     'Bottles to Order': round(bottles_to_order, 2),
                     'Weeks to Order': round(weeks_to_order, 2),
-                    'New On Hand': round(new_inv, 2),
+                    'New End Inv': round(new_inv, 2),
                     'New Supply (Wks)': round(weeks_to_order, 2),
                 })
             
