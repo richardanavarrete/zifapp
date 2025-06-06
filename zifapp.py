@@ -125,11 +125,97 @@ if uploaded_file:
 
     with tab_summary:
         st.subheader("Usage Summary")
-        # ... (This tab's code is complete and unchanged)
+        filter_type = st.radio("Filter By:", ["Vendor", "Category"], horizontal=True, key="summary_filter_type")
+        display_df = summary_df
+        download_filename = "beverage_summary_full.csv"
+        if filter_type == "Vendor":
+            vendor_options = ["All Vendors"] + list(vendor_map.keys())
+            selected_vendor = st.selectbox("Select Vendor", options=vendor_options, key="summary_vendor_select")
+            if selected_vendor != "All Vendors":
+                display_df = summary_df[summary_df['Item'].isin(vendor_map.get(selected_vendor, []))]
+                download_filename = f"beverage_summary_{selected_vendor}.csv"
+        elif filter_type == "Category":
+            category_options = ["All Categories"] + list(category_map.keys())
+            selected_category = st.selectbox("Select Category", options=category_options, key="summary_category_select")
+            if selected_category != "All Categories":
+                display_df = summary_df[summary_df['Item'].isin(category_map.get(selected_category, []))]
+                download_filename = f"beverage_summary_{selected_category}.csv"
+        threshold = st.slider("Highlight if weeks remaining is below:", min_value=0.2, max_value=10.0, value=2.0, step=0.1)
+        def highlight_weeks_remaining(val, threshold=2.0):
+            if pd.notna(val) and isinstance(val, (int, float)) and val < threshold: return 'background-color: #ff4b4b'
+            return ''
+        format_dict = {col: '{:,.2f}' for col in display_df.select_dtypes(include=['float64', 'float32']).columns}
+        styled_df = display_df.style.format(format_dict, na_rep="-").applymap(
+            highlight_weeks_remaining, threshold=threshold,
+            subset=['Weeks Remaining (YTD)', 'Weeks Remaining (10 Wk)', 'Weeks Remaining (4 Wk)', 'Weeks Remaining (ATH)', 'Weeks Remaining (Lowest 4)', 'Weeks Remaining (Highest 4)']
+        )
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
+        csv = display_df.to_csv(index=False).encode('utf-8')
+        st.download_button("Download Summary CSV", data=csv, file_name=download_filename)
 
     with tab_ordering_worksheet:
         st.subheader("🧪 Ordering Worksheet: Inventory Planning")
-        # ... (This tab's code is complete and unchanged)
+        mode = st.selectbox("Select View Mode:", ["By Vendor", "By Category"])
+        base_items = []
+        filter_selection = None
+        if mode == "By Vendor":
+            vendor = st.selectbox("Select Vendor", list(vendor_map.keys()), key="vendor_select")
+            base_items = vendor_map.get(vendor, [])
+            filter_selection = vendor
+        else:
+            selected_category = st.selectbox("Select Category", list(category_map.keys()), key="category_select")
+            base_items = category_map.get(selected_category, [])
+            filter_selection = selected_category
+        usage_option = st.selectbox(
+            "Select usage average for calculation:",
+            options=['10-Week Average', '4-Week Average', 'Year-to-Date Average', 'Lowest 4 Average (non-zero)', 'Highest 4 Average'],
+            index=1, key="usage_radio"
+        )
+        worksheet_state_key = f"worksheet_df_{mode}_{filter_selection}_{usage_option}"
+        if 'current_worksheet_key' not in st.session_state or st.session_state.current_worksheet_key != worksheet_state_key:
+            filtered_df = summary_df[summary_df['Item'].isin(base_items)]
+            editor_df_data = {
+                'Item': filtered_df['Item'], 'On Hand': filtered_df['On Hand'],
+                'Selected Avg': filtered_df[usage_option], 'Add Bottles': 0, 'Add Weeks': 0.0
+            }
+            worksheet_df = pd.DataFrame(editor_df_data)
+            worksheet_df['Selected Avg'] = pd.to_numeric(worksheet_df['Selected Avg'], errors='coerce').fillna(0)
+            def temp_safe_div(n, d):
+                return round(n / d, 1) if d and pd.notna(d) and d > 0 else 0.0
+            worksheet_df['Current Wks Left'] = worksheet_df.apply(lambda row: temp_safe_div(row['On Hand'], row['Selected Avg']), axis=1)
+            st.session_state.worksheet_df = worksheet_df[['Item', 'On Hand', 'Current Wks Left', 'Selected Avg', 'Add Bottles', 'Add Weeks']]
+            st.session_state.current_worksheet_key = worksheet_state_key
+            st.session_state.last_edited_column = None
+        edited_df = st.data_editor(
+            st.session_state.worksheet_df, hide_index=True, use_container_width=True, key="order_editor",
+            column_config={
+                "Item": st.column_config.TextColumn(disabled=True),
+                "On Hand": st.column_config.NumberColumn(format="%.2f", disabled=True),
+                "Current Wks Left": st.column_config.NumberColumn(format="%.1f", help="On Hand / Selected Avg", disabled=True),
+                "Selected Avg": st.column_config.NumberColumn(f"Avg Usage ({usage_option})", format="%.2f", disabled=True),
+                "Add Bottles": st.column_config.NumberColumn("Order (Bottles)", min_value=0, step=1, format="%d"),
+                "Add Weeks": st.column_config.NumberColumn("Order For (Weeks)", min_value=0.0, step=0.5, format="%.1f")
+            }
+        )
+        if not edited_df.equals(st.session_state.worksheet_df):
+            if not edited_df['Add Bottles'].equals(st.session_state.worksheet_df['Add Bottles']):
+                st.session_state.last_edited_column = 'Add Bottles'
+            elif not edited_df['Add Weeks'].equals(st.session_state.worksheet_df['Add Weeks']):
+                st.session_state.last_edited_column = 'Add Weeks'
+            new_df = edited_df.copy()
+            if st.session_state.last_edited_column == 'Add Bottles':
+                new_df['Add Weeks'] = new_df.apply(lambda r: (r['On Hand'] + r['Add Bottles']) / r['Selected Avg'] if r['Selected Avg'] > 0 else 0, axis=1)
+            elif st.session_state.last_edited_column == 'Add Weeks':
+                new_df['Add Bottles'] = new_df.apply(lambda r: max(0, (r['Add Weeks'] * r['Selected Avg']) - r['On Hand']), axis=1)
+            st.session_state.worksheet_df = new_df
+            st.rerun()
+        if st.button("Finalize Order"):
+            results = []
+            for _, row in st.session_state.worksheet_df.iterrows():
+                if row['Add Bottles'] > 0 or row['Add Weeks'] > 0:
+                    results.append({'Item': row['Item'], 'Bottles to Order': int(round(row['Add Bottles']))})
+            if results:
+                st.dataframe(pd.DataFrame(results))
 
     with tab_sales_analysis:
         st.subheader("Sales vs. Actual Usage Variance")
@@ -142,44 +228,47 @@ if uploaded_file:
             ITEM_CONTAINER_MAP = {"BEER DFT Alaskan Amber": "Half Barrel Keg", "WHISKEY Buffalo Trace": "Standard Liquor/Wine Bottle"}
             st.json(ITEM_CONTAINER_MAP)
 
-        # UPDATED: File uploader now only accepts .docx
-        sales_mix_file = st.file_uploader("Upload Weekly Sales Mix Word Document", type="docx")
+        sales_mix_file = st.file_uploader("Upload Weekly Sales Mix File", type=["docx", "txt", "csv"])
 
         if sales_mix_file:
             try:
-                # --- NEW: Logic now specifically handles .docx files ---
-                document = docx.Document(sales_mix_file)
-                sales_lines = [p.text.strip() for p in document.paragraphs if p.text.strip()]
+                sales_lines = []
+                if sales_mix_file.name.endswith('.docx'):
+                    document = docx.Document(sales_mix_file)
+                    sales_lines = [p.text.strip() for p in document.paragraphs if p.text.strip()]
+                else:
+                    sales_mix_file.seek(0)
+                    sales_lines = [line.decode('utf-8').strip() for line in sales_mix_file.readlines()]
 
                 with st.expander("Click to view content of uploaded Sales Mix file"):
                     st.code('\n'.join(sales_lines))
 
-                st.markdown("---")
-                st.markdown("#### Please confirm the position of your quantity number:")
-                qty_position = st.number_input(
-                    "On a line with a sold item, which number from the end is the quantity? (1 = last)",
-                    min_value=1, value=1, step=1,
-                    help="If a line reads '123 Bud Light... 45', the quantity is the 1st number from the end."
-                )
-
                 all_inventory_items = list(summary_df['Item'].unique())
-                item_lookup = {re.sub(r'^(BEER BTL|BEER DFT|WHISKEY|VODKA|LIQ|GIN|RUM|SCOTCH|TEQUILA|WINE)\s+', '', item).upper(): item for item in all_inventory_items}
+                item_lookup = {re.sub(r'^(BEER BTL|BEER DFT|WHISKEY|VODKA|LIQ|GIN|RUM|SCOTCH|TEQUILA|WINE)\s+', '', item, flags=re.IGNORECASE).upper(): item for item in all_inventory_items}
                 
                 sales_counts = {}
-                for line in sales_lines:
-                    if not line: continue
-                    found_item = None
-                    for base_name, full_name in item_lookup.items():
-                        if re.search(r'\b' + re.escape(base_name) + r'\b', line.upper()):
-                            found_item = full_name
-                            break
-                    
-                    if found_item:
-                        numbers_on_line = re.findall(r'\d+\.?\d*', line)
-                        if len(numbers_on_line) >= qty_position:
-                            qty_sold = float(numbers_on_line[-qty_position])
-                            sales_counts[found_item] = sales_counts.get(found_item, 0) + qty_sold
-                
+                # Iterate through the file lines with an index, stepping by 7
+                for i in range(len(sales_lines)):
+                    # A line that starts with a number is a quantity line.
+                    # The item name is on the line before it.
+                    current_line = sales_lines[i]
+                    if i > 0 and re.match(r'^\d', current_line):
+                        previous_line = sales_lines[i-1]
+                        
+                        # Find a matching inventory item from the PREVIOUS line
+                        found_item = None
+                        for base_name, full_name in item_lookup.items():
+                            if re.search(r'\b' + re.escape(base_name) + r'\b', previous_line.upper()):
+                                found_item = full_name
+                                break
+                        
+                        if found_item:
+                            # The quantity is the SECOND number on the CURRENT line
+                            numbers_on_line = re.findall(r'\d+', current_line)
+                            if len(numbers_on_line) >= 2:
+                                qty_sold = int(numbers_on_line[1])
+                                sales_counts[found_item] = sales_counts.get(found_item, 0) + qty_sold
+
                 # --- Variance Calculation ---
                 variance_data = []
                 latest_date = full_df['Date'].max()
