@@ -98,7 +98,7 @@ if uploaded_file:
     )
     summary_df = summary_df.sort_values(by='ItemOrder').drop(columns='ItemOrder')
     
-    # Define vendor_map here so it can be used in both tabs
+    # --- Define maps here so they can be used in both tabs ---
     vendor_map = {
         "Breakthru": ["WHISKEY Buffalo Trace", "WHISKEY Bulleit Straight Rye", "WHISKEY Crown Royal", "WHISKEY Crown Royal Regal Apple", "WHISKEY Fireball Cinnamon", "WHISKEY Jack Daniels Black", "WHISKEY Jack Daniels Tennessee Fire", "VODKA Deep Eddy Lime", "VODKA Deep Eddy Orange", "VODKA Deep Eddy Ruby Red", "VODKA Fleischmann's Cherry", "VODKA Fleischmann's Grape", "VODKA Ketel One", "LIQ Amaretto", "LIQ Baileys Irish Cream", "LIQ Chambord", "LIQ Melon", "LIQ Rumpleminze", "LIQ Triple Sec", "LIQ Blue Curacao", "LIQ Butterscotch", "LIQ Peach Schnapps", "LIQ Sour Apple", "LIQ Watermelon Schnapps", "BRANDY Well", "GIN Well", "RUM Well", "SCOTCH Well", "TEQUILA Well", "VODKA Well", "WHISKEY Well", "GIN Tanqueray", "TEQUILA Casamigos Blanco", "TEQUILA Corazon Reposado", "TEQUILA Don Julio Blanco", "RUM Captain Morgan Spiced", "WINE LaMarca Prosecco", "WINE William Wycliff Brut Chateauamp", "BAR CONS Bloody Mary", "JUICE Red Bull", "JUICE Red Bull SF", "JUICE Red Bull Yellow"],
         "Southern": ["WHISKEY Basil Hayden", "WHISKEY Jameson", "WHISKEY Jim Beam", "WHISKEY Makers Mark", "WHISKEY Skrewball Peanut Butter", "VODKA Grey Goose", "VODKA Titos", "TEQUILA Cazadores Reposado", "TEQUILA Patron Silver", "RUM Bacardi Superior White", "RUM Malibu Coconut", "WHISKEY Dewars White Label", "WHISKEY Glenlivet", "LIQ Grand Marnier", "LIQ Jagermeister", "LIQ Kahlua", "LIQ Vermouth Dry", "LIQ Vermouth Sweet", "WINE Kendall Jackson Chardonnay", "WINE La Crema Chardonnay", "WINE La Crema Pinot Noir", "WINE Troublemaker Red", "WINE Villa Sandi Pinot Grigio", "BAR CONS Bitters", "BAR CONS Simple Syrup"],
@@ -109,23 +109,52 @@ if uploaded_file:
     for vendor, items in vendor_map.items():
         vendor_map[vendor] = [item.strip() for item in items]
 
+    category_map = {cat: [] for cat in ["Well", "Whiskey", "Vodka", "Gin", "Tequila", "Rum", "Scotch", "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice", "Bar Consumables"]}
+    for item in summary_df['Item']:
+        upper_item = item.upper().strip()
+        if "WELL" in upper_item: category_map["Well"].append(item)
+        elif "WHISKEY" in upper_item: category_map["Whiskey"].append(item)
+        elif "VODKA" in upper_item: category_map["Vodka"].append(item)
+        elif "GIN" in upper_item: category_map["Gin"].append(item)
+        elif "TEQUILA" in upper_item: category_map["Tequila"].append(item)
+        elif "RUM" in upper_item: category_map["Rum"].append(item)
+        elif "SCOTCH" in upper_item: category_map["Scotch"].append(item)
+        elif "LIQ" in upper_item and "SCHNAPPS" not in upper_item: category_map["Liqueur"].append(item)
+        elif "SCHNAPPS" in upper_item: category_map["Cordials"].append(item)
+        elif "WINE" in upper_item: category_map["Wine"].append(item)
+        elif "BEER DFT" in upper_item: category_map["Draft Beer"].append(item)
+        elif "BEER BTL" in upper_item: category_map["Bottled Beer"].append(item)
+        elif "JUICE" in upper_item: category_map["Juice"].append(item)
+        elif "BAR CONS" in upper_item: category_map["Bar Consumables"].append(item)
+
     # --- UI Tabs ---
     tab_summary, tab_ordering_worksheet = st.tabs(["📊 Summary", "🧪 Ordering Worksheet"])
 
     with tab_summary:
         st.subheader("Usage Summary")
         
-        # --- NEW: Filter by Vendor ---
-        vendor_options = ["All Vendors"] + list(vendor_map.keys())
-        selected_vendor = st.selectbox("Filter by Vendor", options=vendor_options)
+        # --- NEW: Choose filter type ---
+        filter_type = st.radio("Filter By:", ["Vendor", "Category"], horizontal=True)
 
-        if selected_vendor != "All Vendors":
-            vendor_items = vendor_map.get(selected_vendor, [])
-            display_df = summary_df[summary_df['Item'].isin(vendor_items)]
-        else:
-            display_df = summary_df
-        # --- End of new filter logic ---
+        display_df = summary_df # Default to all items
+        download_filename = "beverage_summary_full.csv"
+
+        if filter_type == "Vendor":
+            vendor_options = ["All Vendors"] + list(vendor_map.keys())
+            selected_vendor = st.selectbox("Select Vendor", options=vendor_options)
+            if selected_vendor != "All Vendors":
+                vendor_items = vendor_map.get(selected_vendor, [])
+                display_df = summary_df[summary_df['Item'].isin(vendor_items)]
+                download_filename = f"beverage_summary_{selected_vendor}.csv"
         
+        elif filter_type == "Category":
+            category_options = ["All Categories"] + list(category_map.keys())
+            selected_category = st.selectbox("Select Category", options=category_options)
+            if selected_category != "All Categories":
+                category_items = category_map.get(selected_category, [])
+                display_df = summary_df[summary_df['Item'].isin(category_items)]
+                download_filename = f"beverage_summary_{selected_category}.csv"
+
         threshold = st.slider("Highlight if weeks remaining is below:", min_value=0.2, max_value=10.0, value=2.0, step=0.1)
 
         def highlight_weeks_remaining(val, threshold=2.0):
@@ -135,7 +164,6 @@ if uploaded_file:
 
         format_dict = {col: '{:,.2f}' for col in display_df.select_dtypes(include=['float64', 'float32']).columns}
         
-        # CORRECTED: This subset list now matches your new column names
         styled_df = display_df.style.format(format_dict, na_rep="-").applymap(
             highlight_weeks_remaining, threshold=threshold,
             subset=[
@@ -146,42 +174,25 @@ if uploaded_file:
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
         
         csv = display_df.to_csv(index=False).encode('utf-8')
-        st.download_button("Download Summary CSV", data=csv, file_name=f"beverage_summary_{selected_vendor}.csv")
+        st.download_button("Download Summary CSV", data=csv, file_name=download_filename)
 
     with tab_ordering_worksheet:
         st.subheader("🧪 Ordering Worksheet: Inventory Planning")
-        mode = st.selectbox("View Mode:", ["By Vendor", "By Category"])
-
-        category_map = {cat: [] for cat in ["Well", "Whiskey", "Vodka", "Gin", "Tequila", "Rum", "Scotch", "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice", "Bar Consumables"]}
-        for item in summary_df['Item']:
-            upper_item = item.upper().strip()
-            if "WELL" in upper_item: category_map["Well"].append(item)
-            elif "WHISKEY" in upper_item: category_map["Whiskey"].append(item)
-            elif "VODKA" in upper_item: category_map["Vodka"].append(item)
-            elif "GIN" in upper_item: category_map["Gin"].append(item)
-            elif "TEQUILA" in upper_item: category_map["Tequila"].append(item)
-            elif "RUM" in upper_item: category_map["Rum"].append(item)
-            elif "SCOTCH" in upper_item: category_map["Scotch"].append(item)
-            elif "LIQ" in upper_item and "SCHNAPPS" not in upper_item: category_map["Liqueur"].append(item)
-            elif "SCHNAPPS" in upper_item: category_map["Cordials"].append(item)
-            elif "WINE" in upper_item: category_map["Wine"].append(item)
-            elif "BEER DFT" in upper_item: category_map["Draft Beer"].append(item)
-            elif "BEER BTL" in upper_item: category_map["Bottled Beer"].append(item)
-            elif "JUICE" in upper_item: category_map["Juice"].append(item)
-            elif "BAR CONS" in upper_item: category_map["Bar Consumables"].append(item)
+        
+        mode = st.selectbox("Select View Mode:", ["By Vendor", "By Category"])
 
         base_items = []
         if mode == "By Vendor":
             vendor = st.selectbox("Select Vendor", list(vendor_map.keys()), key="vendor_select")
             base_items = vendor_map.get(vendor, [])
         else: # By Category
-            selected_categories = st.multiselect("Select Categories", list(category_map.keys()), default=list(category_map.keys()), key="category_multiselect")
-            base_items = [item for cat in selected_categories for item in category_map.get(cat, [])]
+            # --- CHANGED to a single-select dropdown box ---
+            selected_category = st.selectbox("Select Category", list(category_map.keys()), key="category_select")
+            base_items = category_map.get(selected_category, [])
 
-        # CORRECTED: This list now matches your new metric names
         usage_option = st.selectbox(
-            "change usage average:",
-            ["10Wk Avg", "4Wk Avg", "YTD Avg", "Low4wk Avg", "High4wk Avg"],
+            "Select usage average for calculation:",
+            options=["10Wk Avg", "4Wk Avg", "YTD Avg", "Low4wk Avg", "High4wk Avg"],
             index=1,
             key="usage_radio"
         )
@@ -258,10 +269,10 @@ if uploaded_file:
                 csv_order = result_df.to_csv(index=False).encode('utf-8')
                 st.download_button("Download Order CSV", data=csv_order, file_name="beverage_order_worksheet.csv")
 
-#    with st.expander("Show Debug Information"):
-#        st.subheader("Debug Info")
-#        st.markdown("**Unique Items found in Excel file:**")
-#        st.write(summary_df['Item'].unique().tolist())
-#        if base_items:
-#            st.markdown("**Items currently selected for the worksheet above:**")
-#            st.write(base_items)
+    with st.expander("Show Debug Information"):
+        st.subheader("Debug Info")
+        st.markdown("**Unique Items found in Excel file:**")
+        st.write(summary_df['Item'].unique().tolist())
+        if 'base_items' in locals() and base_items:
+            st.markdown("**Items currently selected for the worksheet above:**")
+            st.write(base_items)
