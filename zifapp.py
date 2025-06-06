@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import re # Import the regular expressions library
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
@@ -15,10 +16,8 @@ def load_and_process_data(uploaded_file):
     """
     xls = pd.ExcelFile(uploaded_file)
     sheet_names = xls.sheet_names
-
     original_order_df = xls.parse(sheet_names[0], skiprows=4)
     original_order = original_order_df.iloc[:, 0].dropna().astype(str).tolist()
-
     compiled_data = []
     for sheet in sheet_names:
         try:
@@ -33,7 +32,6 @@ def load_and_process_data(uploaded_file):
             compiled_data.append(df)
         except Exception:
             continue
-            
     full_df = pd.concat(compiled_data, ignore_index=True)
     full_df = full_df.dropna(subset=['Item', 'Usage'])
     full_df['Item'] = full_df['Item'].astype(str).str.strip()
@@ -49,15 +47,12 @@ def load_and_process_data(uploaded_file):
         dates = group['Date']
         last_10, last_4 = usage.tail(10), usage.tail(4)
         ytd_avg = group[dates.dt.year == datetime.now().year]['Usage'].mean() if pd.api.types.is_datetime64_any_dtype(dates) else None
-        
         def safe_div(n, d):
             if pd.notna(d) and d > 0: return round(n / d, 2)
             return None
-            
         avg_of_highest_4 = usage.nlargest(4).mean() if not usage.empty else None
         non_zero_usage = usage[usage > 0]
         avg_of_lowest_4_non_zero = non_zero_usage.nsmallest(4).mean() if not non_zero_usage.empty else None
-        
         return pd.Series({
             'End Inv': round(inventory.iloc[-1], 2), 'YTD Avg': round(ytd_avg, 2) if pd.notna(ytd_avg) else None,
             '10Wk Avg': round(last_10.mean(), 2) if not last_10.empty else None,
@@ -126,125 +121,86 @@ if uploaded_file:
         # Code for this tab is complete and works...
         pass
 
+    # --- Sales Mix Analysis Tab ---
     with tab_sales_analysis:
         st.subheader("Sales vs. Actual Usage Variance")
-        st.markdown("This tool analyzes the difference between items sold (from your POS) and items used (from your inventory count).")
-        
-        # --- Configuration moved inside an expander ---
-        with st.expander("Click to view and edit Sales Mix Configuration"):
-            st.markdown("##### 1. Pour & Container Volumes (in ounces)")
-            st.warning("These values must be accurate for calculations to be correct.")
-            VOLUME_CONFIG = {
-                "16oz": 16, "32oz": 32, "Pitcher": 64, "Liquor Pour": 1.5, "Wine Pour": 6,
-                "Half Barrel Keg": 1984, "Sixtel Keg": 661,
-                "Standard Liquor/Wine Bottle": 25.4, "Liter Liquor Bottle": 33.8,
-            }
-            st.json(VOLUME_CONFIG)
+        st.markdown("""
+        This tool scans your text-based Sales Mix report to compare what you **sold** to what you **actually used**.
+        **NOTE:** This version is designed to work with simple, single-line items like **Bottled Beer and Liquor**. Draft beer is not yet supported.
+        """)
 
-            st.markdown("##### 2. Inventory Item to Container Mapping")
-            st.warning("You must map every DRAFT and LIQUOR/WINE item you want to analyze to its container size.")
-            ITEM_CONTAINER_MAP = {
-                "BEER DFT Alaskan Amber": "Half Barrel Keg", "WHISKEY Buffalo Trace": "Standard Liquor/Wine Bottle",
-                # Add all other draft, liquor, and wine items here...
-            }
-            st.json(ITEM_CONTAINER_MAP)
-
-        sales_mix_file = st.file_uploader("Upload Weekly Sales Mix Excel File", type=["xlsx", "csv"])
+        sales_mix_file = st.file_uploader("Upload Weekly Sales Mix File", type=["txt", "csv"])
 
         if sales_mix_file:
             try:
-                sales_df = pd.read_excel(sales_mix_file) if sales_mix_file.name.endswith('xlsx') else pd.read_csv(sales_mix_file)
-                sales_df.columns = [col.strip() for col in sales_df.columns]
+                # --- New Text-Scanning Logic ---
+                sales_mix_lines = [line.decode('utf-8').strip() for line in sales_mix_file.readlines()]
                 
-                st.markdown("---")
-                st.markdown("#### Please confirm your column names:")
+                # Create a list of items we can easily parse (bottled beer, liquor, wine)
+                simple_parse_items = (
+                    category_map.get("Bottled Beer", []) +
+                    category_map.get("Whiskey", []) +
+                    category_map.get("Vodka", []) +
+                    category_map.get("Gin", []) +
+                    category_map.get("Tequila", []) +
+                    category_map.get("Rum", []) +
+                    category_map.get("Scotch", []) +
+                    category_map.get("Liqueur", []) +
+                    category_map.get("Cordials", []) +
+                    category_map.get("Wine", [])
+                )
                 
-                # --- NEW: User selects which columns to use ---
-                col1, col2 = st.columns(2)
-                with col1:
-                    item_col = st.selectbox("Which column contains the ITEM NAMES?", sales_df.columns)
-                with col2:
-                    qty_col = st.selectbox("Which column contains the QUANTITY SOLD?", sales_df.columns)
+                # Create a simple lookup from base name to full inventory name
+                # e.g., "BUD LIGHT" -> "BEER BTL Bud Light"
+                item_lookup = {item.split()[-1].upper(): item for item in simple_parse_items}
 
-                total_volume_sold_by_item = {}
-                all_inventory_items = list(summary_df['Item'].unique())
+                sales_counts = {}
+                for line in sales_mix_lines:
+                    # Find a number at the end of the line
+                    match = re.search(r'(\d+)$', line)
+                    if match:
+                        quantity = int(match.group(1))
+                        # Find which item this line corresponds to
+                        for base_name, full_name in item_lookup.items():
+                            if base_name in line.upper():
+                                sales_counts[full_name] = sales_counts.get(full_name, 0) + quantity
+                                break # Stop searching once we find a match on this line
 
-                def get_inventory_item_and_pour_oz(sales_name):
-                    sales_name_upper = sales_name.upper()
-                    # Check for exact match first (bottled beer, simple liquors/wines)
-                    if sales_name in all_inventory_items:
-                        if "BEER BTL" in sales_name_upper: return sales_name, 1, 'count'
-                        if "WINE" in sales_name_upper: return sales_name, VOLUME_CONFIG["Wine Pour"], 'volume'
-                        return sales_name, VOLUME_CONFIG["Liquor Pour"], 'volume'
-                    # Check for keyword match (draft beer)
-                    for keyword in ["16oz", "32oz", "Pitcher"]:
-                        if sales_name_upper.startswith(keyword.upper()):
-                            base_name = sales_name[len(keyword):].strip().upper()
-                            for inv_item in all_inventory_items:
-                                if base_name in inv_item.upper() and "BEER DFT" in inv_item.upper():
-                                    return inv_item, VOLUME_CONFIG.get(keyword), 'volume'
-                    # Final check for partial match (e.g. "Buffalo Trace" in sales -> "WHISKEY Buffalo Trace")
-                    for inv_item in all_inventory_items:
-                        if sales_name_upper in inv_item.upper():
-                           if "WINE" in inv_item.upper(): return inv_item, VOLUME_CONFIG["Wine Pour"], 'volume'
-                           return inv_item, VOLUME_CONFIG["Liquor Pour"], 'volume'
-                    return None, None, None
-
-                for _, row in sales_df.iterrows():
-                    sales_item_name = row[item_col]
-                    qty_sold = row[qty_col]
-                    if pd.isna(sales_item_name) or pd.isna(qty_sold): continue
-                    
-                    inv_item, pour_value, sale_type = get_inventory_item_and_pour_oz(sales_item_name)
-
-                    if inv_item:
-                        current_total = total_volume_sold_by_item.get(inv_item, {'type': sale_type, 'total': 0})
-                        current_total['total'] += qty_sold * pour_value
-                        total_volume_sold_by_item[inv_item] = current_total
-
+                # --- Variance Calculation ---
                 variance_data = []
                 latest_date = full_df['Date'].max()
                 actual_usage_df = full_df[full_df['Date'] == latest_date][['Item', 'Usage']].set_index('Item')
 
-                for item, data in total_volume_sold_by_item.items():
-                    total_sold, sale_type = data['total'], data['type']
+                for item, qty_sold in sales_counts.items():
+                    theoretical_usage = qty_sold
                     actual_usage = actual_usage_df.loc[item, 'Usage'] if item in actual_usage_df.index else 0
-                    unit, theoretical_usage, variance = "units", 0, 0
-                    
-                    if sale_type == 'volume':
-                        container_key = ITEM_CONTAINER_MAP.get(item)
-                        if not container_key: continue
-                        total_container_volume = VOLUME_CONFIG.get(container_key)
-                        if not total_container_volume or total_container_volume == 0: continue
-                        theoretical_usage = total_sold / total_container_volume
-                        unit = "% of container"
-                        variance = actual_usage - theoretical_usage
-                    else: # 'count' type for bottled beer
-                        theoretical_usage = total_sold
-                        unit = "bottles"
-                        variance = actual_usage - theoretical_usage
+                    variance = actual_usage - theoretical_usage
 
                     variance_data.append({
-                        "Item": item, "Actual Usage": actual_usage,
-                        "Theoretical Usage": theoretical_usage, "Variance": variance, "Unit": unit
+                        "Item": item,
+                        "Actual Usage": actual_usage,
+                        "Theoretical Usage (Sold)": theoretical_usage,
+                        "Variance": variance
                     })
 
                 if variance_data:
                     variance_df = pd.DataFrame(variance_data)
-                    def style_variance(row):
-                        color = ''
-                        if row['Unit'] == 'bottles' and abs(row['Variance']) >= 2: color = 'background-color: #ff4b4b'
-                        elif row['Unit'] == 'bottles' and abs(row['Variance']) >= 1: color = 'background-color: #ffb400'
-                        elif row['Unit'] == '% of container' and abs(row['Variance']) >= 0.10: color = 'background-color: #ff4b4b'
-                        elif row['Unit'] == '% of container' and abs(row['Variance']) >= 0.05: color = 'background-color: #ffb400'
-                        return [color] * len(row)
+                    def style_variance(val):
+                        if abs(val) >= 2: return 'background-color: #ff4b4b' # Variance of 2+ units
+                        elif abs(val) >= 1: return 'background-color: #ffb400'# Variance of 1+ unit
+                        return ''
 
                     st.markdown("---")
                     st.dataframe(
                         variance_df.style.format({
-                            "Actual Usage": "{:.2f}", "Theoretical Usage": "{:.2f}", "Variance": "{:+.2f}"
-                        }).apply(style_variance, axis=1),
+                            "Actual Usage": "{:.1f}",
+                            "Theoretical Usage (Sold)": "{:.0f}",
+                            "Variance": "{:+.1f}"
+                        }).applymap(style_variance, subset=['Variance']),
                         use_container_width=True, hide_index=True
                     )
+                else:
+                    st.warning("No matching items found between your sales mix and inventory. Please check item names.")
+
             except Exception as e:
-                st.error(f"Could not process the Sales Mix file. Please check the file format and selected columns. Error: {e}")
+                st.error(f"Could not process the Sales Mix file. The format may be unexpected. Error: {e}")
