@@ -158,16 +158,16 @@ if uploaded_file:
             selected_categories = st.multiselect("Select Categories", list(category_map.keys()), default=list(category_map.keys()))
             base_items = [item for cat in selected_categories for item in category_map[cat]]
 
-        usage_option = st.radio("Select usage average for calculation:", ["YTD Avg", "10Wk Avg", "4Wk Avg"], index=0)
+        usage_option = st.radio("Select usage average for calculation:", ["10wk Avg", "4Wk Avg", "YTD Avg, ATH, Low4AVG, High4AVG"], index=0)
 
         editable_data = summary_df[summary_df['Item'].isin(base_items)][['Item', 'End Inv', usage_option]].copy()
         editable_data['Current Weeks Left'] = editable_data.apply(lambda row: round(row['End Inv'] / row[usage_option], 2) if row[usage_option] else 0, axis=1)
         editable_data['Add Bottles'] = 0.0
-        editable_data['Desired Weeks'] = 0.0
+        editable_data['Add Weeks'] = 0.0
 
         edited_df = st.data_editor(editable_data, num_rows="dynamic", use_container_width=True)
 
-        input_mode = st.radio("Select input mode:", ["Add Bottles", "Desired Weeks"], horizontal=True)
+        input_mode = st.radio("Select input mode:", ["Add Bottles", "Add Weeks"], horizontal=True)
 
         if st.button("Calculate"):
             results = []
@@ -175,7 +175,7 @@ if uploaded_file:
                 item = row['Item']
                 avg = row[usage_option]
                 end_inv = row['End Inv']
-                bottles = row['Add Bottles'] if input_mode == "Add Bottles" else (row['Desired Weeks'] * avg - end_inv) if avg else 0
+                bottles = row['Add Bottles'] if input_mode == "Add Bottles" else (row['Add Weeks'] * avg - end_inv) if avg else 0
                 weeks = row['Add Weeks'] if input_mode == "Add Weeks" else (end_inv + row['Add Bottles']) / avg if avg else 0
 
                 results.append({
