@@ -162,24 +162,6 @@ if uploaded_file:
             elif "JUICE" in upper_item: category_map["Juice"].append(item)
             elif "BAR CONS" in upper_item: category_map["Bar Consumables"].append(item)
 
-        # --- Debugging Step 1: Print unique items from summary_df ---
-        st.write("--- Debug Info ---")
-        st.write("Unique Items found in your Excel file:")
-        st.write(summary_df['Item'].unique().tolist())
-        st.write("------------------")
-        # --- End Debugging Step 1 ---
-
-
-        if mode == "By Vendor":
-            vendor = st.selectbox("Select Vendor", list(vendor_map.keys()))
-            base_items = vendor_map[vendor]
-
-            # --- Debugging Step 2: Print selected base_items ---
-            st.write(f"Items selected for vendor '{vendor}':")
-            st.write(base_items)
-            st.write("------------------")
-            # --- End Debugging Step 2 ---
-
         else:
             selected_categories = st.multiselect("Select Categories", list(category_map.keys()), default=list(category_map.keys()))
             base_items = [item for cat in selected_categories for item in category_map[cat]]
@@ -230,3 +212,15 @@ if uploaded_file:
             result_df = pd.DataFrame(results)
             st.dataframe(result_df, use_container_width=True)
 
+# ... your existing code for the 'Calculate' button and result_df ...
+
+    # NEW: Add this collapsible expander at the end of the script
+    with st.expander("Show Debug Information"):
+        st.subheader("Debug Info")
+
+        st.markdown("**Unique Items found in Excel file:**")
+        st.write(summary_df['Item'].unique().tolist())
+
+        st.markdown("**Items currently selected for the worksheet above:**")
+        # 'base_items' is defined in both "By Vendor" and "By Category" modes
+        st.write(base_items)
