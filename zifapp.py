@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import re
+import docx
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
@@ -126,7 +128,6 @@ if uploaded_file:
         filter_type = st.radio("Filter By:", ["Vendor", "Category"], horizontal=True, key="summary_filter_type")
         display_df = summary_df
         download_filename = "beverage_summary_full.csv"
-
         if filter_type == "Vendor":
             vendor_options = ["All Vendors"] + list(vendor_map.keys())
             selected_vendor = st.selectbox("Select Vendor", options=vendor_options, key="summary_vendor_select")
@@ -139,20 +140,16 @@ if uploaded_file:
             if selected_category != "All Categories":
                 display_df = summary_df[summary_df['Item'].isin(category_map.get(selected_category, []))]
                 download_filename = f"beverage_summary_{selected_category}.csv"
-
         threshold = st.slider("Highlight if weeks remaining is below:", min_value=0.2, max_value=10.0, value=2.0, step=0.1)
-        
         def highlight_weeks_remaining(val, threshold=2.0):
             if pd.notna(val) and isinstance(val, (int, float)) and val < threshold: return 'background-color: #ff4b4b'
             return ''
-
         format_dict = {col: '{:,.2f}' for col in display_df.select_dtypes(include=['float64', 'float32']).columns}
         styled_df = display_df.style.format(format_dict, na_rep="-").applymap(
             highlight_weeks_remaining, threshold=threshold,
             subset=['Weeks Remaining (YTD)', 'Weeks Remaining (10 Wk)', 'Weeks Remaining (4 Wk)', 'Weeks Remaining (ATH)', 'Weeks Remaining (Lowest 4)', 'Weeks Remaining (Highest 4)']
         )
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
-        
         csv = display_df.to_csv(index=False).encode('utf-8')
         st.download_button("Download Summary CSV", data=csv, file_name=download_filename)
 
@@ -161,7 +158,6 @@ if uploaded_file:
         mode = st.selectbox("Select View Mode:", ["By Vendor", "By Category"])
         base_items = []
         filter_selection = None
-
         if mode == "By Vendor":
             vendor = st.selectbox("Select Vendor", list(vendor_map.keys()), key="vendor_select")
             base_items = vendor_map.get(vendor, [])
@@ -170,40 +166,28 @@ if uploaded_file:
             selected_category = st.selectbox("Select Category", list(category_map.keys()), key="category_select")
             base_items = category_map.get(selected_category, [])
             filter_selection = selected_category
-
         usage_option = st.selectbox(
             "Select usage average for calculation:",
             options=['10-Week Average', '4-Week Average', 'Year-to-Date Average', 'Lowest 4 Average (non-zero)', 'Highest 4 Average'],
             index=1, key="usage_radio"
         )
-        
         worksheet_state_key = f"worksheet_df_{mode}_{filter_selection}_{usage_option}"
-
         if 'current_worksheet_key' not in st.session_state or st.session_state.current_worksheet_key != worksheet_state_key:
             filtered_df = summary_df[summary_df['Item'].isin(base_items)]
             editor_df_data = {
-                'Item': filtered_df['Item'], 
-                'On Hand': filtered_df['On Hand'],
-                'Selected Avg': filtered_df[usage_option], 
-                'Add Bottles': 0, 
-                'Add Weeks': 0.0
+                'Item': filtered_df['Item'], 'On Hand': filtered_df['On Hand'],
+                'Selected Avg': filtered_df[usage_option], 'Add Bottles': 0, 'Add Weeks': 0.0
             }
             worksheet_df = pd.DataFrame(editor_df_data)
             worksheet_df['Selected Avg'] = pd.to_numeric(worksheet_df['Selected Avg'], errors='coerce').fillna(0)
-            
             def temp_safe_div(n, d):
                 return round(n / d, 1) if d and pd.notna(d) and d > 0 else 0.0
             worksheet_df['Current Wks Left'] = worksheet_df.apply(lambda row: temp_safe_div(row['On Hand'], row['Selected Avg']), axis=1)
-            
             st.session_state.worksheet_df = worksheet_df[['Item', 'On Hand', 'Current Wks Left', 'Selected Avg', 'Add Bottles', 'Add Weeks']]
             st.session_state.current_worksheet_key = worksheet_state_key
             st.session_state.last_edited_column = None
-
         edited_df = st.data_editor(
-            st.session_state.worksheet_df, 
-            hide_index=True, 
-            use_container_width=True, 
-            key="order_editor",
+            st.session_state.worksheet_df, hide_index=True, use_container_width=True, key="order_editor",
             column_config={
                 "Item": st.column_config.TextColumn(disabled=True),
                 "On Hand": st.column_config.NumberColumn(format="%.2f", disabled=True),
@@ -213,31 +197,56 @@ if uploaded_file:
                 "Add Weeks": st.column_config.NumberColumn("Order For (Weeks)", min_value=0.0, step=0.5, format="%.1f")
             }
         )
-
         if not edited_df.equals(st.session_state.worksheet_df):
             if not edited_df['Add Bottles'].equals(st.session_state.worksheet_df['Add Bottles']):
                 st.session_state.last_edited_column = 'Add Bottles'
             elif not edited_df['Add Weeks'].equals(st.session_state.worksheet_df['Add Weeks']):
                 st.session_state.last_edited_column = 'Add Weeks'
-            
             new_df = edited_df.copy()
             if st.session_state.last_edited_column == 'Add Bottles':
                 new_df['Add Weeks'] = new_df.apply(lambda r: (r['On Hand'] + r['Add Bottles']) / r['Selected Avg'] if r['Selected Avg'] > 0 else 0, axis=1)
             elif st.session_state.last_edited_column == 'Add Weeks':
                 new_df['Add Bottles'] = new_df.apply(lambda r: max(0, (r['Add Weeks'] * r['Selected Avg']) - r['On Hand']), axis=1)
-            
             st.session_state.worksheet_df = new_df
             st.rerun()
 
-        if st.button("Finalize Order"):
+        # --- NEW: Rewritten logic for the calculation button ---
+        if st.button("Generate Final Order Summary"):
             results = []
-            for _, row in st.session_state.worksheet_df.iterrows():
-                if row['Add Bottles'] > 0 or row['Add Weeks'] > 0:
-                    results.append({'Item': row['Item'], 'Bottles to Order': int(round(row['Add Bottles']))})
+            order_df = st.session_state.worksheet_df
+            
+            # Filter for rows where an order has actually been placed
+            items_to_order = order_df[(order_df['Add Bottles'] > 0) | (order_df['Add Weeks'] > 0)]
+
+            for _, row in items_to_order.iterrows():
+                on_hand = row['On Hand']
+                avg_usage = row['Selected Avg']
+                bottles_to_order = row['Add Bottles']
+                
+                new_on_hand_total = on_hand + bottles_to_order
+                
+                new_weeks_supply = 0.0
+                if avg_usage > 0:
+                    new_weeks_supply = round(new_on_hand_total / avg_usage, 1)
+
+                results.append({
+                    'Item': row['Item'],
+                    'Current On Hand': on_hand,
+                    'Bottles to Order': int(round(bottles_to_order)),
+                    'New Total On Hand': round(new_on_hand_total, 2),
+                    'New Weeks of Supply': new_weeks_supply
+                })
             
             if results:
                 result_df = pd.DataFrame(results)
                 st.subheader("Final Order Summary")
                 st.dataframe(result_df, use_container_width=True, hide_index=True)
+                
                 csv_order = result_df.to_csv(index=False).encode('utf-8')
-                st.download_button("Download Final Order CSV", data=csv_order, file_name="final_order.csv")
+                st.download_button(
+                    "Download Final Order CSV", 
+                    data=csv_order, 
+                    file_name="final_order_summary.csv"
+                )
+            else:
+                st.warning("No items have been added to the order. Enter quantities in the table above.")
