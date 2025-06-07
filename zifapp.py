@@ -207,6 +207,7 @@ if uploaded_file:
                 st.session_state.last_edited_column = 'Add Weeks'
             
             new_df = edited_df.copy()
+
             if st.session_state.last_edited_column == 'Add Bottles':
                 new_df['Add Weeks'] = new_df.apply(lambda r: (r['On Hand'] + r['Add Bottles']) / r['Selected Avg'] if r['Selected Avg'] > 0 else 0, axis=1)
             elif st.session_state.last_edited_column == 'Add Weeks':
@@ -218,12 +219,11 @@ if uploaded_file:
             st.session_state.worksheet_df = new_df
             st.rerun()
 
-        if st.button("Finalize Order"):
+        if st.button("Generate Final Order Summary"):
             results = []
             order_df = st.session_state.worksheet_df
             
-            # CORRECTED: Filter includes items where weeks were added
-            items_to_order = order_df[(order_df['Add Bottles'] > 0) | (order_df['Add Weeks'] > 0)]
+            items_to_order = order_df[(order_df['Add Bottles'] > 0)]
 
             if not items_to_order.empty:
                 for _, row in items_to_order.iterrows():
@@ -231,14 +231,15 @@ if uploaded_file:
                     bottles_to_order = row['Add Bottles']
                     new_total_on_hand = on_hand + bottles_to_order
                     
-                    # CORRECTED: The new supply is the value from the interactive 'Add Weeks' column
-                    new_weeks_supply = row['Add Weeks']
+                    new_weeks_supply = 0.0
+                    if row['Selected Avg'] > 0:
+                        new_weeks_supply = (on_hand + bottles_to_order) / row['Selected Avg']
 
                     results.append({
                         'Item': row['Item'],
                         'Current On Hand': on_hand,
-                        'Bottles to Order': int(round(bottles_to_order)),
-                        'Weeks Ordered For': round(new_weeks_supply, 1),
+                        'Bottles to Order': int(bottles_to_order),
+                        'Weeks Ordered For': round(row['Add Weeks'], 1),
                         'New Total On Hand': round(new_total_on_hand, 2),
                         'New Weeks of Supply': round(new_weeks_supply, 1)
                     })
