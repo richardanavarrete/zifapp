@@ -173,32 +173,43 @@ if uploaded_file:
             index=1, key="usage_radio"
         )
         
-        # --- NEW: Form-based approach ---
         worksheet_state_key = f"worksheet_df_{mode}_{filter_selection}_{usage_option}"
         if 'current_worksheet_key' not in st.session_state or st.session_state.current_worksheet_key != worksheet_state_key:
             filtered_df = summary_df[summary_df['Item'].isin(base_items)]
             editor_df_data = {
-                'Item': filtered_df['Item'], 'On Hand': filtered_df['On Hand'],
-                'Selected Avg': filtered_df[usage_option], 'Order Qty (Bottles)': 0, 'Target Weeks of Supply': 0.0
+                'Item': filtered_df['Item'], 
+                'On Hand': filtered_df['On Hand'],
+                'Selected Avg': filtered_df[usage_option], 
+                'Order Qty (Bottles)': 0, 
+                'Target Weeks of Supply': 0.0
             }
             worksheet_df = pd.DataFrame(editor_df_data)
             worksheet_df['Selected Avg'] = pd.to_numeric(worksheet_df['Selected Avg'], errors='coerce').fillna(0)
-            st.session_state.worksheet_df = worksheet_df
+            
+            # ADDED: Calculation for Current Wks Left
+            def temp_safe_div(n, d):
+                return round(n / d, 1) if d and pd.notna(d) and d > 0 else 0.0
+            worksheet_df['Current Wks Left'] = worksheet_df.apply(lambda row: temp_safe_div(row['On Hand'], row['Selected Avg']), axis=1)
+            
+            # Reorder columns and store in session state
+            st.session_state.worksheet_df = worksheet_df[['Item', 'On Hand', 'Current Wks Left', 'Selected Avg', 'Order Qty (Bottles)', 'Target Weeks of Supply']]
             st.session_state.current_worksheet_key = worksheet_state_key
-
+        
+        st.markdown("---")
+        input_mode = st.radio("My input is based on:", ["Order Qty (Bottles)", "Target Weeks of Supply"], horizontal=True, key="input_mode_selector")
+        
+        # The data editor now uses the dataframe stored in session state
         edited_df = st.data_editor(
             st.session_state.worksheet_df, hide_index=True, use_container_width=True, key="order_editor",
             column_config={
                 "Item": st.column_config.TextColumn(disabled=True),
                 "On Hand": st.column_config.NumberColumn(format="%.2f", disabled=True),
+                "Current Wks Left": st.column_config.NumberColumn(format="%.1f", help="Current inventory in terms of weeks of supply.", disabled=True),
                 "Selected Avg": st.column_config.NumberColumn(f"Avg Usage ({usage_option})", format="%.2f", disabled=True),
                 "Order Qty (Bottles)": st.column_config.NumberColumn(min_value=0, step=1, format="%d"),
                 "Target Weeks of Supply": st.column_config.NumberColumn(help="Enter a target total weeks of supply to calculate bottles needed.", min_value=0.0, step=0.5, format="%.1f")
             }
         )
-
-        st.markdown("---")
-        input_mode = st.radio("My input is based on:", ["Order Qty (Bottles)", "Target Weeks of Supply"], horizontal=True, key="input_mode_selector")
         
         if st.button("Calculate Corresponding Values"):
             if input_mode == 'Order Qty (Bottles)':
