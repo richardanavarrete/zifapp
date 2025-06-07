@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime
 import re
 import docx
+import math
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
@@ -186,6 +187,7 @@ if uploaded_file:
             st.session_state.worksheet_df = worksheet_df[['Item', 'On Hand', 'Current Wks Left', 'Selected Avg', 'Add Bottles', 'Add Weeks']]
             st.session_state.current_worksheet_key = worksheet_state_key
             st.session_state.last_edited_column = None
+        
         edited_df = st.data_editor(
             st.session_state.worksheet_df, hide_index=True, use_container_width=True, key="order_editor",
             column_config={
@@ -197,47 +199,50 @@ if uploaded_file:
                 "Add Weeks": st.column_config.NumberColumn("Order For (Weeks)", min_value=0.0, step=0.5, format="%.1f")
             }
         )
+        
         if not edited_df.equals(st.session_state.worksheet_df):
             if not edited_df['Add Bottles'].equals(st.session_state.worksheet_df['Add Bottles']):
                 st.session_state.last_edited_column = 'Add Bottles'
             elif not edited_df['Add Weeks'].equals(st.session_state.worksheet_df['Add Weeks']):
                 st.session_state.last_edited_column = 'Add Weeks'
+            
             new_df = edited_df.copy()
             if st.session_state.last_edited_column == 'Add Bottles':
                 new_df['Add Weeks'] = new_df.apply(lambda r: (r['On Hand'] + r['Add Bottles']) / r['Selected Avg'] if r['Selected Avg'] > 0 else 0, axis=1)
             elif st.session_state.last_edited_column == 'Add Weeks':
-                new_df['Add Bottles'] = new_df.apply(lambda r: max(0, (r['Add Weeks'] * r['Selected Avg']) - r['On Hand']), axis=1)
+                new_df['Add Bottles'] = new_df.apply(
+                    lambda r: max(0, int(math.ceil((r['Add Weeks'] * r['Selected Avg']) - r['On Hand']))) if r['Selected Avg'] > 0 else 0,
+                    axis=1
+                )
+            
             st.session_state.worksheet_df = new_df
             st.rerun()
 
-        # --- NEW: Rewritten logic for the calculation button ---
-        if st.button("Generate Final Order Summary"):
+        if st.button("Finalize Order"):
             results = []
             order_df = st.session_state.worksheet_df
             
-            # Filter for rows where an order has actually been placed
+            # CORRECTED: Filter includes items where weeks were added
             items_to_order = order_df[(order_df['Add Bottles'] > 0) | (order_df['Add Weeks'] > 0)]
 
-            for _, row in items_to_order.iterrows():
-                on_hand = row['On Hand']
-                avg_usage = row['Selected Avg']
-                bottles_to_order = row['Add Bottles']
-                
-                new_on_hand_total = on_hand + bottles_to_order
-                
-                new_weeks_supply = 0.0
-                if avg_usage > 0:
-                    new_weeks_supply = round(new_on_hand_total / avg_usage, 1)
+            if not items_to_order.empty:
+                for _, row in items_to_order.iterrows():
+                    on_hand = row['On Hand']
+                    bottles_to_order = row['Add Bottles']
+                    new_total_on_hand = on_hand + bottles_to_order
+                    
+                    # CORRECTED: The new supply is the value from the interactive 'Add Weeks' column
+                    new_weeks_supply = row['Add Weeks']
 
-                results.append({
-                    'Item': row['Item'],
-                    'Current On Hand': on_hand,
-                    'Bottles to Order': int(round(bottles_to_order)),
-                    'New Total On Hand': round(new_on_hand_total, 2),
-                    'New Weeks of Supply': new_weeks_supply
-                })
-            
-            if results:
+                    results.append({
+                        'Item': row['Item'],
+                        'Current On Hand': on_hand,
+                        'Bottles to Order': int(round(bottles_to_order)),
+                        'Weeks Ordered For': round(new_weeks_supply, 1),
+                        'New Total On Hand': round(new_total_on_hand, 2),
+                        'New Weeks of Supply': round(new_weeks_supply, 1)
+                    })
+                
                 result_df = pd.DataFrame(results)
                 st.subheader("Final Order Summary")
                 st.dataframe(result_df, use_container_width=True, hide_index=True)
