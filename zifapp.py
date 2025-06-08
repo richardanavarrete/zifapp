@@ -273,25 +273,33 @@ def run_app():
             st.markdown("---")
             st.subheader("💾 Export Results")
             
-            # Download Updated Inventory Excel
-            excel_data = export_updated_excel()
-            st.download_button(
-                label="Download Updated Inventory",
-                data=excel_data,
-                file_name=f"Updated_BEVWEEKLY_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                disabled=not st.session_state.inventory_counts or excel_data is None
-            )
+            # --- FIX: Only generate Excel and show button if there are counts ---
+            if st.session_state.inventory_counts:
+                excel_data = export_updated_excel()
+                # Check if export was successful before showing button
+                if excel_data:
+                    st.download_button(
+                        label="Download Updated Inventory",
+                        data=excel_data,
+                        file_name=f"Updated_BEVWEEKLY_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    )
+            else:
+                st.info("Your inventory download link will appear here once you count an item.")
 
-            # Download Updated SKU Database
-            csv_data = st.session_state.sku_data.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="Download Updated SKU Database",
-                data=csv_data,
-                file_name="sku_db.csv",
-                mime="text/csv",
-                help="Save this file and re-upload it next time you do inventory."
-            )
+
+            # Download Updated SKU Database - This should always be available
+            # in case the user only linked new SKUs without counting.
+            if st.session_state.sku_data is not None and not st.session_state.sku_data.empty:
+                csv_data = st.session_state.sku_data.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="Download Updated SKU Database",
+                    data=csv_data,
+                    file_name="sku_db.csv",
+                    mime="text/csv",
+                    help="Save this file and re-upload it next time you do inventory."
+                )
+
             st.markdown('</div>', unsafe_allow_html=True)
 
 
