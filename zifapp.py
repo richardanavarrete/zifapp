@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from io import BytesIO
-import openpyxl # Added for robust Excel manipulation
+import openpyxl
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -12,45 +12,31 @@ st.set_page_config(
 )
 
 # --- Mobile-Responsive CSS ---
-# Using a more streamlined and modern style
 st.markdown("""
 <style>
-    /* General App Styling */
     .main .block-container {
         padding-top: 2rem;
         padding-bottom: 2rem;
-        padding-left: 3rem;
-        padding-right: 3rem;
+        padding-left: 2rem;
+        padding-right: 2rem;
     }
-    /* Main Menu Buttons */
     .stButton>button {
         border-radius: 10px;
-        padding: 1.25rem;
-        font-size: 1.1rem;
+        padding: 1rem;
         font-weight: bold;
-        width: 100%;
-        height: auto;
-        border: 2px solid #764ba2;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        transition: transform 0.2s, box-shadow 0.2s;
     }
-    .stButton>button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(0,0,0,0.2);
-        color: white;
-        border-color: #667eea;
+    .stAlert {
+        border-radius: 10px;
     }
-    .stButton>button:disabled {
-        background: #ced4da;
-        color: #6c757d;
-        border-color: #adb5bd;
+    .stTextInput input, .stNumberInput input {
+        border-radius: 8px;
     }
-    /* Smaller Buttons */
-    .stButton>button.small_btn {
-        font-size: 1rem;
-        padding: 0.5rem 1rem;
-        font-weight: normal;
+    .inventory-card {
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 10px;
+        border: 1px solid #dee2e6;
+        margin-bottom: 1rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -58,11 +44,12 @@ st.markdown("""
 
 # --- Initialize Session State ---
 def init_session_state():
+    """Initializes session state variables if they don't exist."""
     defaults = {
         'app_mode': 'menu',
         'bevweekly_data': None,
+        # IMPORTANT: inventory_counts is now a dict of lists for accumulative counting
         'inventory_counts': {},
-        'current_sheet_name': None,
         'uploaded_file_content': None,
         'scanned_barcode': None
     }
@@ -72,11 +59,11 @@ def init_session_state():
 
 init_session_state()
 
-# --- Barcode Scanner Component ---
-# This component now correctly communicates back to Streamlit
+# --- Barcode Scanner Component (V2 with Visual Feedback) ---
 def barcode_scanner_component():
     """
     Creates a Streamlit component that wraps Quagga.js for barcode scanning.
+    Includes live visual feedback (green box around detected codes).
     Returns the scanned code or None.
     """
     html_code = """
@@ -94,8 +81,16 @@ def barcode_scanner_component():
                 overflow: hidden;
                 border-radius: 10px;
             }
-            #scanner-container video { width: 100%; height: 100%; object-fit: cover; }
-            .drawingBuffer { position: absolute; top: 0; left: 0; }
+            #scanner-container video, #scanner-container canvas {
+                width: 100%;
+                height: 100%;
+                position: absolute;
+                top: 0;
+                left: 0;
+            }
+            #scanner-container canvas.drawingBuffer {
+                z-index: 10;
+            }
         </style>
     </head>
     <body>
@@ -112,7 +107,16 @@ def barcode_scanner_component():
                     target: document.querySelector('#scanner-container'),
                     constraints: { width: 480, height: 320, facingMode: "environment" }
                 },
-                decoder: { readers: ["ean_reader", "code_128_reader", "upc_reader"] }
+                locator: { patchSize: "medium", halfSample: true },
+                numOfWorkers: 2,
+                frequency: 10,
+                decoder: {
+                    readers: [
+                        "code_128_reader", "ean_reader", "ean_8_reader",
+                        "code_39_reader", "upc_reader", "i2of5_reader"
+                    ]
+                },
+                locate: true
             }, function(err) {
                 if (err) {
                     console.error(err);
@@ -122,15 +126,34 @@ def barcode_scanner_component():
                 Quagga.start();
             });
 
+            Quagga.onProcessed(function(result) {
+                var drawingCtx = Quagga.canvas.ctx.overlay,
+                    drawingCanvas = Quagga.canvas.dom.overlay;
+                if (result) {
+                    if (result.boxes) {
+                        drawingCtx.clearRect(0, 0, parseInt(drawingCanvas.getAttribute("width")), parseInt(drawingCanvas.getAttribute("height")));
+                        result.boxes.filter(function (box) {
+                            return box !== result.box;
+                        }).forEach(function (box) {
+                            Quagga.ImageDebug.drawPath(box, {x: 0, y: 1}, drawingCtx, {color: "green", lineWidth: 2});
+                        });
+                    }
+                    if (result.box) {
+                        Quagga.ImageDebug.drawPath(result.box, {x: 0, y: 1}, drawingCtx, {color: "#00F", lineWidth: 2});
+                    }
+                    if (result.codeResult && result.codeResult.code) {
+                        Quagga.ImageDebug.drawPath(result.line, {x: 'x', y: 'y'}, drawingCtx, {color: 'red', lineWidth: 3});
+                    }
+                }
+            });
+
             let lastScannedCode = null;
             let lastScannedTime = 0;
 
             Quagga.onDetected(function(result) {
                 const code = result.codeResult.code;
                 const now = new Date().getTime();
-                // Debounce scans to avoid multiple triggers for the same item
-                if (code !== lastScannedCode || (now - lastScannedTime > 5000)) { // 5-second cooldown
-                    lastScannedCode = code;
+                if (code && (now - lastScannedTime > 3000)) { // 3-second cooldown
                     lastScannedTime = now;
                     sendValue(code); // Send the detected code back to Streamlit
                 }
@@ -139,7 +162,7 @@ def barcode_scanner_component():
     </body>
     </html>
     """
-    scanned_code = st.components.v1.html(html_code, height=320)
+    scanned_code = st.components.v1.html(html_code, height=320, scrolling=False)
     return scanned_code
 
 
@@ -150,31 +173,25 @@ def load_bevweekly_data(file_content):
     try:
         xls = pd.ExcelFile(BytesIO(file_content))
         sheet_names = xls.sheet_names
-
-        # Get original item order from the first sheet
         df_first_sheet = xls.parse(sheet_names[0], skiprows=4)
         original_order = df_first_sheet.iloc[:, 0].dropna().astype(str).tolist()
 
-        # Find the next week's sheet (first one with an empty "End Inventory" column)
         next_week_sheet = None
         for sheet in sheet_names:
             try:
-                # Check for empty End Inventory (column index 7)
                 df = xls.parse(sheet, skiprows=4)
                 if len(df.columns) > 7 and (df.iloc[:, 7].isna().all() or (df.iloc[:, 7] == 0).all()):
                     next_week_sheet = sheet
                     break
             except Exception:
                 continue
-        
-        # Default to the last sheet if no empty one is found
+
         if next_week_sheet is None:
             next_week_sheet = sheet_names[-1]
 
-        # Get a map of Item Name -> Excel Row Number for easy updating later
         target_df = xls.parse(next_week_sheet, skiprows=4)
         item_to_row_map = {
-            str(item).strip(): index + 5  # +5 to account for header rows (0-indexed + 4 skipped rows + 1 for 1-based Excel)
+            str(item).strip(): index + 5
             for index, item in target_df.iloc[:, 0].dropna().items()
         }
 
@@ -188,31 +205,27 @@ def load_bevweekly_data(file_content):
         st.error(f"❌ Error loading BevWeekly file: {e}")
         return None
 
-# --- Main Application ---
+# --- Main Application Logic ---
 def run_app():
-    # --- HEADER AND NAVIGATION ---
     if st.session_state.app_mode != 'menu':
         col1, _, col2 = st.columns([1, 3, 1])
         with col1:
-            if st.button("← Back to Menu"):
+            if st.button("⬅️ Menu"):
                 st.session_state.app_mode = 'menu'
                 st.rerun()
         with col2:
             st.markdown(
                 f"<div style='text-align:right; padding-top:10px;'>File Loaded: "
-                f"{'✅' if st.session_state.bevweekly_data else '⚠️ None'}</div>",
+                f"{'✅' if st.session_state.bevweekly_data else '⚠️'}</div>",
                 unsafe_allow_html=True
             )
 
-    # --- MENU MODE ---
     if st.session_state.app_mode == 'menu':
         st.title("🍺 Beverage Inventory System")
         st.markdown("---")
 
         st.subheader("📁 Upload BevWeekly File")
-        uploaded_file = st.file_uploader(
-            "Upload your BEVWEEKLY Excel File to begin.", type="xlsx", key="main_upload"
-        )
+        uploaded_file = st.file_uploader("Upload your BEVWEEKLY Excel File to begin.", type="xlsx")
 
         if uploaded_file:
             file_content = uploaded_file.getvalue()
@@ -220,35 +233,17 @@ def run_app():
                 st.session_state.uploaded_file_content = file_content
                 with st.spinner("Processing Excel file..."):
                     st.session_state.bevweekly_data = load_bevweekly_data(file_content)
-                    st.session_state.inventory_counts = {} # Reset counts on new file upload
+                    st.session_state.inventory_counts = {}
 
         if st.session_state.bevweekly_data:
-            st.success(
-                f"✅ File loaded successfully! Inventory will be updated on sheet: "
-                f"**{st.session_state.bevweekly_data['next_week_sheet']}**"
-            )
-            item_count = len(st.session_state.bevweekly_data['original_order'])
-            st.info(f"📦 Found **{item_count}** items to be inventoried.")
+            st.success(f"✅ File loaded! Inventory will update sheet: **{st.session_state.bevweekly_data['next_week_sheet']}**")
 
         st.markdown("---")
         st.subheader("Select an Action")
-        col1, col2 = st.columns(2)
-        file_loaded = st.session_state.bevweekly_data is not None
+        if st.button("📱 Take Inventory", disabled=not st.session_state.bevweekly_data, use_container_width=True):
+            st.session_state.app_mode = 'scanner'
+            st.rerun()
 
-        with col1:
-            if st.button("📱 Take Inventory", disabled=not file_loaded, help="Start counting items by scanning or manual entry."):
-                st.session_state.app_mode = 'scanner'
-                st.rerun()
-
-        with col2:
-            # Placeholder for Analysis & Reports functionality
-            if st.button("📊 Analysis & Reports (Coming Soon)", disabled=True):
-                # st.session_state.app_mode = 'analysis'
-                # st.rerun()
-                pass
-
-
-    # --- SCANNER / INVENTORY MODE ---
     elif st.session_state.app_mode == 'scanner':
         st.title("📱 Take Inventory")
 
@@ -256,113 +251,106 @@ def run_app():
             st.error("Please go back to the menu and upload a BevWeekly file first.")
             return
 
-        # --- PROGRESS BAR ---
-        total_items = len(st.session_state.bevweekly_data['original_order'])
+        items_list = st.session_state.bevweekly_data['original_order']
+        total_items = len(items_list)
         counted_items = len(st.session_state.inventory_counts)
         progress = counted_items / total_items if total_items > 0 else 0
-        
-        st.progress(progress, text=f"{counted_items} / {total_items} Items Counted ({progress:.0%})")
+        st.progress(progress, text=f"{counted_items} / {total_items} Items Started ({progress:.0%})")
         st.markdown("---")
 
         col1, col2 = st.columns(2)
 
-        # --- LEFT COLUMN: SCANNER AND MANUAL ENTRY ---
         with col1:
-            st.subheader("📷 Scan or Search")
-            
-            # Barcode scanner
+            st.subheader("📷 Scan or Search Item")
             scanned_code = barcode_scanner_component()
-            if scanned_code:
+            if scanned_code and scanned_code != st.session_state.scanned_barcode:
                 st.session_state.scanned_barcode = scanned_code
-                # In a real app with a barcode map, you'd find the item name here.
-                # For now, we'll just show the code and pre-fill the search.
-                st.success(f"Barcode Scanned: `{st.session_state.scanned_barcode}`")
+                st.toast(f"Barcode Scanned: {scanned_code}", icon=" barcode ")
 
-            # Item search and selection
-            items_list = st.session_state.bevweekly_data['original_order']
             search_query = st.text_input(
                 "Search for an item",
-                placeholder="e.g., 'Bulleit' or 'Coors'",
-                # Use scanned code as default search term if available
-                value=st.session_state.scanned_barcode or "" 
+                placeholder="e.g., 'Bulleit' or scan a barcode",
+                value=st.session_state.scanned_barcode or ""
             )
 
             if search_query:
                 filtered_items = [item for item in items_list if search_query.lower() in item.lower()]
-                if not filtered_items:
-                    st.warning("No items match your search.")
             else:
-                # Show uncounted items first
                 uncounted_items = [item for item in items_list if item not in st.session_state.inventory_counts]
-                filtered_items = uncounted_items[:15] # Limit initial display
-            
+                filtered_items = uncounted_items
+
             selected_item = st.selectbox(
                 "Select Item to Count:",
                 filtered_items,
-                index=0 if filtered_items else None,
-                help="Items you have already counted will not appear here unless you search for them."
+                index=0 if filtered_items else None
             )
-            
+
             if selected_item:
-                current_count = st.session_state.inventory_counts.get(selected_item, 0.0)
-                
-                # Input form for the selected item
-                with st.form(key=f"form_{selected_item}", clear_on_submit=True):
-                    new_count = st.number_input(
-                        f"Enter count for **{selected_item}**:",
-                        min_value=0.0,
-                        value=float(current_count),
-                        step=0.5
-                    )
-                    submitted = st.form_submit_button("Update Count", use_container_width=True)
-                    if submitted:
-                        st.session_state.inventory_counts[selected_item] = new_count
-                        st.session_state.scanned_barcode = None # Clear search after update
-                        st.success(f"Updated '{selected_item}' to {new_count}")
-                        st.rerun()
+                with st.container():
+                    st.markdown(f"#### Counting: **{selected_item}**")
+                    
+                    # Get current counts for the selected item
+                    item_counts = st.session_state.inventory_counts.get(selected_item, [])
+                    total_count = sum(item_counts)
 
+                    # Display previous counts and total
+                    if item_counts:
+                        st.info(f"**Current Total: {total_count}**\n\nCounts entered: `{item_counts}`")
 
-        # --- RIGHT COLUMN: CURRENT INVENTORY & EXPORT ---
+                    # Form for adding a new count
+                    with st.form(key=f"form_{selected_item}", clear_on_submit=True):
+                        new_count = st.number_input("Add Count:", min_value=0.0, step=0.5, key=f"count_{selected_item}")
+                        submitted = st.form_submit_button(f"Add {new_count} to Total", use_container_width=True, type="primary")
+                        
+                        if submitted and new_count > 0:
+                            current_list = st.session_state.inventory_counts.get(selected_item, [])
+                            current_list.append(new_count)
+                            st.session_state.inventory_counts[selected_item] = current_list
+                            st.session_state.scanned_barcode = "" # Clear barcode after use
+                            st.rerun()
+
         with col2:
             st.subheader("📋 Current Inventory Session")
-
             if not st.session_state.inventory_counts:
                 st.info("No items have been counted yet. Use the scanner or search on the left to begin.")
             else:
-                # Create DataFrame for display and editing
-                inventory_list = sorted(st.session_state.inventory_counts.items(), key=lambda x: items_list.index(x[0]))
-                inventory_df = pd.DataFrame(inventory_list, columns=["Item", "Count"])
+                # Create DataFrame for display
+                display_data = []
+                for item, counts in sorted(st.session_state.inventory_counts.items(), key=lambda x: items_list.index(x[0])):
+                    display_data.append({
+                        "Item": item,
+                        "Total": sum(counts),
+                        "Counts": str(counts),
+                        "Actions": item # Use item name as unique identifier for actions
+                    })
+                
+                df = pd.DataFrame(display_data)
 
-                edited_df = st.data_editor(
-                    inventory_df,
+                st.data_editor(
+                    df,
                     hide_index=True,
                     use_container_width=True,
-                    num_rows="dynamic",
                     column_config={
-                        "Item": st.column_config.TextColumn(disabled=True),
-                        "Count": st.column_config.NumberColumn(label="Count", min_value=0, step=0.5, required=True)
+                        "Item": st.column_config.TextColumn(disabled=True, width="large"),
+                        "Total": st.column_config.NumberColumn(disabled=True),
+                        "Counts": st.column_config.TextColumn(disabled=True, width="medium"),
+                        "Actions": st.column_config.Column(
+                            " ", # No visible header for the button column
+                            cell_template=None,
+                            # Custom component logic would be needed for a real "delete last" button
+                            # For now, this column is a placeholder.
+                        )
                     },
-                    key="data_editor"
+                    disabled=["Item", "Total", "Counts", "Actions"]
                 )
 
-                # Update session state if edits were made in the data_editor
-                if not edited_df.equals(inventory_df):
-                    st.session_state.inventory_counts = dict(zip(edited_df['Item'], edited_df['Count']))
-                    st.toast("Changes saved!")
-                    st.rerun()
-
                 st.markdown("---")
-                
                 btn_col1, btn_col2 = st.columns(2)
-                
                 with btn_col1:
-                    # FIX: Correctly call .clear() on the dictionary
                     if st.button("🗑️ Clear All Counts", use_container_width=True, type="secondary"):
                         st.session_state.inventory_counts.clear()
                         st.rerun()
-                
                 with btn_col2:
-                    # FIX: Use openpyxl for a safe, format-preserving export
                     if st.download_button(
                         label="💾 Download Updated File",
                         data=export_updated_excel(),
@@ -375,47 +363,39 @@ def run_app():
                         st.success("✅ Export successful!")
 
 
-# --- EXPORT FUNCTION (REWRITTEN) ---
+# --- EXPORT FUNCTION (V2) ---
 def export_updated_excel():
     """
-    Surgically updates the target Excel sheet with new inventory counts
+    Updates the target Excel sheet with summed inventory counts
     using openpyxl to preserve all original formatting.
     """
     if not st.session_state.bevweekly_data or not st.session_state.inventory_counts:
         return None
 
     try:
-        # Load the original uploaded file content into an openpyxl workbook object
         file_stream = BytesIO(st.session_state.uploaded_file_content)
         workbook = openpyxl.load_workbook(file_stream)
-
-        # Get the specific sheet to update
         target_sheet_name = st.session_state.bevweekly_data['next_week_sheet']
         sheet = workbook[target_sheet_name]
-
-        # Get the map of item names to their corresponding row numbers
         item_to_row_map = st.session_state.bevweekly_data['item_to_row_map']
         
-        # Iterate through the counted items and update the cells
-        # Column H is the 8th column, which corresponds to "End Inventory"
         END_INVENTORY_COL = 8
-        for item, count in st.session_state.inventory_counts.items():
+        # Iterate through the counted items and update the cells with the SUM
+        for item, counts_list in st.session_state.inventory_counts.items():
+            total = sum(counts_list) # Sum the list of counts
             item_clean = item.strip()
             if item_clean in item_to_row_map:
                 row_number = item_to_row_map[item_clean]
-                sheet.cell(row=row_number, column=END_INVENTORY_COL, value=float(count))
+                sheet.cell(row=row_number, column=END_INVENTORY_COL, value=float(total))
 
-        # Save the updated workbook to a new in-memory byte stream
         output_stream = BytesIO()
         workbook.save(output_stream)
-        output_stream.seek(0) # Rewind the stream to the beginning
-        
+        output_stream.seek(0)
         return output_stream.getvalue()
 
     except Exception as e:
         st.error(f"Error during Excel export: {e}")
         return None
-
 
 if __name__ == "__main__":
     run_app()
