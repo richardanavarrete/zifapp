@@ -173,32 +173,42 @@ if uploaded_file:
             index=1, key="usage_radio"
         )
         
+        # --- NEW: Master Slider Control ---
+        st.markdown("---")
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            bulk_week_target = st.slider(
+                "Set a target for all items below:",
+                min_value=0.0, max_value=12.0, value=4.0, step=0.5, key="bulk_week_slider"
+            )
+        with col2:
+            st.write("") # Spacer
+            if st.button("Apply Target to All", use_container_width=True):
+                df_to_update = st.session_state.worksheet_df.copy()
+                df_to_update['Target Weeks of Supply'] = bulk_week_target
+                df_to_update['Order Qty (Bottles)'] = df_to_update.apply(
+                    lambda r: max(0, int(math.ceil((r['Target Weeks of Supply'] * r['Selected Avg']) - r['On Hand']))) if r['Selected Avg'] > 0 else 0,
+                    axis=1
+                )
+                st.session_state.worksheet_df = df_to_update
+        st.markdown("---")
+
         worksheet_state_key = f"worksheet_df_{mode}_{filter_selection}_{usage_option}"
         if 'current_worksheet_key' not in st.session_state or st.session_state.current_worksheet_key != worksheet_state_key:
             filtered_df = summary_df[summary_df['Item'].isin(base_items)]
             editor_df_data = {
-                'Item': filtered_df['Item'], 
-                'On Hand': filtered_df['On Hand'],
-                'Selected Avg': filtered_df[usage_option], 
-                'Order Qty (Bottles)': 0, 
-                'Target Weeks of Supply': 0.0
+                'Item': filtered_df['Item'], 'On Hand': filtered_df['On Hand'],
+                'Selected Avg': filtered_df[usage_option], 'Order Qty (Bottles)': 0, 'Target Weeks of Supply': 0.0
             }
             worksheet_df = pd.DataFrame(editor_df_data)
             worksheet_df['Selected Avg'] = pd.to_numeric(worksheet_df['Selected Avg'], errors='coerce').fillna(0)
-            
-            # ADDED: Calculation for Current Wks Left
             def temp_safe_div(n, d):
                 return round(n / d, 1) if d and pd.notna(d) and d > 0 else 0.0
             worksheet_df['Current Wks Left'] = worksheet_df.apply(lambda row: temp_safe_div(row['On Hand'], row['Selected Avg']), axis=1)
-            
-            # Reorder columns and store in session state
             st.session_state.worksheet_df = worksheet_df[['Item', 'On Hand', 'Current Wks Left', 'Selected Avg', 'Order Qty (Bottles)', 'Target Weeks of Supply']]
             st.session_state.current_worksheet_key = worksheet_state_key
+            st.session_state.last_edited_column = None
         
-        st.markdown("---")
-        input_mode = st.radio("My input is based on:", ["Order Qty (Bottles)", "Target Weeks of Supply"], horizontal=True, key="input_mode_selector")
-        
-        # The data editor now uses the dataframe stored in session state
         edited_df = st.data_editor(
             st.session_state.worksheet_df, hide_index=True, use_container_width=True, key="order_editor",
             column_config={
@@ -211,23 +221,28 @@ if uploaded_file:
             }
         )
         
-        if st.button("Calculate Corresponding Values"):
-            if input_mode == 'Order Qty (Bottles)':
-                edited_df['Target Weeks of Supply'] = edited_df.apply(lambda r: (r['On Hand'] + r['Order Qty (Bottles)']) / r['Selected Avg'] if r['Selected Avg'] > 0 else 0, axis=1)
-            elif input_mode == 'Target Weeks of Supply':
-                edited_df['Order Qty (Bottles)'] = edited_df.apply(
+        if not edited_df.equals(st.session_state.worksheet_df):
+            if not edited_df['Order Qty (Bottles)'].equals(st.session_state.worksheet_df['Order Qty (Bottles)']):
+                st.session_state.last_edited_column = 'Bottles'
+            elif not edited_df['Target Weeks of Supply'].equals(st.session_state.worksheet_df['Target Weeks of Supply']):
+                st.session_state.last_edited_column = 'Weeks'
+            
+            new_df = edited_df.copy()
+            if st.session_state.last_edited_column == 'Bottles':
+                new_df['Target Weeks of Supply'] = new_df.apply(lambda r: (r['On Hand'] + r['Order Qty (Bottles)']) / r['Selected Avg'] if r['Selected Avg'] > 0 else 0, axis=1)
+            elif st.session_state.last_edited_column == 'Weeks':
+                new_df['Order Qty (Bottles)'] = new_df.apply(
                     lambda r: max(0, int(math.ceil((r['Target Weeks of Supply'] * r['Selected Avg']) - r['On Hand']))) if r['Selected Avg'] > 0 else 0,
                     axis=1
                 )
-            st.session_state.worksheet_df = edited_df
+            st.session_state.worksheet_df = new_df
+            st.rerun()
 
         st.markdown("---")
         if st.button("Generate Final Order Summary"):
             results = []
-            # Use the most up-to-date dataframe from the editor
-            order_df = edited_df
+            order_df = st.session_state.worksheet_df
             items_to_order = order_df[order_df['Order Qty (Bottles)'] > 0]
-
             if not items_to_order.empty:
                 for _, row in items_to_order.iterrows():
                     on_hand = row['On Hand']
@@ -236,24 +251,16 @@ if uploaded_file:
                     new_weeks_supply = 0.0
                     if row['Selected Avg'] > 0:
                         new_weeks_supply = (on_hand + bottles_to_order) / row['Selected Avg']
-
                     results.append({
-                        'Item': row['Item'],
-                        'Current On Hand': on_hand,
+                        'Item': row['Item'], 'Current On Hand': on_hand,
                         'Bottles to Order': int(bottles_to_order),
                         'New Total On Hand': round(new_total_on_hand, 2),
                         'New Weeks of Supply': round(new_weeks_supply, 1)
                     })
-                
                 result_df = pd.DataFrame(results)
                 st.subheader("Final Order Summary")
                 st.dataframe(result_df, use_container_width=True, hide_index=True)
-                
                 csv_order = result_df.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    "Download Final Order CSV", 
-                    data=csv_order, 
-                    file_name="final_order_summary.csv"
-                )
+                st.download_button("Download Final Order CSV", data=csv_order, file_name="final_order_summary.csv")
             else:
-                st.warning("No items have been added to the order. Enter quantities in the table above.")
+                st.warning("No items have been added to the order.")
