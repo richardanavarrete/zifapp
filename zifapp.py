@@ -389,47 +389,37 @@ if uploaded_file:
                 json.dump(st.session_state.inventory_layout, f, indent=4)
             st.success("Inventory layout saved successfully!")
 
-# --- Mode 3: Take New Inventory ---
-elif app_mode == "Take New Inventory":
-    st.subheader("📝 Take New Inventory")
+    # --- Mode 3: Take New Inventory ---
+    elif app_mode == "Take New Inventory":
+        st.subheader("📝 Take New Inventory")
 
-    # --- Load Layout and Initialize State ---
-    if 'inventory_layout' not in st.session_state:
-        try:
-            with open(LAYOUT_FILE, 'r') as f:
-                st.session_state.inventory_layout = json.load(f)
-        except FileNotFoundError:
-            st.session_state.inventory_layout = {}
+        # --- Load Layout and Initialize State ---
+        if 'inventory_layout' not in st.session_state:
+            try:
+                with open(LAYOUT_FILE, 'r') as f:
+                    st.session_state.inventory_layout = json.load(f)
+            except FileNotFoundError:
+                st.session_state.inventory_layout = {}
 
-    if not st.session_state.inventory_layout:
-        st.warning("You must first set up your inventory locations. Go to the 'Configure Inventory Layout' mode.")
-        st.stop()
+        if not st.session_state.inventory_layout:
+            st.warning("You must first set up your inventory locations. Go to the 'Configure Inventory Layout' mode.")
+            st.stop()
 
-    xls = pd.ExcelFile(uploaded_file)
-    sheet_names = xls.sheet_names
-    all_items = sorted(list(set(pd.read_excel(xls, sheet_name=sheet_names[0], skiprows=4).iloc[:, 0].dropna().astype(str).str.strip().tolist())))
-    all_items = [item for item in all_items if not item.upper().startswith('TOTAL')]
+        xls = pd.ExcelFile(uploaded_file)
+        sheet_names = xls.sheet_names
+        all_items = sorted(list(set(pd.read_excel(xls, sheet_name=sheet_names[0], skiprows=4).iloc[:, 0].dropna().astype(str).str.strip().tolist())))
+        all_items = [item for item in all_items if not item.upper().startswith('TOTAL')]
 
-    selected_week = st.selectbox("Which week are you taking inventory for?", options=xls.sheet_names, key="inv_week_select")
+        selected_week = st.selectbox("Which week are you taking inventory for?", options=xls.sheet_names, key="inv_week_select")
 
-    # Initialize session state for first time use
-    if 'master_inventory_counts' not in st.session_state:
-        st.session_state.master_inventory_counts = {}
-        st.session_state.current_inventory_week = selected_week
-        st.session_state.current_location_index = 0
-        st.session_state.current_item_index = 0
-        st.session_state.calculator_value = 0.0
-    
-    # Only clear inventory if explicitly changing weeks
-    if st.session_state.get('current_inventory_week') != selected_week:
-        if st.button(f"Switch to week {selected_week}? This will clear current inventory counts."):
+        # Initialize session state keys for inventory taking
+        if 'master_inventory_counts' not in st.session_state or st.session_state.get('current_inventory_week') != selected_week:
             st.session_state.master_inventory_counts = {}
             st.session_state.current_inventory_week = selected_week
             st.session_state.current_location_index = 0
             st.session_state.current_item_index = 0
             st.session_state.calculator_value = 0.0
             st.info(f"Starting new inventory for week: **{selected_week}**. All previous counts cleared.")
-            st.rerun()
 
         if 'calculator_value' not in st.session_state: st.session_state.calculator_value = 0.0
         if 'current_location_index' not in st.session_state: st.session_state.current_location_index = 0
