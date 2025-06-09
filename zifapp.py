@@ -365,6 +365,7 @@ if uploaded_file:
         st.number_input("Build count here:", min_value=0.0, step=1.0, key="calculator_value")
         
         q_col1, q_col2, q_col3, q_col4 = st.columns(4)
+        st.button("Log Partial Count to Next Available Slot", on_click=log_count, args=(item_to_count,), use_container_width=True, type="primary")
         q_col1.button("+0.1", on_click=add_to_calculator, args=(0.1,), use_container_width=True)
         q_col1.button("+0.3", on_click=add_to_calculator, args=(0.3,), use_container_width=True)
         q_col1.button("+0.5", on_click=add_to_calculator, args=(0.5,), use_container_width=True)
@@ -379,7 +380,6 @@ if uploaded_file:
         
         q_col4.button("Clear", on_click=reset_calculator, use_container_width=True)
 
-        st.button("Log Partial Count to Next Available Slot", on_click=log_count, args=(item_to_count,), use_container_width=True, type="primary")
 
         # Display the live total for the current item
         st.metric(f"Total Counted for {item_to_count}", f"{sum(st.session_state.master_inventory_counts.get(item_to_count, [])):.2f}")
