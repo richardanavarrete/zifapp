@@ -190,7 +190,7 @@ if uploaded_file:
                 df_to_update['Target Weeks of Supply'] = bulk_week_target
                 df_to_update['Order Qty (Bottles)'] = df_to_update.apply()
                 lambda r: max(0, int(math.ceil((r['Target Weeks of Supply'] * r['Selected Avg']) - r['On Hand']))) if r['Selected Avg'] > 0 else 0,
-                    axis=1
+                axis=1
             usage_option = st.selectbox(
                 "Select usage average for all tables:",
                 options=['10-Week Average', '4-Week Average', 'Year-to-Date Average', 'Lowest 4 Average (non-zero)', 'Highest 4 Average'],
