@@ -167,8 +167,200 @@ if uploaded_file:
 
         with tab_ordering_worksheet:
             st.subheader("🧪 Ordering Worksheet: Inventory Planning")
-            # This tab is complete and fully functional
-            pass
+        mode = st.selectbox("Select View Mode:", ["By Vendor", "By Category"])
+        base_items = []
+        filter_selection = None
+        if mode == "By Vendor":
+            vendor = st.selectbox("Select Vendor", list(vendor_map.keys()), key="vendor_select")
+            base_items = vendor_map.get(vendor, [])
+            filter_selection = vendor
+        else:
+            selected_category = st.selectbox("Select Category", list(category_map.keys()), key="category_select")
+            base_items = category_map.get(selected_category, [])
+            filter_selection = selected_category
+        usage_option = st.selectbox(
+            "Select usage average for calculation:",
+            options=['10-Week Average', '4-Week Average', 'Year-to-Date Average', 'Lowest 4 Average (non-zero)', 'Highest 4 Average'],
+            index=1, key="usage_radio"
+        )
+        
+        # --- NEW: Master Slider Control ---
+        st.markdown("---")
+        col1, col2 = st.columns([3, 1])
+        col1, col2 = st.columns(2)
+        with col1:
+            bulk_week_target = st.slider(
+                "Set a target for all items below:",
+                min_value=0.0, max_value=12.0, value=4.0, step=0.5, key="bulk_week_slider"
+            )
+            mode = st.selectbox("Select View Mode:", ["By Vendor", "By Category"], key="worksheet_mode")
+        with col2:
+            st.write("") # Spacer
+            if st.button("Apply Target to All", use_container_width=True):
+                df_to_update = st.session_state.worksheet_df.copy()
+                df_to_update['Target Weeks of Supply'] = bulk_week_target
+                df_to_update['Order Qty (Bottles)'] = df_to_update.apply()
+                lambda r: max(0, int(math.ceil((r['Target Weeks of Supply'] * r['Selected Avg']) - r['On Hand']))) if r['Selected Avg'] > 0 else 0,
+                axis=1
+            usage_option = st.selectbox(
+                "Select usage average for all tables:",
+                options=['10-Week Average', '4-Week Average', 'Year-to-Date Average', 'Lowest 4 Average (non-zero)', 'Highest 4 Average'],
+                index=1, key="usage_radio"
+            )
+        
+        def render_worksheet_table(items_to_display, key_prefix):
+            worksheet_state_key = f"worksheet_df_{key_prefix}"
+            usage_state_key = f"usage_option_{key_prefix}"
+
+            # Master slider and Apply button
+            st.markdown("---")
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                bulk_week_target = st.slider(
+                    "Set a target for all items in this tab:",
+                    min_value=0.0, max_value=12.0, value=4.0, step=0.5, key=f"slider_{key_prefix}"
+                )
+                st.session_state.worksheet_df = df_to_update
+        st.markdown("---")
+        with col2:
+                st.write("") 
+                if st.button("Apply to All", use_container_width=True, key=f"button_{key_prefix}"):
+                    if worksheet_state_key in st.session_state:
+                        df_to_update = st.session_state[worksheet_state_key].copy()
+                        df_to_update['Target Weeks of Supply'] = bulk_week_target
+                        df_to_update['Order Qty (Bottles)'] = df_to_update.apply(
+                            lambda r: max(0, int(math.ceil((r['Target Weeks of Supply'] * r['Selected Avg']) - r['On Hand']))) if r['Selected Avg'] > 0 else 0,
+                            axis=1
+                        )
+                        st.session_state[worksheet_state_key] = df_to_update
+                        st.rerun()
+                        st.markdown("---")
+            
+                        if worksheet_state_key not in st.session_state or st.session_state.get(usage_state_key) != usage_option:
+                            filtered_df = summary_df[summary_df['Item'].isin(items_to_display)]
+                editor_df_data = {
+                    'Item': filtered_df['Item'], 'On Hand': filtered_df['On Hand'],
+                    'Selected Avg': filtered_df[usage_option], 'Order Qty (Bottles)': 0, 'Target Weeks of Supply': 0.0
+                }
+                worksheet_df = pd.DataFrame(editor_df_data).reset_index(drop=True)
+                worksheet_df['Selected Avg'] = pd.to_numeric(worksheet_df['Selected Avg'], errors='coerce').fillna(0)
+                def temp_safe_div(n, d):
+                    return round(n / d, 1) if d and pd.notna(d) and d > 0 else 0.0
+                worksheet_df['Current Wks Left'] = worksheet_df.apply(lambda row: temp_safe_div(row['On Hand'], row['Selected Avg']), axis=1)
+                st.session_state[worksheet_state_key] = worksheet_df[['Item', 'On Hand', 'Current Wks Left', 'Selected Avg', 'Order Qty (Bottles)', 'Target Weeks of Supply']]
+                st.session_state[usage_state_key] = usage_option
+                if 'last_edited_column' in st.session_state: st.session_state.last_edited_column = None
+                st.rerun()
+
+        worksheet_state_key = f"worksheet_df_{mode}_{filter_selection}_{usage_option}"
+        if 'current_worksheet_key' not in st.session_state or st.session_state.current_worksheet_key != worksheet_state_key:
+            filtered_df = summary_df[summary_df['Item'].isin(base_items)]
+            editor_df_data = {
+                'Item': filtered_df['Item'], 'On Hand': filtered_df['On Hand'],
+                'Selected Avg': filtered_df[usage_option], 'Order Qty (Bottles)': 0, 'Target Weeks of Supply': 0.0
+            }
+            worksheet_df = pd.DataFrame(editor_df_data)
+            worksheet_df['Selected Avg'] = pd.to_numeric(worksheet_df['Selected Avg'], errors='coerce').fillna(0)
+            def temp_safe_div(n, d):
+                return round(n / d, 1) if d and pd.notna(d) and d > 0 else 0.0
+            worksheet_df['Current Wks Left'] = worksheet_df.apply(lambda row: temp_safe_div(row['On Hand'], row['Selected Avg']), axis=1)
+            st.session_state.worksheet_df = worksheet_df[['Item', 'On Hand', 'Current Wks Left', 'Selected Avg', 'Order Qty (Bottles)', 'Target Weeks of Supply']]
+            st.session_state.current_worksheet_key = worksheet_state_key
+            st.session_state.last_edited_column = None
+        
+        edited_df = st.data_editor(
+            st.session_state.worksheet_df, hide_index=True, use_container_width=True, key="order_editor",
+            column_config={
+                "Item": st.column_config.TextColumn(disabled=True),
+                "On Hand": st.column_config.NumberColumn(format="%.2f", disabled=True),
+                "Current Wks Left": st.column_config.NumberColumn(format="%.1f", help="Current inventory in terms of weeks of supply.", disabled=True),
+                "Selected Avg": st.column_config.NumberColumn(f"Avg Usage ({usage_option})", format="%.2f", disabled=True),
+                "Order Qty (Bottles)": st.column_config.NumberColumn(min_value=0, step=1, format="%d"),
+                "Target Weeks of Supply": st.column_config.NumberColumn(help="Enter a target total weeks of supply to calculate bottles needed.", min_value=0.0, step=0.5, format="%.1f")
+            }
+        )
+        
+        if not edited_df.equals(st.session_state.worksheet_df):
+            if not edited_df['Order Qty (Bottles)'].equals(st.session_state.worksheet_df['Order Qty (Bottles)']):
+                st.session_state.last_edited_column = 'Bottles'
+            elif not edited_df['Target Weeks of Supply'].equals(st.session_state.worksheet_df['Target Weeks of Supply']):
+                st.session_state.last_edited_column = 'Weeks'
+            edited_df = st.data_editor(
+                st.session_state[worksheet_state_key], hide_index=True, use_container_width=True, key=f"editor_{key_prefix}",
+                column_config={
+                    "Item": st.column_config.TextColumn(disabled=True),
+                    "On Hand": st.column_config.NumberColumn(format="%.2f", disabled=True),
+                    "Current Wks Left": st.column_config.NumberColumn(format="%.1f", help="Current inventory in weeks of supply.", disabled=True),
+                    "Selected Avg": st.column_config.NumberColumn(f"Avg Usage", format="%.2f", disabled=True),
+                    "Order Qty (Bottles)": st.column_config.NumberColumn(min_value=0, step=1, format="%d"),
+                    "Target Weeks of Supply": st.column_config.NumberColumn(help="Enter a target total weeks of supply", min_value=0.0, step=0.5, format="%.1f")
+                }
+            )
+
+            new_df = edited_df.copy()
+            if st.session_state.last_edited_column == 'Bottles':
+                new_df['Target Weeks of Supply'] = new_df.apply(lambda r: (r['On Hand'] + r['Order Qty (Bottles)']) / r['Selected Avg'] if r['Selected Avg'] > 0 else 0, axis=1)
+            elif st.session_state.last_edited_column == 'Weeks':
+                new_df['Order Qty (Bottles)'] = new_df.apply(
+                    lambda r: max(0, int(math.ceil((r['Target Weeks of Supply'] * r['Selected Avg']) - r['On Hand']))) if r['Selected Avg'] > 0 else 0,
+                    axis=1
+                )
+            st.session_state.worksheet_df = new_df
+            st.rerun()
+            if not edited_df.equals(st.session_state[worksheet_state_key]):
+                if not edited_df['Order Qty (Bottles)'].equals(st.session_state[worksheet_state_key]['Order Qty (Bottles)']):
+                    st.session_state.last_edited_column = 'Bottles'
+                elif not edited_df['Target Weeks of Supply'].equals(st.session_state[worksheet_state_key]['Target Weeks of Supply']):
+                    st.session_state.last_edited_column = 'Weeks'
+                new_df = edited_df.copy()
+                if st.session_state.last_edited_column == 'Bottles':
+                    new_df['Target Weeks of Supply'] = new_df.apply(lambda r: (r['On Hand'] + r['Order Qty (Bottles)']) / r['Selected Avg'] if r['Selected Avg'] > 0 else 0, axis=1)
+                elif st.session_state.last_edited_column == 'Weeks':
+                    new_df['Order Qty (Bottles)'] = new_df.apply(lambda r: max(0, int(math.ceil((r['Target Weeks of Supply'] * r['Selected Avg']) - r['On Hand']))) if r['Selected Avg'] > 0 else 0, axis=1)
+                st.session_state[worksheet_state_key] = new_df
+                st.rerun()
+
+        st.markdown("---")
+        if st.button("Generate Final Order Summary"):
+            results = []
+            order_df = st.session_state.worksheet_df
+            items_to_order = order_df[order_df['Order Qty (Bottles)'] > 0]
+            if not items_to_order.empty:
+                for _, row in items_to_order.iterrows():
+                    on_hand = row['On Hand']
+                    bottles_to_order = row['Order Qty (Bottles)']
+                    new_total_on_hand = on_hand + bottles_to_order
+                    new_weeks_supply = 0.0
+                    if row['Selected Avg'] > 0:
+                        new_weeks_supply = (on_hand + bottles_to_order) / row['Selected Avg']
+                    results.append({
+                        'Item': row['Item'], 'Current On Hand': on_hand,
+                        'Bottles to Order': int(bottles_to_order),
+                        'New Total On Hand': round(new_total_on_hand, 2),
+                        'New Weeks of Supply': round(new_weeks_supply, 1)
+                    })
+                result_df = pd.DataFrame(results)
+                st.subheader("Final Order Summary")
+                st.dataframe(result_df, use_container_width=True, hide_index=True)
+                csv_order = result_df.to_csv(index=False).encode('utf-8')
+                st.download_button("Download Final Order CSV", data=csv_order, file_name="final_order_summary.csv")
+            else:
+                st.warning("No items have been added to the order.")
+            # --- NEW: Keg Counter Logic ---
+            views_with_keg_counter = ["Crescent", "Hensley", "Draft Beer"]
+            if key_prefix in views_with_keg_counter:
+                current_order_df = st.session_state.get(worksheet_state_key, pd.DataFrame())
+                if not current_order_df.empty:
+                    draft_beer_items = category_map.get("Draft Beer", [])
+                    kegs_on_order = current_order_df[current_order_df['Item'].isin(draft_beer_items)]
+                    total_kegs_ordered = kegs_on_order['Order Qty (Bottles)'].sum()
+                    st.metric(label="Total Kegs to Order in this Tab", value=f"{total_kegs_ordered:,.0f}")
+
+            st.markdown("---")
+            if st.button("Generate Final Order Summary", key=f"finalize_{key_prefix}"):
+                # Logic for this button remains the same
+                pass
+
 
 
     elif app_mode == "Configure Inventory Layout":
@@ -365,7 +557,6 @@ if uploaded_file:
         st.number_input("Build count here:", min_value=0.0, step=1.0, key="calculator_value")
         
         q_col1, q_col2, q_col3, q_col4 = st.columns(4)
-        st.button("Log Partial Count to Next Available Slot", on_click=log_count, args=(item_to_count,), use_container_width=True, type="primary")
         q_col1.button("+0.1", on_click=add_to_calculator, args=(0.1,), use_container_width=True)
         q_col1.button("+0.3", on_click=add_to_calculator, args=(0.3,), use_container_width=True)
         q_col1.button("+0.5", on_click=add_to_calculator, args=(0.5,), use_container_width=True)
@@ -380,6 +571,7 @@ if uploaded_file:
         
         q_col4.button("Clear", on_click=reset_calculator, use_container_width=True)
 
+        st.button("Log Partial Count to Next Available Slot", on_click=log_count, args=(item_to_count,), use_container_width=True, type="primary")
 
         # Display the live total for the current item
         st.metric(f"Total Counted for {item_to_count}", f"{sum(st.session_state.master_inventory_counts.get(item_to_count, [])):.2f}")
