@@ -188,7 +188,7 @@ if uploaded_file:
             if st.button("Apply Target to All", use_container_width=True):
                 df_to_update = st.session_state.worksheet_df.copy()
                 df_to_update['Target Weeks of Supply'] = bulk_week_target
-                df_to_update['Order Qty (Bottles)'] = df_to_update.apply(
+                df_to_update['Order Qty (Bottles)'] = df_to_update.apply()
                     lambda r: max(0, int(math.ceil((r['Target Weeks of Supply'] * r['Selected Avg']) - r['On Hand']))) if r['Selected Avg'] > 0 else 0,
                     axis=1
             usage_option = st.selectbox(
