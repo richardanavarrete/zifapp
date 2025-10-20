@@ -183,7 +183,7 @@ if uploaded_file:
             with col1:
                 bulk_week_target = st.slider(
                     "Set a target for all items in this tab:",
-                    min_value=0.0, max_value=12.0, value=4.0, step=0.5, key=f"slider_{key_prefix}"
+                    min_value=0.0, max_value=12.0, value=4.0, step=0.1, key=f"slider_{key_prefix}"
                 )
             with col2:
                 st.write("")
@@ -223,7 +223,7 @@ if uploaded_file:
                     "Current Wks Left": st.column_config.NumberColumn(format="%.1f", help="Current inventory in weeks of supply.", disabled=True),
                     "Selected Avg": st.column_config.NumberColumn(f"Avg Usage", format="%.2f", disabled=True),
                     "Order Qty (Bottles)": st.column_config.NumberColumn(min_value=0, step=1, format="%d"),
-                    "Target Weeks of Supply": st.column_config.NumberColumn(help="Enter a target total weeks of supply", min_value=0.0, step=0.5, format="%.1f")
+                    "Target Weeks of Supply": st.column_config.NumberColumn(help="Enter a target total weeks of supply", min_value=0.0, step=0.1, format="%.1f")
                 }
             )
 
@@ -292,4 +292,5 @@ if uploaded_file:
                 with tab:
                     category_name = category_keys[i]
                     render_worksheet_table(category_map.get(category_name, []), category_name)
+
 
