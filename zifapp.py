@@ -50,6 +50,7 @@ def load_and_process_data(uploaded_file):
         usage = group['Usage']
         inventory = group['End Inventory']
         dates = group['Date']
+        last_week_usage = usage.iloc[-1] if not usage.empty else None
         last_10, last_4 = usage.tail(10), usage.tail(4)
         ytd_avg = group[dates.dt.year == datetime.now().year]['Usage'].mean() if pd.api.types.is_datetime64_any_dtype(dates) else None
 
@@ -63,6 +64,7 @@ def load_and_process_data(uploaded_file):
 
         return pd.Series({
             'On Hand': round(inventory.iloc[-1], 2),
+            'Last Week Usage': round(last_week_usage, 2) if pd.notna(last_week_usage) else None,
             'Year-to-Date Average': round(ytd_avg, 2) if pd.notna(ytd_avg) else None,
             '10-Week Average': round(last_10.mean(), 2) if not last_10.empty else None,
             '4-Week Average': round(last_4.mean(), 2) if not last_4.empty else None,
@@ -292,5 +294,6 @@ if uploaded_file:
                 with tab:
                     category_name = category_keys[i]
                     render_worksheet_table(category_map.get(category_name, []), category_name)
+
 
 
