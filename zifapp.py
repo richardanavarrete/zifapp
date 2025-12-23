@@ -64,19 +64,19 @@ def load_and_process_data(uploaded_file):
 
         return pd.Series({
             'On Hand': round(inventory.iloc[-1], 2),
-            'Last Week Usage': round(last_week_usage, 2) if pd.notna(last_week_usage) else None,
-            'Year-to-Date Average': round(ytd_avg, 2) if pd.notna(ytd_avg) else None,
-            '10-Week Average': round(last_10.mean(), 2) if not last_10.empty else None,
-            '4-Week Average': round(last_4.mean(), 2) if not last_4.empty else None,
-            'All-Time High': round(usage.max(), 2),
-            'Lowest 4 Average (non-zero)': round(avg_of_lowest_4_non_zero, 2) if pd.notna(avg_of_lowest_4_non_zero) else None,
-            'Highest 4 Average': round(avg_of_highest_4, 2) if pd.notna(avg_of_highest_4) else None,
-            'Weeks Remaining (YTD)': safe_div(inventory.iloc[-1], ytd_avg),
-            'Weeks Remaining (10 Wk)': safe_div(inventory.iloc[-1], last_10.mean()),
-            'Weeks Remaining (4 Wk)': safe_div(inventory.iloc[-1], last_4.mean()),
-            'Weeks Remaining (ATH)': safe_div(inventory.iloc[-1], usage.max()),
-            'Weeks Remaining (Lowest 4)': safe_div(inventory.iloc[-1], avg_of_lowest_4_non_zero),
-            'Weeks Remaining (Highest 4)': safe_div(inventory.iloc[-1], avg_of_highest_4)
+            'LW USG': round(last_week_usage, 2) if pd.notna(last_week_usage) else None,
+            'YTD USG': round(ytd_avg, 2) if pd.notna(ytd_avg) else None,
+            '10WK USG': round(last_10.mean(), 2) if not last_10.empty else None,
+            '4WK USG': round(last_4.mean(), 2) if not last_4.empty else None,
+            'ATH USG': round(usage.max(), 2),
+            'Lo4 AVG': round(avg_of_lowest_4_non_zero, 2) if pd.notna(avg_of_lowest_4_non_zero) else None,
+            'Hi4 AVG': round(avg_of_highest_4, 2) if pd.notna(avg_of_highest_4) else None,
+            'YTD WKS': safe_div(inventory.iloc[-1], ytd_avg),
+            '10WK WKS': safe_div(inventory.iloc[-1], last_10.mean()),
+            '4WK WKS': safe_div(inventory.iloc[-1], last_4.mean()),
+            'ATH WKS': safe_div(inventory.iloc[-1], usage.max()),
+            'Lo4 WKS': safe_div(inventory.iloc[-1], avg_of_lowest_4_non_zero),
+            'Hi4 WKS': safe_div(inventory.iloc[-1], avg_of_highest_4)
         })
 
     summary_df = full_df.groupby('Item').apply(compute_metrics).reset_index()
@@ -150,7 +150,7 @@ if uploaded_file:
         format_dict = {col: '{:,.2f}' for col in display_df.select_dtypes(include=['float64', 'float32']).columns}
         styled_df = display_df.style.format(format_dict, na_rep="-").applymap(
             highlight_weeks_remaining, threshold=threshold,
-            subset=['Weeks Remaining (YTD)', 'Weeks Remaining (10 Wk)', 'Weeks Remaining (4 Wk)', 'Weeks Remaining (ATH)', 'Weeks Remaining (Lowest 4)', 'Weeks Remaining (Highest 4)']
+            subset=['YTD WKS', '10WK WKS)', '4WK WKS', 'ATH WKS', 'Lo4 WKS', 'Hi4 WKS']
         )
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
         csv = display_df.to_csv(index=False).encode('utf-8')
@@ -171,7 +171,7 @@ if uploaded_file:
             filter_selection = selected_category
         usage_option = st.selectbox(
             "Select usage average for calculation:",
-            options=['10-Week Average', '4-Week Average', 'Year-to-Date Average', 'Lowest 4 Average (non-zero)', 'Highest 4 Average'],
+            options=['10WK AVG', '4WK AVG', 'YTD AVG', 'Lo4 AVG', 'Hi4 AVG'],
             index=1, key="usage_radio"
         )
 
@@ -294,6 +294,7 @@ if uploaded_file:
                 with tab:
                     category_name = category_keys[i]
                     render_worksheet_table(category_map.get(category_name, []), category_name)
+
 
 
 
