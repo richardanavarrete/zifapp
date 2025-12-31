@@ -217,7 +217,7 @@ def calculate_liquor_usage(sales_df):
         
         # Clean up item name
         clean_name = re.sub(r'\s*\(FS\)\s*$', '', item_name).strip()
-        is_bump = '(Bump)' in item_name
+        is_bump = '(Flavor)', '(Bump)' in item_name
         clean_name = re.sub(r'\s*\(Bump\)\s*$', '', clean_name).strip()
         
         # Determine pour size
@@ -300,30 +300,21 @@ def calculate_mixed_drink_usage(sales_df):
         frozen_size = 10  # default Zipparita size
         
         # Check for frozen marg indicators
-        if item_name == 'Zipparita' or clean_name == 'Zipparita':
+        if item_name == '[Liquor] Zipparita' or clean_name == 'Zipparita':
             is_frozen_marg = True
             frozen_size = 10
-        elif 'BIG Zipparita' in item_name:
+        elif '[Liquor] BIG Zipparita' in item_name:
             is_frozen_marg = True
             frozen_size = 16
-        elif 'TO GO RITA 16oz' in item_name or '16oz TO GO' in item_name:
+        elif '[Liquor] TO GO RITA 16oz' in item_name or '16oz TO GO' in item_name:
             is_frozen_marg = True
             frozen_size = 16
-        elif 'TO GO RITA 24oz' in item_name or '24oz TO GO' in item_name:
+        elif '[Liquor] TO GO RITA 24oz' in item_name or '24oz TO GO' in item_name:
             is_frozen_marg = True
             frozen_size = 24
-        elif 'BIG RITA' in item_name:
+        elif '[Liquor] BIG RITA' in item_name:
             is_frozen_marg = True
             frozen_size = 16
-        elif 'Zippa Rona' in item_name:
-            is_frozen_marg = True
-            frozen_size = 16
-            # Also add coronita
-            inv_item = 'BEER BTL Coronita Extra'
-            if inv_item not in results:
-                results[inv_item] = {'oz': 0, 'bottles': 0, 'qty': 0, 'items': []}
-            results[inv_item]['qty'] = results[inv_item].get('qty', 0) + qty
-            results[inv_item]['items'].append(f"Zippa Rona coronita: {qty}")
         elif 'Flavor' in item_name:
             is_frozen_marg = True
             # Determine size based on item name
@@ -336,7 +327,7 @@ def calculate_mixed_drink_usage(sales_df):
         elif 'Milagro Marg On Tap' in item_name:
             # Special handling for Milagro on tap
             is_frozen_marg = True
-            frozen_size = 10  # Assume standard size
+            frozen_size = 5  # Assume standard size
             
             tequila_oz = qty * frozen_size * ZIPPARITA_TEQUILA_RATIO
             triple_sec_oz = qty * frozen_size * ZIPPARITA_TRIPLE_SEC_RATIO
