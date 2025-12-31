@@ -1,23 +1,29 @@
-# utils/sales_mix_parser.py
-# Functions to parse Sales Mix CSV and calculate theoretical usage
-
 import pandas as pd
 import re
-from config import (
-    # Constants
+import sys
+import os
+
+# --- PRO FIX: Add Project Root to Path ---
+# This ensures Python can find the 'config' folder even from inside 'utils'
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+# -----------------------------------------
+
+# Now import specific submodules (Explicit is better than implicit)
+from config.constants import (
     COUNT_OZ, STANDARD_POUR_OZ, HALF_BARREL_OZ, LIQUOR_BOTTLE_OZ,
     DRAFT_POUR_SIZES, ZIPPARITA_TEQUILA_RATIO, ZIPPARITA_TRIPLE_SEC_RATIO,
-    WINE_GLASS_OZ, WINE_BOTTLE_OZ,
-    # Mappings
-    DRAFT_BEER_MAP, DRAFT_SKIP_ITEMS,
-    BOTTLE_BEER_MAP,
-    LIQUOR_MAP,
-    WINE_MAP,
-    MIXED_DRINK_RECIPES,
-    MARGARITA_FLAVOR_ADDITIONS, PREMIUM_TEQUILA_FLAVORS,
-    BAR_CONSUMABLES_MAP,
+    WINE_GLASS_OZ, WINE_BOTTLE_OZ
 )
-
+from config.draft_beer_map import DRAFT_BEER_MAP, DRAFT_SKIP_ITEMS
+from config.bottle_beer_map import BOTTLE_BEER_MAP
+from config.liquor_map import LIQUOR_MAP
+from config.wine_map import WINE_MAP
+from config.mixed_drinks import MIXED_DRINK_RECIPES
+from config.margarita_flavors import MARGARITA_FLAVOR_ADDITIONS, PREMIUM_TEQUILA_FLAVORS
+from config.bar_consumables import BAR_CONSUMABLES_MAP
 
 def parse_sales_mix_csv(uploaded_csv):
     """
