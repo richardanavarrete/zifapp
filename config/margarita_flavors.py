@@ -21,6 +21,7 @@ MARGARITA_FLAVOR_ADDITIONS = {
     # Non-liquor flavors
     "Mango Flavor": {"BAR CONS Mango Puree": 1.0},
     "Strawberry Flavor": {},  # Uses strawberry mix, no tracked liquor
+    "Iceberg": {},  # Frozen marg floater (~0.5oz mix), no tracked liquor
     
     # Multi-ingredient flavors
     "Firecracker Flavor": {"LIQ Blue Curacao": FLAVOR_OZ},

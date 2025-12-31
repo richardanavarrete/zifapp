@@ -374,42 +374,43 @@ def calculate_mixed_drink_usage(sales_df):
             results[inv_item]['oz'] += triple_sec_oz
             results[inv_item]['bottles'] = results[inv_item]['oz'] / LIQUOR_BOTTLE_OZ
             results[inv_item]['items'].append(f"{item_name}: {qty} × {frozen_size}oz × {ZIPPARITA_TRIPLE_SEC_RATIO:.1%}")
-            
+
             # Check for flavor additions
-        for flavor_pattern, additions in MARGARITA_FLAVOR_ADDITIONS.items():
-            if flavor_pattern.lower() in clean_name.lower():
-                # We found a flavor! (e.g. "Mango Flavor")
-                
-                # Determine multiplier based on size
-                # (You already set frozen_size above, so just use that ratio)
-                # Standard flavor dose is for a 10oz drink.
-                # If drink is 16oz, we need 1.6x the flavor.
-                flavor_multiplier = frozen_size / 10.0
-                
-                for add_inv_item, add_oz in additions.items():
-                    total_flavor_oz = qty * add_oz * flavor_multiplier
-                    
-                    if add_inv_item not in results:
-                        results[add_inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
-                    
-                    results[add_inv_item]['oz'] += total_flavor_oz
-                    
-                    # Handle units (Bottles vs Puree/Consumables)
-                    if 'BAR CONS' in add_inv_item or 'JUICE' in add_inv_item:
-                         # Keep consumables in oz (don't divide by bottle size)
-                         # We'll set 'bottles' to match 'oz' for now so it doesn't crash, 
-                         # but the aggregator handles unit types later.
-                         results[add_inv_item]['bottles'] = results[add_inv_item]['oz']
-                    else:
-                        results[add_inv_item]['bottles'] = results[add_inv_item]['oz'] / LIQUOR_BOTTLE_OZ
-                        
-                    results[add_inv_item]['items'].append(f"{item_name}: {qty} x {add_oz}oz (x{flavor_multiplier} size)")
-                
-                # Stop looking for other flavors once we found the right one
-                break
-            
+            for flavor_pattern, additions in MARGARITA_FLAVOR_ADDITIONS.items():
+                if flavor_pattern.lower() in clean_name.lower():
+                    # We found a flavor! (e.g. "Mango Flavor")
+
+                    # Determine multiplier based on size
+                    # (You already set frozen_size above, so just use that ratio)
+                    # Standard flavor dose is for a 10oz drink.
+                    # If drink is 16oz, we need 1.6x the flavor.
+                    flavor_multiplier = frozen_size / 10.0
+
+                    for add_inv_item, add_oz in additions.items():
+                        total_flavor_oz = qty * add_oz * flavor_multiplier
+
+                        if add_inv_item not in results:
+                            results[add_inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
+
+                        results[add_inv_item]['oz'] += total_flavor_oz
+
+                        # Handle units (Bottles vs Puree/Consumables)
+                        if 'BAR CONS' in add_inv_item or 'JUICE' in add_inv_item:
+                             # Keep consumables in oz (don't divide by bottle size)
+                             # We'll set 'bottles' to match 'oz' for now so it doesn't crash,
+                             # but the aggregator handles unit types later.
+                             results[add_inv_item]['bottles'] = results[add_inv_item]['oz']
+                        else:
+                            results[add_inv_item]['bottles'] = results[add_inv_item]['oz'] / LIQUOR_BOTTLE_OZ
+
+                        results[add_inv_item]['items'].append(f"{item_name}: {qty} x {add_oz}oz (x{flavor_multiplier} size)")
+
+                    # Stop looking for other flavors once we found the right one
+                    break
+
+            # Frozen marg processed, skip standard mixed drink matching
             continue
-        
+
         # Check for standard mixed drink recipes
         matched = False
         for recipe_name, ingredients in MIXED_DRINK_RECIPES.items():
