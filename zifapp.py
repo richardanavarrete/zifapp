@@ -703,7 +703,7 @@ def render_ordering_tab(
     """Render the ordering worksheet tab."""
     st.subheader("🧪 Ordering Worksheet: Inventory Planning")
     
-    mode = st.selectbox("Select View Mode:", ["By Vendor", "By Category"])
+    mode = st.selectbox("Select View Mode:", ["By Category"])
     
     usage_option = st.selectbox(
         "Select usage average for calculation:",
@@ -750,3 +750,4 @@ def render_ordering_tab(
 # --- Run the application ---
 if __name__ == "__main__":
     main()
+
