@@ -367,6 +367,12 @@ if uploaded_file:
                     with st.expander("View Parsed Sales Data", expanded=False):
                         st.dataframe(sales_df, use_container_width=True, hide_index=True)
 
+                    # DEBUG: Show exact item names for mapping
+                    with st.expander("🔍 DEBUG: Exact Item Names from POS", expanded=False):
+                        st.markdown("**Use these EXACT names in your mappings:**")
+                        liquor_items = sales_df[sales_df['Category'] == 'Liquor']['Item'].unique()
+                        st.code('\n'.join([f'"{item}"' for item in sorted(liquor_items)]))
+
                     # Pass session state mappings to parser
                     runtime_mappings = st.session_state.get('runtime_mappings', {})
                     all_usage, unmatched_items = aggregate_all_usage(sales_df, runtime_mappings)
