@@ -138,12 +138,26 @@ def load_and_process_data(uploaded_file, smoothing_level=0.3, trend_threshold=0.
 uploaded_file = st.file_uploader("Upload your BEVWEEKLY Excel File", type="xlsx")
 
 if uploaded_file:
+    # Trend settings in sidebar or expander
+    with st.expander("Trend Settings", expanded=False):
+        smoothing_level = st.slider(
+            "Smoothing Level (α)",
+            min_value=0.1, max_value=0.9, value=0.3, step=0.05,
+            help="Higher = more reactive to recent weeks. Lower = more stable."
+        )
+        trend_threshold = st.slider(
+            "Trend Threshold",
+            min_value=0.05, max_value=0.30, value=0.10, step=0.05,
+            help="How much deviation from baseline to flag as trending up/down."
+        )
+
     try:
-        summary_df, vendor_map, category_map = load_and_process_data(uploaded_file)
+        summary_df, vendor_map, category_map = load_and_process_data(
+            uploaded_file, smoothing_level, trend_threshold
+        )
     except Exception as e:
         st.error(f"An error occurred during data processing: {e}")
         st.stop()
-
     tab_summary, tab_ordering_worksheet = st.tabs(["📊 Summary", "🧪 Ordering Worksheet"])
 
     with tab_summary:
@@ -314,6 +328,7 @@ if uploaded_file:
                 with tab:
                     category_name = category_keys[i]
                     render_worksheet_table(category_map.get(category_name, []), category_name)
+
 
 
 
