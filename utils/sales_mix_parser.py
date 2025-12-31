@@ -24,6 +24,7 @@ from config.wine_map import WINE_MAP
 from config.mixed_drinks import MIXED_DRINK_RECIPES
 from config.margarita_flavors import MARGARITA_FLAVOR_ADDITIONS, PREMIUM_TEQUILA_FLAVORS
 from config.bar_consumables import BAR_CONSUMABLES_MAP
+from config.manual_overrides import MANUAL_MAPPINGS, ENABLE_MANUAL_MAPPINGS
 
 def parse_sales_mix_csv(uploaded_csv):
     """
@@ -288,7 +289,22 @@ def calculate_mixed_drink_usage(sales_df):
     for _, row in mixed_sales.iterrows():
         item_name = row['Item']
         qty = row['Qty']
-        
+
+        # Check manual overrides first (exact match, takes precedence)
+        if ENABLE_MANUAL_MAPPINGS and item_name in MANUAL_MAPPINGS:
+            for inv_item, oz_per_drink in MANUAL_MAPPINGS[item_name].items():
+                if inv_item not in results:
+                    results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
+                results[inv_item]['oz'] += qty * oz_per_drink
+                # Use appropriate conversion
+                if 'JUICE' in inv_item or 'BAR CONS' in inv_item:
+                    results[inv_item]['bottles'] = results[inv_item]['oz']  # Track in oz
+                else:
+                    results[inv_item]['bottles'] = results[inv_item]['oz'] / LIQUOR_BOTTLE_OZ
+                results[inv_item]['items'].append(f"{item_name}: {qty} × {oz_per_drink}oz [MANUAL]")
+            # Manual mapping found, skip all other matching
+            continue
+
         # Clean up item name for matching
         clean_name = re.sub(r'\s*\(FS\)\s*$', '', item_name).strip()
         clean_name = re.sub(r'\s*16oz TO GO\s*$', '', clean_name).strip()
