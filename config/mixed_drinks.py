@@ -92,7 +92,11 @@ MIXED_DRINK_RECIPES = {
         "VODKA Well": STANDARD_POUR_OZ,
         "LIQ Kahlua": 0.75,
     },
-    
+
+    "Espresso Shot": {
+        "LIQ Kahlua": STANDARD_POUR_OZ,
+    },
+
     "Gimlet Vodka": {
         "VODKA Well": STANDARD_POUR_OZ,
     },

@@ -9,6 +9,8 @@ LIQUOR_MAP = {
     
     "Bulleit Rye": "WHISKEY Bulleit Straight Rye",
     "Bulleit": "WHISKEY Bulleit Straight Rye",
+    "Bulliet Rye": "WHISKEY Bulleit Straight Rye",  # Common misspelling
+    "Bulliet": "WHISKEY Bulleit Straight Rye",  # Common misspelling
     
     "Crown Royal": "WHISKEY Crown Royal",
     "Crown": "WHISKEY Crown Royal",
@@ -52,7 +54,9 @@ LIQUOR_MAP = {
     "Deep Eddy Ruby Red": "VODKA Deep Eddy Ruby Red",
     
     "Grey Goose": "VODKA Grey Goose",
-    
+
+    "Iceberg": "VODKA Iceberg",
+
     "Ketel One": "VODKA Ketel One",
     "Ketel": "VODKA Ketel One",
     
