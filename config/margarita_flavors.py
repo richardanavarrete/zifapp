@@ -10,23 +10,23 @@ from .constants import COUNT_OZ
 
 MARGARITA_FLAVOR_ADDITIONS = {
     # Standard flavors (1 count of liqueur)
-    "Chambord Flavor": {"LIQ Chambord": COUNT_OZ},
-    "Blue Flavor": {"LIQ Blue Curacao": COUNT_OZ},
-    "Gran Mar Flavor": {"LIQ Grand Marnier": COUNT_OZ},
-    "Watermelon Flavor": {"LIQ Watermelon Schnapps": COUNT_OZ},
-    "Peach Flavor": {"LIQ Peach Schnapps": COUNT_OZ},
-    "Melon Flavor": {"LIQ Melon": COUNT_OZ},
-    "Amaretto Flavor": {"LIQ Amaretto": COUNT_OZ},
+    "[Liquor] Chambord Flavor": {"LIQ Chambord": COUNT_OZ},
+    "[Liquor] Blue Flavor": {"LIQ Blue Curacao": COUNT_OZ},
+    "[Liquor] Gran Mar Flavor": {"LIQ Grand Marnier": COUNT_OZ},
+    "[Liquor] Watermelon Flavor": {"LIQ Watermelon Schnapps": COUNT_OZ},
+    "[Liquor] Peach Flavor": {"LIQ Peach Schnapps": COUNT_OZ},
+    "[Liquor] Melon Flavor": {"LIQ Melon": COUNT_OZ},
+    "[Liquor] Amaretto Flavor": {"LIQ Amaretto": COUNT_OZ},
     
     # Non-liquor flavors
-    "Mango Flavor": {"BAR CONS Mango Puree": 1.0},
-    "Strawberry Flavor": {},  # Uses strawberry mix, no tracked liquor
+    "[Liquor] Mango Flavor": {"BAR CONS Mango Puree": 1.0},
+    "[Liquor] Strawberry Flavor": {},  # Uses strawberry mix, no tracked liquor
     
     # Multi-ingredient flavors
-    "Firecracker Flavor": {"LIQ Blue Curacao": COUNT_OZ},
-    "Grateful Flavor": {"LIQ Blue Curacao": COUNT_OZ, "LIQ Chambord": COUNT_OZ},
-    "Mary Jane Flavor": {"LIQ Blue Curacao": COUNT_OZ, "LIQ Melon": COUNT_OZ},
-    "Missyrita Flavor": {"WINE Salmon Creek Merlot": COUNT_OZ, "LIQ Peach Schnapps": COUNT_OZ},
+    "[Liquor] Firecracker Flavor": {"LIQ Blue Curacao": COUNT_OZ},
+    "[Liquor] Grateful Flavor": {"LIQ Blue Curacao": COUNT_OZ, "LIQ Chambord": COUNT_OZ},
+    "[Liquor] Mary Jane Flavor": {"LIQ Blue Curacao": COUNT_OZ, "LIQ Melon": COUNT_OZ},
+    "[Liquor] Missyrita Flavor": {"WINE Salmon Creek Merlot": COUNT_OZ, "LIQ Peach Schnapps": COUNT_OZ},
     
     # Premium tequila flavors - these REPLACE well tequila, not add to it
     # Handled specially in the parser - no triple sec ratio change, just tequila swap
