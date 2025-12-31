@@ -152,7 +152,7 @@ if uploaded_file:
         format_dict = {col: '{:,.2f}' for col in display_df.select_dtypes(include=['float64', 'float32']).columns}
         styled_df = display_df.style.format(format_dict, na_rep="-").applymap(
             highlight_weeks_remaining, threshold=threshold,
-            subset=['Weeks Remaining (YTD)', 'Weeks Remaining (10 Wk)', 'Weeks Remaining (4 Wk)', 'Weeks Remaining (ATH)', 'Weeks Remaining (Lowest 4)', 'Weeks Remaining (Highest 4)']
+            subset=['Weeks Remaining (YTD)', 'Weeks Remaining (10 Wk)', 'Weeks Remaining (4 Wk)', 'Weeks Remaining (2 Wk)', 'Weeks Remaining (ATH)', 'Weeks Remaining (Lowest 4)', 'Weeks Remaining (Highest 4)']
         )
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
         csv = display_df.to_csv(index=False).encode('utf-8')
@@ -173,7 +173,7 @@ if uploaded_file:
             filter_selection = selected_category
         usage_option = st.selectbox(
             "Select usage average for calculation:",
-            options=['10-Week Average', '4-Week Average', '2-Week Average' 'Year-to-Date Average', 'Lowest 4 Average (non-zero)', 'Highest 4 Average'],
+            options=['10-Week Average', '4-Week Average', '2-Week Average', 'Year-to-Date Average', 'Lowest 4 Average (non-zero)', 'Highest 4 Average'],
             index=1, key="usage_radio"
         )
 
@@ -296,6 +296,7 @@ if uploaded_file:
                 with tab:
                     category_name = category_keys[i]
                     render_worksheet_table(category_map.get(category_name, []), category_name)
+
 
 
 
