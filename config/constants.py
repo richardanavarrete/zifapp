@@ -21,14 +21,19 @@ DRAFT_POUR_SIZES = {
     "Growler": 64,
 }
 
-# Bottle sizes
-LIQUOR_BOTTLE_OZ = 25.36  # 750ml bottle
-WINE_BOTTLE_OZ = 25.36  # 750ml bottle
-WINE_POUR_OZ = 6  # standard wine glass pour
+# Bottle sizes (in ounces)
+LIQUOR_BOTTLE_OZ = 33.8    # Updated to 1 Liter (standard for your bar)
+LIQUOR_BOTTLE_750_OZ = 25.4 # Kept just in case you need it
+
+WINE_BOTTLE_OZ = 25.4      # Standard 750ml
+WINE_BOTTLE_MAGNUM_OZ = 50.7 # 1.5 Liter (for house wines)
+
+# Renamed to match your other code
+WINE_GLASS_OZ = 6.0        # Standard wine glass pour
 
 # Canned beverages
-REDBULL_CAN_OZ = 12
-REDBULL_MIXER_OZ = 6  # half can per mixer drink
+REDBULL_CAN_OZ = 8.4
+REDBULL_MIXER_OZ = 4  # half can per mixer drink
 
 # Frozen Margarita batch calculations (16L total batch)
 # Recipe: 3 bottles tequila + 2 bottles triple sec + fill to 16L with mix
@@ -44,5 +49,4 @@ FROZEN_MARG_SIZES = {
     "BIG Zipparita": 16,
     "TO GO RITA 16oz": 16,
     "TO GO RITA 24oz": 24,
-    "Zippa Rona": 16,  # Plus a coronita bottle
 }
