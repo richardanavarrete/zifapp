@@ -168,7 +168,7 @@ if uploaded_file:
         st.error(f"An error occurred during data processing: {e}")
         st.stop()
 
-    tab_summary, tab_ordering_worksheet, tab_sales_mix = st.tabs(["📊 Summary", "🧪 Ordering Worksheet", "Sales Mix Analysis"])
+    tab_summary, tab_ordering_worksheet, tab_sales_mix, tab_mapping = st.tabs(["📊 Summary", "🧪 Ordering Worksheet", "Sales Mix Analysis", "🔧 Mapping Manager"])
 
     # --- TAB 1: SUMMARY ---
     with tab_summary:
@@ -456,5 +456,237 @@ if uploaded_file:
                 st.code(traceback.format_exc())
         else:
             st.info("👆 Upload a Sales Mix CSV to begin analysis.")
-        # If you have the code for this from previous steps, you can paste it here.
+
+    # --- TAB 4: MAPPING MANAGER ---
+    with tab_mapping:
+        st.subheader("🔧 Manual Mapping Manager")
+        st.markdown("""
+        Create custom mappings for items that don't match automatically.
+        Changes are saved to `config/manual_overrides.py`.
+        """)
+
+        # Helper functions
+        def read_manual_mappings():
+            """Read current manual mappings from config file"""
+            try:
+                with open('config/manual_overrides.py', 'r') as f:
+                    content = f.read()
+                # Extract MANUAL_MAPPINGS dict
+                import ast
+                tree = ast.parse(content)
+                for node in tree.body:
+                    if isinstance(node, ast.Assign):
+                        for target in node.targets:
+                            if hasattr(target, 'id') and target.id == 'MANUAL_MAPPINGS':
+                                return ast.literal_eval(ast.unparse(node.value))
+                return {}
+            except Exception as e:
+                st.error(f"Error reading mappings: {e}")
+                return {}
+
+        def write_manual_mappings(mappings):
+            """Write manual mappings back to config file"""
+            try:
+                # Read the file to preserve imports and other content
+                with open('config/manual_overrides.py', 'r') as f:
+                    lines = f.readlines()
+
+                # Find where MANUAL_MAPPINGS starts
+                mapping_start = None
+                for i, line in enumerate(lines):
+                    if line.strip().startswith('MANUAL_MAPPINGS = {'):
+                        mapping_start = i
+                        break
+
+                if mapping_start is None:
+                    st.error("Could not find MANUAL_MAPPINGS in config file")
+                    return False
+
+                # Find where it ends
+                mapping_end = None
+                brace_count = 0
+                for i in range(mapping_start, len(lines)):
+                    for char in lines[i]:
+                        if char == '{':
+                            brace_count += 1
+                        elif char == '}':
+                            brace_count -= 1
+                            if brace_count == 0:
+                                mapping_end = i
+                                break
+                    if mapping_end is not None:
+                        break
+
+                # Build new MANUAL_MAPPINGS content
+                new_content = "MANUAL_MAPPINGS = {\n"
+                for item_name, recipe in sorted(mappings.items()):
+                    new_content += f'    "{item_name}": {{\n'
+                    for inv_item, oz in recipe.items():
+                        new_content += f'        "{inv_item}": {oz},\n'
+                    new_content += '    },\n'
+                new_content += "}\n"
+
+                # Replace the old MANUAL_MAPPINGS with new one
+                new_lines = lines[:mapping_start] + [new_content] + lines[mapping_end+1:]
+
+                # Write back
+                with open('config/manual_overrides.py', 'w') as f:
+                    f.writelines(new_lines)
+
+                # Clear cache to reload mappings
+                st.cache_data.clear()
+                return True
+            except Exception as e:
+                st.error(f"Error writing mappings: {e}")
+                import traceback
+                st.code(traceback.format_exc())
+                return False
+
+        # Load current mappings
+        current_mappings = read_manual_mappings()
+
+        # Display existing mappings
+        st.markdown("### 📋 Existing Manual Mappings")
+        if current_mappings:
+            for item_name, recipe in current_mappings.items():
+                with st.expander(f"📦 {item_name}", expanded=False):
+                    st.json(recipe)
+                    if st.button(f"🗑️ Delete", key=f"del_{item_name}"):
+                        del current_mappings[item_name]
+                        if write_manual_mappings(current_mappings):
+                            st.success(f"Deleted mapping for: {item_name}")
+                            st.rerun()
+        else:
+            st.info("No manual mappings yet. Add one below!")
+
+        st.markdown("---")
+
+        # Add new mapping
+        st.markdown("### ➕ Add New Mapping")
+
+        col1, col2 = st.columns([2, 1])
+
+        with col1:
+            # Item name input
+            new_item_name = st.text_input(
+                "Sales Mix Item Name (exact match)",
+                placeholder="[Liquor] Zipparita",
+                help="Copy the exact item name from the Unmatched Items list"
+            )
+
+        with col2:
+            st.markdown("**Quick Fill:**")
+            # Show unmatched items from sales mix if available
+            if 'unmatched_items' in locals() and unmatched_items:
+                unmatched_simple = [item.split(" (qty:")[0] for item in unmatched_items[:10]]
+                selected_unmatched = st.selectbox(
+                    "From Unmatched Items",
+                    [""] + unmatched_simple,
+                    key="quick_fill_item"
+                )
+                if selected_unmatched and st.button("Use This"):
+                    new_item_name = selected_unmatched
+
+        # Recipe builder
+        st.markdown("#### Recipe (Inventory Items & Amounts)")
+
+        # Use session state to track recipe items
+        if 'recipe_items' not in st.session_state:
+            st.session_state.recipe_items = []
+
+        # Add recipe row
+        col_inv, col_oz, col_action = st.columns([3, 1, 1])
+        with col_inv:
+            new_inv_item = st.text_input(
+                "Inventory Item",
+                placeholder="VODKA Well",
+                key="new_inv_item"
+            )
+        with col_oz:
+            new_oz = st.number_input(
+                "Oz",
+                min_value=0.0,
+                step=0.125,
+                format="%.3f",
+                key="new_oz"
+            )
+        with col_action:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("➕ Add to Recipe"):
+                if new_inv_item and new_oz > 0:
+                    st.session_state.recipe_items.append({
+                        'inv_item': new_inv_item,
+                        'oz': new_oz
+                    })
+                    st.rerun()
+
+        # Show current recipe being built
+        if st.session_state.recipe_items:
+            st.markdown("**Current Recipe:**")
+            for idx, item in enumerate(st.session_state.recipe_items):
+                col_show, col_del = st.columns([4, 1])
+                with col_show:
+                    st.write(f"- {item['inv_item']}: {item['oz']}oz")
+                with col_del:
+                    if st.button("🗑️", key=f"del_recipe_{idx}"):
+                        st.session_state.recipe_items.pop(idx)
+                        st.rerun()
+
+        # Save mapping button
+        st.markdown("---")
+        col_save, col_clear = st.columns([1, 1])
+        with col_save:
+            if st.button("💾 Save Mapping", type="primary", use_container_width=True):
+                if not new_item_name:
+                    st.error("Please enter an item name")
+                elif not st.session_state.recipe_items:
+                    st.error("Please add at least one inventory item to the recipe")
+                else:
+                    # Build recipe dict
+                    new_recipe = {
+                        item['inv_item']: item['oz']
+                        for item in st.session_state.recipe_items
+                    }
+                    # Add to mappings
+                    current_mappings[new_item_name] = new_recipe
+                    if write_manual_mappings(current_mappings):
+                        st.success(f"✅ Saved mapping for: {new_item_name}")
+                        st.session_state.recipe_items = []
+                        st.rerun()
+
+        with col_clear:
+            if st.button("🔄 Clear Recipe", use_container_width=True):
+                st.session_state.recipe_items = []
+                st.rerun()
+
+        # Common inventory items reference
+        with st.expander("📚 Common Inventory Item Names", expanded=False):
+            st.markdown("""
+            **Spirits:**
+            - `WHISKEY [Brand]` - e.g., `WHISKEY Buffalo Trace`
+            - `VODKA [Brand]` - e.g., `VODKA Well`, `VODKA Titos`
+            - `TEQUILA [Brand]` - e.g., `TEQUILA Well`, `TEQUILA Milagro Silver`
+            - `RUM [Brand]` - e.g., `RUM Bacardi Superior White`
+            - `GIN [Brand]` - e.g., `GIN Well`
+
+            **Liqueurs:**
+            - `LIQ [Type]` - e.g., `LIQ Triple Sec`, `LIQ Kahlua`, `LIQ Blue Curacao`
+
+            **Beer:**
+            - `BEER DFT [Brand]` - e.g., `BEER DFT Bud Light`
+            - `BEER BTL [Brand]` - e.g., `BEER BTL Modelo`
+
+            **Wine:**
+            - `WINE [Brand]` - e.g., `WINE Salmon Creek Merlot`
+
+            **Bar Consumables:**
+            - `BAR CONS [Item]` - e.g., `BAR CONS Bloody Mary`, `BAR CONS Mango Puree`
+
+            **Common Pour Sizes:**
+            - 0.375 oz = 1 count
+            - 0.75 oz = 2 counts
+            - 1.125 oz = 3 counts
+            - 1.5 oz = 4 counts (standard shot)
+            - 3.0 oz = 8 counts (double)
+            """)
 
