@@ -616,9 +616,22 @@ if uploaded_file:
                             else:
                                 # There are changes, proceed with commit
                                 subprocess.run(['git', 'commit', '-m', f'Add {len(current_mappings)} manual mappings'], check=True)
-                                subprocess.run(['git', 'push'], check=True)
-                                st.success(f"✅ Saved {len(current_mappings)} mappings to git!")
-                                st.info("🔄 Streamlit Cloud will auto-redeploy with your changes")
+
+                                # Get current branch name and push
+                                branch_result = subprocess.run(['git', 'branch', '--show-current'], capture_output=True, text=True, check=True)
+                                current_branch = branch_result.stdout.strip()
+
+                                # Push to origin with upstream tracking
+                                push_result = subprocess.run(['git', 'push', '-u', 'origin', current_branch], capture_output=True, text=True)
+
+                                if push_result.returncode == 0:
+                                    st.success(f"✅ Saved {len(current_mappings)} mappings to git!")
+                                    st.info("🔄 Streamlit Cloud will auto-redeploy with your changes")
+                                    st.info("💡 **Important:** Refresh this page to reload the mappings into memory")
+                                else:
+                                    st.warning(f"⚠️ Committed locally but push failed: {push_result.stderr}")
+                                    st.info(f"💡 You can manually push later with: `git push -u origin {current_branch}`")
+                                    st.info("💡 **Important:** Refresh this page to reload the mappings into memory")
                         else:
                             st.error("Could not find MANUAL_MAPPINGS in config file")
                     except Exception as e:
