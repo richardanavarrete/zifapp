@@ -13,9 +13,9 @@ if project_root not in sys.path:
 
 # Now import specific submodules (Explicit is better than implicit)
 from config.constants import (
-    COUNT_OZ, STANDARD_POUR_OZ, HALF_BARREL_OZ, LIQUOR_BOTTLE_OZ,
+    COUNT_OZ, STANDARD_POUR_OZ, HALF_BARREL_OZ, LIQUOR_BOTTLE_OZ, KEG_50L_OZ,
     DRAFT_POUR_SIZES, ZIPPARITA_TEQUILA_RATIO, ZIPPARITA_TRIPLE_SEC_RATIO,
-    WINE_GLASS_OZ, WINE_BOTTLE_OZ
+    WINE_GLASS_OZ, WINE_BOTTLE_OZ, KEG_50L_OZ, LIQUOR_BOTTLE_750_OZ, WINE_BOTTLE_MAGNUM_OZ
 )
 from config.draft_beer_map import DRAFT_BEER_MAP, DRAFT_SKIP_ITEMS
 from config.bottle_beer_map import BOTTLE_BEER_MAP
@@ -110,10 +110,7 @@ def parse_sales_mix_csv(uploaded_csv):
                 amount = float(amt_str)
             except (ValueError, TypeError):
                 amount = 0
-        
-        # Skip zero-dollar items (promos, comps, etc.) but only if they have qty
-        if amount == 0 and qty > 0:
-            continue
+       
         
         if qty > 0:
             parsed_items.append({
