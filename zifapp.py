@@ -51,7 +51,7 @@ def load_and_process_data(uploaded_file):
         inventory = group['End Inventory']
         dates = group['Date']
         last_week_usage = usage.iloc[-1] if not usage.empty else None
-        last_10, last_4, last_2 = usage.tail(10), usage.tail(4), usge.tail(2)
+        last_10, last_4, last_2 = usage.tail(10), usage.tail(4), usage.tail(2)
         ytd_avg = group[dates.dt.year == datetime.now().year]['Usage'].mean() if pd.api.types.is_datetime64_any_dtype(dates) else None
 
         def safe_div(n, d):
@@ -296,5 +296,6 @@ if uploaded_file:
                 with tab:
                     category_name = category_keys[i]
                     render_worksheet_table(category_map.get(category_name, []), category_name)
+
 
 
