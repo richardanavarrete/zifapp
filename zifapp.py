@@ -277,9 +277,17 @@ def calculate_summary_metrics(full_df: pd.DataFrame, original_order: List[str]) 
         inventory = group['End Inventory']
         dates = group.get('Date', pd.Series([pd.NaT] * len(group)))
         
-        # Safe value extraction
-        last_inventory = safe_get_value(inventory, -1, 0)
-        last_week_usage = safe_get_value(usage, -1, 0)
+        # Safe value extraction valid_inventory = inventory[(inventory.notna()) & (inventory > 0)]
+        if not valid_inventory.empty:
+            last_inventory = valid_inventory.iloc[-1]
+            # Get the index of this inventory value to align usage data
+            last_valid_index = valid_inventory.index[-1]
+            # Get usage up to the last valid inventory point
+            usage_to_date = usage.loc[:last_valid_index]
+        else:
+            # Fallback if no valid inventory found
+            last_inventory = 0
+            usage_to_date = usage
         
         # Calculate averages
         last_10 = usage.tail(10)
@@ -750,4 +758,5 @@ def render_ordering_tab(
 # --- Run the application ---
 if __name__ == "__main__":
     main()
+
 
