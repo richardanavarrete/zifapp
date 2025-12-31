@@ -1,7 +1,7 @@
 # config/margarita_flavors.py
 # Frozen margarita flavor additions (beyond base tequila/triple sec)
 
-from .constants import COUNT_OZ
+from .constants import FLAVOR_OZ
 
 # Flavor additions for frozen margaritas
 # Base frozen marg already uses well tequila + triple sec via batch ratios
