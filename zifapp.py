@@ -51,7 +51,7 @@ def load_and_process_data(uploaded_file):
         inventory = group['End Inventory']
         dates = group['Date']
         last_week_usage = usage.iloc[-1] if not usage.empty else None
-        last_10, last_4 = usage.tail(10), usage.tail(4)
+        last_10, last_4, last_2 = usage.tail(10), usage.tail(4), usge.tail(2)
         ytd_avg = group[dates.dt.year == datetime.now().year]['Usage'].mean() if pd.api.types.is_datetime64_any_dtype(dates) else None
 
         def safe_div(n, d):
@@ -68,12 +68,14 @@ def load_and_process_data(uploaded_file):
             'Year-to-Date Average': round(ytd_avg, 2) if pd.notna(ytd_avg) else None,
             '10-Week Average': round(last_10.mean(), 2) if not last_10.empty else None,
             '4-Week Average': round(last_4.mean(), 2) if not last_4.empty else None,
+            '2-Week Average': round(last_2.mean(), 2) if not last_2.empty else None,
             'All-Time High': round(usage.max(), 2),
             'Lowest 4 Average (non-zero)': round(avg_of_lowest_4_non_zero, 2) if pd.notna(avg_of_lowest_4_non_zero) else None,
             'Highest 4 Average': round(avg_of_highest_4, 2) if pd.notna(avg_of_highest_4) else None,
             'Weeks Remaining (YTD)': safe_div(inventory.iloc[-1], ytd_avg),
             'Weeks Remaining (10 Wk)': safe_div(inventory.iloc[-1], last_10.mean()),
             'Weeks Remaining (4 Wk)': safe_div(inventory.iloc[-1], last_4.mean()),
+            'Weeks Remaining (2 Wk)': safe_div(inventory.iloc[-1], last_2.mean()),
             'Weeks Remaining (ATH)': safe_div(inventory.iloc[-1], usage.max()),
             'Weeks Remaining (Lowest 4)': safe_div(inventory.iloc[-1], avg_of_lowest_4_non_zero),
             'Weeks Remaining (Highest 4)': safe_div(inventory.iloc[-1], avg_of_highest_4)
@@ -294,3 +296,4 @@ if uploaded_file:
                 with tab:
                     category_name = category_keys[i]
                     render_worksheet_table(category_map.get(category_name, []), category_name)
+
