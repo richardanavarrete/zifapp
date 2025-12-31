@@ -173,7 +173,7 @@ if uploaded_file:
             filter_selection = selected_category
         usage_option = st.selectbox(
             "Select usage average for calculation:",
-            options=['10-Week Average', '4-Week Average', 'Year-to-Date Average', 'Lowest 4 Average (non-zero)', 'Highest 4 Average'],
+            options=['10-Week Average', '4-Week Average', '2-Week Average' 'Year-to-Date Average', 'Lowest 4 Average (non-zero)', 'Highest 4 Average'],
             index=1, key="usage_radio"
         )
 
@@ -296,4 +296,5 @@ if uploaded_file:
                 with tab:
                     category_name = category_keys[i]
                     render_worksheet_table(category_map.get(category_name, []), category_name)
+
 
