@@ -335,8 +335,10 @@ if uploaded_file:
                     
                     with st.expander("View Parsed Sales Data", expanded=False):
                         st.dataframe(sales_df, use_container_width=True, hide_index=True)
-                    
-                    all_usage, unmatched_items = aggregate_all_usage(sales_df)
+
+                    # Pass session state mappings to parser
+                    runtime_mappings = st.session_state.get('runtime_mappings', {})
+                    all_usage, unmatched_items = aggregate_all_usage(sales_df, runtime_mappings)
                     
                     usage_data = []
                     for inv_item, data in all_usage.items():
@@ -479,48 +481,21 @@ if uploaded_file:
                 st.error(f"Error reading mappings: {e}")
                 return {}
 
-        def write_manual_mappings(mappings):
-            try:
-                with open('config/manual_overrides.py', 'r') as f:
-                    lines = f.readlines()
-                mapping_start = None
-                for i, line in enumerate(lines):
-                    if line.strip().startswith('MANUAL_MAPPINGS = {'):
-                        mapping_start = i
-                        break
-                if mapping_start is None:
-                    st.error("Could not find MANUAL_MAPPINGS in config file")
-                    return False
-                mapping_end = None
-                brace_count = 0
-                for i in range(mapping_start, len(lines)):
-                    for char in lines[i]:
-                        if char == '{':
-                            brace_count += 1
-                        elif char == '}':
-                            brace_count -= 1
-                            if brace_count == 0:
-                                mapping_end = i
-                                break
-                    if mapping_end is not None:
-                        break
-                new_content = "MANUAL_MAPPINGS = {\n"
-                for item_name, recipe in sorted(mappings.items()):
-                    new_content += f'    "{item_name}": {{\n'
-                    for inv_item, oz in recipe.items():
-                        new_content += f'        "{inv_item}": {oz},\n'
-                    new_content += '    },\n'
-                new_content += "}\n"
-                new_lines = lines[:mapping_start] + [new_content] + lines[mapping_end+1:]
-                with open('config/manual_overrides.py', 'w') as f:
-                    f.writelines(new_lines)
-                st.cache_data.clear()
-                return True
-            except Exception as e:
-                st.error(f"Error writing mappings: {e}")
-                import traceback
-                st.code(traceback.format_exc())
-                return False
+        def save_to_session_state(mappings):
+            """Save mappings to session state (cloud-friendly)"""
+            st.session_state['runtime_mappings'] = mappings
+            return True
+
+        def export_mappings_code(mappings):
+            """Generate Python code for manual addition to config file"""
+            code = "MANUAL_MAPPINGS = {\n"
+            for item_name, recipe in sorted(mappings.items()):
+                code += f'    "{item_name}": {{\n'
+                for inv_item, oz in recipe.items():
+                    code += f'        "{inv_item}": {oz},\n'
+                code += '    },\n'
+            code += "}\n"
+            return code
 
         def get_all_recipes():
             from config.mixed_drinks import MIXED_DRINK_RECIPES
@@ -539,10 +514,80 @@ if uploaded_file:
                 all_recipes[f"Manual: {name}"] = recipe
             return all_recipes
 
-        current_mappings = read_manual_mappings()
+        # Initialize session state for runtime mappings
+        if 'runtime_mappings' not in st.session_state:
+            st.session_state.runtime_mappings = {}
+
+        current_mappings = st.session_state.runtime_mappings
 
         # Show existing mappings
-        st.markdown("### 📋 Existing Mappings")
+        st.markdown("### 📋 Current Session Mappings")
+        col_info, col_export, col_commit = st.columns([2, 1, 1])
+        with col_info:
+            st.info(f"💡 {len(current_mappings)} mappings active this session")
+        with col_export:
+            if current_mappings:
+                st.download_button(
+                    "📥 Export",
+                    export_mappings_code(current_mappings),
+                    file_name="manual_mappings.txt",
+                    mime="text/plain",
+                    help="Download Python code"
+                )
+        with col_commit:
+            if current_mappings:
+                if st.button("💾 Save to Git", help="Commit mappings permanently to config file"):
+                    try:
+                        # Write to config file
+                        with open('config/manual_overrides.py', 'r') as f:
+                            lines = f.readlines()
+
+                        # Find MANUAL_MAPPINGS section
+                        mapping_start = None
+                        for i, line in enumerate(lines):
+                            if line.strip().startswith('MANUAL_MAPPINGS = {'):
+                                mapping_start = i
+                                break
+
+                        if mapping_start is not None:
+                            # Find end of dict
+                            mapping_end = None
+                            brace_count = 0
+                            for i in range(mapping_start, len(lines)):
+                                for char in lines[i]:
+                                    if char == '{':
+                                        brace_count += 1
+                                    elif char == '}':
+                                        brace_count -= 1
+                                        if brace_count == 0:
+                                            mapping_end = i
+                                            break
+                                if mapping_end is not None:
+                                    break
+
+                            # Build new content
+                            new_content = export_mappings_code(current_mappings)
+                            new_lines = lines[:mapping_start] + [new_content] + lines[mapping_end+1:]
+
+                            # Write file
+                            with open('config/manual_overrides.py', 'w') as f:
+                                f.writelines(new_lines)
+
+                            # Git commit and push
+                            import subprocess
+                            subprocess.run(['git', 'add', 'config/manual_overrides.py'], check=True)
+                            subprocess.run(['git', 'commit', '-m', f'Add {len(current_mappings)} manual mappings'], check=True)
+                            subprocess.run(['git', 'push'], check=True)
+
+                            st.success(f"✅ Saved {len(current_mappings)} mappings to git!")
+                            st.info("🔄 Streamlit Cloud will auto-redeploy with your changes")
+                        else:
+                            st.error("Could not find MANUAL_MAPPINGS in config file")
+                    except Exception as e:
+                        st.error(f"Error saving to git: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
+
         if current_mappings:
             cols = st.columns(2)
             for idx, (item_name, recipe) in enumerate(current_mappings.items()):
@@ -551,10 +596,8 @@ if uploaded_file:
                         for inv_item, oz in recipe.items():
                             st.write(f"• {inv_item}: {oz}oz")
                         if st.button("🗑️ Delete", key=f"del_{item_name}"):
-                            del current_mappings[item_name]
-                            if write_manual_mappings(current_mappings):
-                                st.success(f"Deleted!")
-                                st.rerun()
+                            del st.session_state.runtime_mappings[item_name]
+                            st.rerun()
         else:
             st.info("No mappings yet. Create one below!")
 
@@ -602,10 +645,9 @@ if uploaded_file:
 
                     if st.button("💾 Save Mapping", type="primary"):
                         scaled = {inv: oz * scale for inv, oz in base.items()}
-                        current_mappings[item_to_map] = scaled
-                        if write_manual_mappings(current_mappings):
-                            st.success(f"✅ Saved: {item_to_map}")
-                            st.rerun()
+                        st.session_state.runtime_mappings[item_to_map] = scaled
+                        st.success(f"✅ Saved: {item_to_map}")
+                        st.rerun()
 
             else:  # Custom recipe
                 if 'custom_recipe' not in st.session_state:
@@ -638,11 +680,10 @@ if uploaded_file:
                     with col_save:
                         if st.button("💾 Save", type="primary", use_container_width=True):
                             recipe = {i['inv']: i['oz'] for i in st.session_state.custom_recipe}
-                            current_mappings[item_to_map] = recipe
-                            if write_manual_mappings(current_mappings):
-                                st.success(f"✅ Saved!")
-                                st.session_state.custom_recipe = []
-                                st.rerun()
+                            st.session_state.runtime_mappings[item_to_map] = recipe
+                            st.success(f"✅ Saved!")
+                            st.session_state.custom_recipe = []
+                            st.rerun()
                     with col_clear:
                         if st.button("🔄 Clear", use_container_width=True):
                             st.session_state.custom_recipe = []

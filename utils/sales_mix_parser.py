@@ -279,20 +279,30 @@ def calculate_wine_usage(sales_df):
     return results, unmatched
 
 
-def calculate_mixed_drink_usage(sales_df):
-    """Calculate theoretical usage from mixed drinks including frozen margaritas."""
+def calculate_mixed_drink_usage(sales_df, runtime_mappings=None):
+    """Calculate theoretical usage from mixed drinks including frozen margaritas.
+
+    Args:
+        sales_df: DataFrame with sales data
+        runtime_mappings: Optional dict of runtime manual mappings to merge with config
+    """
     results = {}
     unmatched = []
-    
+
+    # Merge runtime mappings with config mappings
+    all_manual_mappings = dict(MANUAL_MAPPINGS)
+    if runtime_mappings:
+        all_manual_mappings.update(runtime_mappings)
+
     mixed_sales = sales_df[sales_df['Subcategory'] == 'Mixed Drinks'].copy()
-    
+
     for _, row in mixed_sales.iterrows():
         item_name = row['Item']
         qty = row['Qty']
 
         # Check manual overrides first (exact match, takes precedence)
-        if ENABLE_MANUAL_MAPPINGS and item_name in MANUAL_MAPPINGS:
-            for inv_item, oz_per_drink in MANUAL_MAPPINGS[item_name].items():
+        if ENABLE_MANUAL_MAPPINGS and item_name in all_manual_mappings:
+            for inv_item, oz_per_drink in all_manual_mappings[item_name].items():
                 if inv_item not in results:
                     results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
                 results[inv_item]['oz'] += qty * oz_per_drink
@@ -450,17 +460,21 @@ def calculate_mixed_drink_usage(sales_df):
     return results, unmatched
 
 
-def aggregate_all_usage(sales_df):
+def aggregate_all_usage(sales_df, runtime_mappings=None):
     """
     Aggregate usage calculations from all categories.
-    
+
+    Args:
+        sales_df: DataFrame with sales data
+        runtime_mappings: Optional dict of runtime manual mappings
+
     Returns:
         all_results: dict of {inv_item: {theoretical_usage, unit, details}}
         all_unmatched: list of unmatched items
     """
     all_results = {}
     all_unmatched = []
-    
+
     # Draft beer
     draft_results, draft_unmatched = calculate_draft_beer_usage(sales_df)
     for inv_item, data in draft_results.items():
@@ -496,9 +510,9 @@ def aggregate_all_usage(sales_df):
             all_results[inv_item]['oz'] = all_results[inv_item].get('oz', 0) + data['oz']
             all_results[inv_item]['details'].extend(data['items'])
     all_unmatched.extend([f"[Liquor] {item}" for item in liquor_unmatched])
-    
+
     # Mixed drinks
-    mixed_results, mixed_unmatched = calculate_mixed_drink_usage(sales_df)
+    mixed_results, mixed_unmatched = calculate_mixed_drink_usage(sales_df, runtime_mappings)
     for inv_item, data in mixed_results.items():
         if 'BEER BTL' in inv_item:
             # Handle coronitas from Zippa Rona
