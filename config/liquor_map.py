@@ -55,8 +55,6 @@ LIQUOR_MAP = {
     
     "Grey Goose": "VODKA Grey Goose",
 
-    "Iceberg": "VODKA Iceberg",
-
     "Ketel One": "VODKA Ketel One",
     "Ketel": "VODKA Ketel One",
     
