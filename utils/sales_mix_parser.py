@@ -125,35 +125,57 @@ def parse_sales_mix_csv(uploaded_csv):
     return pd.DataFrame(parsed_items)
 
 
-def calculate_draft_beer_usage(sales_df):
+def calculate_draft_beer_usage(sales_df, runtime_mappings=None):
     """Calculate theoretical keg usage from draft beer sales."""
     results = {}
     unmatched = []
-    
+
+    # Merge runtime mappings with config mappings
+    all_manual_mappings = dict(MANUAL_MAPPINGS)
+    if runtime_mappings:
+        all_manual_mappings.update(runtime_mappings)
+
     draft_sales = sales_df[sales_df['Category'] == 'Draft'].copy()
-    
+
     for _, row in draft_sales.iterrows():
         item_name = row['Item']
         qty = row['Qty']
-        
+
+        # Check manual overrides first (exact match, takes precedence)
+        if ENABLE_MANUAL_MAPPINGS and item_name in all_manual_mappings:
+            for inv_item, oz_per_item in all_manual_mappings[item_name].items():
+                if inv_item not in results:
+                    results[inv_item] = {
+                        'total_oz': 0,
+                        'keg_size': HALF_BARREL_OZ,  # default
+                        'kegs_used': 0,
+                        'items': []
+                    }
+                oz_used = qty * oz_per_item
+                results[inv_item]['total_oz'] += oz_used
+                results[inv_item]['kegs_used'] = results[inv_item]['total_oz'] / results[inv_item]['keg_size']
+                results[inv_item]['items'].append(f"{item_name}: {qty} × {oz_per_item}oz [MANUAL]")
+            # Manual mapping found, skip all other matching
+            continue
+
         # Skip non-beer items
         if any(skip in item_name for skip in DRAFT_SKIP_ITEMS):
             continue
-        
+
         # Determine pour size
         pour_oz = 16  # default
         for size_name, size_oz in DRAFT_POUR_SIZES.items():
             if size_name in item_name:
                 pour_oz = size_oz
                 break
-        
+
         # Find matching inventory item
         matched = False
         for pattern, (inv_item, keg_size) in DRAFT_BEER_MAP.items():
             if pattern.lower() in item_name.lower():
                 total_oz = qty * pour_oz
                 kegs_used = total_oz / keg_size
-                
+
                 if inv_item not in results:
                     results[inv_item] = {
                         'total_oz': 0,
@@ -166,27 +188,42 @@ def calculate_draft_beer_usage(sales_df):
                 results[inv_item]['items'].append(f"{item_name}: {qty} × {pour_oz}oz")
                 matched = True
                 break
-        
+
         if not matched:
             unmatched.append(f"{item_name} (qty: {qty})")
-    
+
     return results, unmatched
 
 
-def calculate_bottle_beer_usage(sales_df):
+def calculate_bottle_beer_usage(sales_df, runtime_mappings=None):
     """Calculate theoretical bottle/can usage."""
     results = {}
     unmatched = []
-    
+
+    # Merge runtime mappings with config mappings
+    all_manual_mappings = dict(MANUAL_MAPPINGS)
+    if runtime_mappings:
+        all_manual_mappings.update(runtime_mappings)
+
     bottle_sales = sales_df[sales_df['Category'] == 'Bottle'].copy()
-    
+
     for _, row in bottle_sales.iterrows():
         item_name = row['Item']
         qty = row['Qty']
-        
+
+        # Check manual overrides first (exact match, takes precedence)
+        if ENABLE_MANUAL_MAPPINGS and item_name in all_manual_mappings:
+            for inv_item, count_per_item in all_manual_mappings[item_name].items():
+                if inv_item not in results:
+                    results[inv_item] = {'qty': 0, 'items': []}
+                results[inv_item]['qty'] += qty * count_per_item
+                results[inv_item]['items'].append(f"{item_name}: {qty} × {count_per_item} [MANUAL]")
+            # Manual mapping found, skip all other matching
+            continue
+
         # Clean up item name for matching (remove (FS) suffix)
         clean_name = re.sub(r'\s*\(FS\)\s*$', '', item_name).strip()
-        
+
         # Find matching inventory item
         matched = False
         for pattern, inv_item in BOTTLE_BEER_MAP.items():
@@ -197,39 +234,55 @@ def calculate_bottle_beer_usage(sales_df):
                 results[inv_item]['items'].append(f"{item_name}: {qty}")
                 matched = True
                 break
-        
+
         if not matched:
             unmatched.append(f"{item_name} (qty: {qty})")
-    
+
     return results, unmatched
 
 
-def calculate_liquor_usage(sales_df):
+def calculate_liquor_usage(sales_df, runtime_mappings=None):
     """Calculate theoretical liquor bottle usage from straight pours."""
     results = {}
     unmatched = []
-    
+
+    # Merge runtime mappings with config mappings
+    all_manual_mappings = dict(MANUAL_MAPPINGS)
+    if runtime_mappings:
+        all_manual_mappings.update(runtime_mappings)
+
     # Process Liquor category (straight pours)
     liquor_sales = sales_df[sales_df['Category'] == 'Liquor'].copy()
-    
+
     for _, row in liquor_sales.iterrows():
         item_name = row['Item']
         qty = row['Qty']
-        
+
+        # Check manual overrides first (exact match, takes precedence)
+        if ENABLE_MANUAL_MAPPINGS and item_name in all_manual_mappings:
+            for inv_item, oz_per_drink in all_manual_mappings[item_name].items():
+                if inv_item not in results:
+                    results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
+                results[inv_item]['oz'] += qty * oz_per_drink
+                results[inv_item]['bottles'] = results[inv_item]['oz'] / LIQUOR_BOTTLE_OZ
+                results[inv_item]['items'].append(f"{item_name}: {qty} × {oz_per_drink}oz [MANUAL]")
+            # Manual mapping found, skip all other matching
+            continue
+
         # Clean up item name
         clean_name = re.sub(r'\s*\(FS\)\s*$', '', item_name).strip()
         is_bump = '(Flavor)', '(Bump)' in item_name
         clean_name = re.sub(r'\s*\(Bump\)\s*$', '', clean_name).strip()
-        
+
         # Determine pour size
         pour_oz = COUNT_OZ if is_bump else STANDARD_POUR_OZ
-        
+
         # Find matching inventory item
         matched = False
         for pattern, inv_item in LIQUOR_MAP.items():
             if pattern.lower() in clean_name.lower():
                 total_oz = qty * pour_oz
-                
+
                 if inv_item not in results:
                     results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
                 results[inv_item]['oz'] += total_oz
@@ -237,34 +290,50 @@ def calculate_liquor_usage(sales_df):
                 results[inv_item]['items'].append(f"{item_name}: {qty} × {pour_oz}oz")
                 matched = True
                 break
-        
+
         if not matched:
             unmatched.append(f"{item_name} (qty: {qty})")
-    
+
     return results, unmatched
 
 
-def calculate_wine_usage(sales_df):
+def calculate_wine_usage(sales_df, runtime_mappings=None):
     """Calculate theoretical wine bottle usage."""
     results = {}
     unmatched = []
-    
+
+    # Merge runtime mappings with config mappings
+    all_manual_mappings = dict(MANUAL_MAPPINGS)
+    if runtime_mappings:
+        all_manual_mappings.update(runtime_mappings)
+
     wine_sales = sales_df[sales_df['Category'] == 'Wine'].copy()
-    
+
     for _, row in wine_sales.iterrows():
         item_name = row['Item']
         qty = row['Qty']
-        
+
+        # Check manual overrides first (exact match, takes precedence)
+        if ENABLE_MANUAL_MAPPINGS and item_name in all_manual_mappings:
+            for inv_item, oz_per_drink in all_manual_mappings[item_name].items():
+                if inv_item not in results:
+                    results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
+                results[inv_item]['oz'] += qty * oz_per_drink
+                results[inv_item]['bottles'] = results[inv_item]['oz'] / WINE_BOTTLE_OZ
+                results[inv_item]['items'].append(f"{item_name}: {qty} × {oz_per_drink}oz [MANUAL]")
+            # Manual mapping found, skip all other matching
+            continue
+
         # Determine if it's a glass or bottle
         is_bottle = 'BTL' in item_name.upper() or 'Bottle' in item_name
         pour_oz = WINE_BOTTLE_OZ if is_bottle else WINE_GLASS_OZ
-        
+
         # Find matching inventory item
         matched = False
         for pattern, inv_item in WINE_MAP.items():
             if pattern.lower() in item_name.lower():
                 total_oz = qty * pour_oz
-                
+
                 if inv_item not in results:
                     results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
                 results[inv_item]['oz'] += total_oz
@@ -272,10 +341,10 @@ def calculate_wine_usage(sales_df):
                 results[inv_item]['items'].append(f"{item_name}: {qty} × {pour_oz}oz")
                 matched = True
                 break
-        
+
         if not matched:
             unmatched.append(f"{item_name} (qty: {qty})")
-    
+
     return results, unmatched
 
 
@@ -476,7 +545,7 @@ def aggregate_all_usage(sales_df, runtime_mappings=None):
     all_unmatched = []
 
     # Draft beer
-    draft_results, draft_unmatched = calculate_draft_beer_usage(sales_df)
+    draft_results, draft_unmatched = calculate_draft_beer_usage(sales_df, runtime_mappings)
     for inv_item, data in draft_results.items():
         all_results[inv_item] = {
             'theoretical_usage': round(data['kegs_used'], 2),
@@ -484,9 +553,9 @@ def aggregate_all_usage(sales_df, runtime_mappings=None):
             'details': data['items']
         }
     all_unmatched.extend([f"[Draft] {item}" for item in draft_unmatched])
-    
+
     # Bottle beer
-    bottle_results, bottle_unmatched = calculate_bottle_beer_usage(sales_df)
+    bottle_results, bottle_unmatched = calculate_bottle_beer_usage(sales_df, runtime_mappings)
     for inv_item, data in bottle_results.items():
         all_results[inv_item] = {
             'theoretical_usage': data['qty'],
@@ -494,9 +563,9 @@ def aggregate_all_usage(sales_df, runtime_mappings=None):
             'details': data['items']
         }
     all_unmatched.extend([f"[Bottle] {item}" for item in bottle_unmatched])
-    
+
     # Liquor (straight pours)
-    liquor_results, liquor_unmatched = calculate_liquor_usage(sales_df)
+    liquor_results, liquor_unmatched = calculate_liquor_usage(sales_df, runtime_mappings)
     for inv_item, data in liquor_results.items():
         if inv_item not in all_results:
             all_results[inv_item] = {
@@ -551,7 +620,7 @@ def aggregate_all_usage(sales_df, runtime_mappings=None):
     all_unmatched.extend([f"[Mixed] {item}" for item in mixed_unmatched])
     
     # Wine
-    wine_results, wine_unmatched = calculate_wine_usage(sales_df)
+    wine_results, wine_unmatched = calculate_wine_usage(sales_df, runtime_mappings)
     for inv_item, data in wine_results.items():
         if inv_item not in all_results:
             all_results[inv_item] = {

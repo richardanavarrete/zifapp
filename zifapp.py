@@ -576,11 +576,18 @@ if uploaded_file:
                             # Git commit and push
                             import subprocess
                             subprocess.run(['git', 'add', 'config/manual_overrides.py'], check=True)
-                            subprocess.run(['git', 'commit', '-m', f'Add {len(current_mappings)} manual mappings'], check=True)
-                            subprocess.run(['git', 'push'], check=True)
 
-                            st.success(f"✅ Saved {len(current_mappings)} mappings to git!")
-                            st.info("🔄 Streamlit Cloud will auto-redeploy with your changes")
+                            # Check if there are changes to commit
+                            result = subprocess.run(['git', 'diff', '--cached', '--quiet'], capture_output=True)
+                            if result.returncode == 0:
+                                # No changes to commit
+                                st.info("ℹ️ No changes to commit - mappings are already saved")
+                            else:
+                                # There are changes, proceed with commit
+                                subprocess.run(['git', 'commit', '-m', f'Add {len(current_mappings)} manual mappings'], check=True)
+                                subprocess.run(['git', 'push'], check=True)
+                                st.success(f"✅ Saved {len(current_mappings)} mappings to git!")
+                                st.info("🔄 Streamlit Cloud will auto-redeploy with your changes")
                         else:
                             st.error("Could not find MANUAL_MAPPINGS in config file")
                     except Exception as e:
