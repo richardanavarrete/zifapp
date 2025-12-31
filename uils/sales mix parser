@@ -1,0 +1,522 @@
+# utils/sales_mix_parser.py
+# Functions to parse Sales Mix CSV and calculate theoretical usage
+
+import pandas as pd
+import re
+from config import (
+    # Constants
+    COUNT_OZ, STANDARD_POUR_OZ, HALF_BARREL_OZ, LIQUOR_BOTTLE_OZ,
+    DRAFT_POUR_SIZES, ZIPPARITA_TEQUILA_RATIO, ZIPPARITA_TRIPLE_SEC_RATIO,
+    WINE_GLASS_OZ, WINE_BOTTLE_OZ,
+    # Mappings
+    DRAFT_BEER_MAP, DRAFT_SKIP_ITEMS,
+    BOTTLE_BEER_MAP,
+    LIQUOR_MAP,
+    WINE_MAP,
+    MIXED_DRINK_RECIPES,
+    MARGARITA_FLAVOR_ADDITIONS, PREMIUM_TEQUILA_FLAVORS,
+    BAR_CONSUMABLES_MAP,
+)
+
+
+def parse_sales_mix_csv(uploaded_csv):
+    """
+    Parse the GEMpos Sales Mix CSV into a structured DataFrame.
+    
+    Returns DataFrame with columns: Category, Subcategory, Item, Qty, Amount
+    """
+    # Read the CSV
+    df = pd.read_csv(uploaded_csv, header=None)
+    
+    # Find the header row (contains "Item ID", "Qty", "Amount")
+    header_row_idx = None
+    for idx, row in df.iterrows():
+        row_str = ','.join(row.astype(str))
+        if 'Item ID' in row_str and 'Qty' in row_str:
+            header_row_idx = idx
+            break
+    
+    if header_row_idx is None:
+        raise ValueError("Could not find header row in CSV")
+    
+    # Get column positions
+    header_row = df.iloc[header_row_idx]
+    qty_col = None
+    amount_col = None
+    
+    for i, val in enumerate(header_row):
+        if str(val).strip() == 'Qty':
+            qty_col = i
+        elif str(val).strip() == 'Amount':
+            amount_col = i
+    
+    if qty_col is None:
+        raise ValueError("Could not find 'Qty' column")
+    
+    # Parse the data rows
+    parsed_items = []
+    current_category = None
+    current_subcategory = None
+    
+    for idx in range(header_row_idx + 1, len(df)):
+        row = df.iloc[idx]
+        
+        # Skip empty rows and grand total
+        row_str = ','.join(row.astype(str).fillna(''))
+        if 'Grand Total' in row_str:
+            break
+        
+        # Check for category markers [+]
+        if str(row.iloc[0]).strip() == '[+]':
+            current_category = str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else None
+            current_subcategory = None
+            continue
+        
+        # Check for subcategory markers
+        if len(row) > 1 and str(row.iloc[1]).strip() == '[+]':
+            current_subcategory = str(row.iloc[2]).strip() if pd.notna(row.iloc[2]) else None
+            continue
+        
+        # Find the item name (usually in columns 2-5)
+        item_name = None
+        for col_idx in range(2, 7):
+            if col_idx < len(row) and pd.notna(row.iloc[col_idx]) and str(row.iloc[col_idx]).strip():
+                item_name = str(row.iloc[col_idx]).strip()
+                break
+        
+        if not item_name:
+            continue
+        
+        # Get quantity
+        qty = 0
+        if qty_col < len(row) and pd.notna(row.iloc[qty_col]):
+            try:
+                qty_str = str(row.iloc[qty_col]).replace(',', '')
+                qty = int(float(qty_str))
+            except (ValueError, TypeError):
+                qty = 0
+        
+        # Get amount
+        amount = 0
+        if amount_col and amount_col < len(row) and pd.notna(row.iloc[amount_col]):
+            try:
+                amt_str = str(row.iloc[amount_col]).replace('$', '').replace(',', '')
+                amount = float(amt_str)
+            except (ValueError, TypeError):
+                amount = 0
+        
+        # Skip zero-dollar items (promos, comps, etc.) but only if they have qty
+        if amount == 0 and qty > 0:
+            continue
+        
+        if qty > 0:
+            parsed_items.append({
+                'Category': current_category,
+                'Subcategory': current_subcategory,
+                'Item': item_name,
+                'Qty': qty,
+                'Amount': amount,
+            })
+    
+    return pd.DataFrame(parsed_items)
+
+
+def calculate_draft_beer_usage(sales_df):
+    """Calculate theoretical keg usage from draft beer sales."""
+    results = {}
+    unmatched = []
+    
+    draft_sales = sales_df[sales_df['Category'] == 'Draft'].copy()
+    
+    for _, row in draft_sales.iterrows():
+        item_name = row['Item']
+        qty = row['Qty']
+        
+        # Skip non-beer items
+        if any(skip in item_name for skip in DRAFT_SKIP_ITEMS):
+            continue
+        
+        # Determine pour size
+        pour_oz = 16  # default
+        for size_name, size_oz in DRAFT_POUR_SIZES.items():
+            if size_name in item_name:
+                pour_oz = size_oz
+                break
+        
+        # Find matching inventory item
+        matched = False
+        for pattern, (inv_item, keg_size) in DRAFT_BEER_MAP.items():
+            if pattern.lower() in item_name.lower():
+                total_oz = qty * pour_oz
+                kegs_used = total_oz / keg_size
+                
+                if inv_item not in results:
+                    results[inv_item] = {
+                        'total_oz': 0,
+                        'keg_size': keg_size,
+                        'kegs_used': 0,
+                        'items': []
+                    }
+                results[inv_item]['total_oz'] += total_oz
+                results[inv_item]['kegs_used'] = results[inv_item]['total_oz'] / keg_size
+                results[inv_item]['items'].append(f"{item_name}: {qty} × {pour_oz}oz")
+                matched = True
+                break
+        
+        if not matched:
+            unmatched.append(f"{item_name} (qty: {qty})")
+    
+    return results, unmatched
+
+
+def calculate_bottle_beer_usage(sales_df):
+    """Calculate theoretical bottle/can usage."""
+    results = {}
+    unmatched = []
+    
+    bottle_sales = sales_df[sales_df['Category'] == 'Bottle'].copy()
+    
+    for _, row in bottle_sales.iterrows():
+        item_name = row['Item']
+        qty = row['Qty']
+        
+        # Clean up item name for matching (remove (FS) suffix)
+        clean_name = re.sub(r'\s*\(FS\)\s*$', '', item_name).strip()
+        
+        # Find matching inventory item
+        matched = False
+        for pattern, inv_item in BOTTLE_BEER_MAP.items():
+            if pattern.lower() in clean_name.lower():
+                if inv_item not in results:
+                    results[inv_item] = {'qty': 0, 'items': []}
+                results[inv_item]['qty'] += qty
+                results[inv_item]['items'].append(f"{item_name}: {qty}")
+                matched = True
+                break
+        
+        if not matched:
+            unmatched.append(f"{item_name} (qty: {qty})")
+    
+    return results, unmatched
+
+
+def calculate_liquor_usage(sales_df):
+    """Calculate theoretical liquor bottle usage from straight pours."""
+    results = {}
+    unmatched = []
+    
+    # Process Liquor category (straight pours)
+    liquor_sales = sales_df[sales_df['Category'] == 'Liquor'].copy()
+    
+    for _, row in liquor_sales.iterrows():
+        item_name = row['Item']
+        qty = row['Qty']
+        
+        # Clean up item name
+        clean_name = re.sub(r'\s*\(FS\)\s*$', '', item_name).strip()
+        is_bump = '(Bump)' in item_name
+        clean_name = re.sub(r'\s*\(Bump\)\s*$', '', clean_name).strip()
+        
+        # Determine pour size
+        pour_oz = COUNT_OZ if is_bump else STANDARD_POUR_OZ
+        
+        # Find matching inventory item
+        matched = False
+        for pattern, inv_item in LIQUOR_MAP.items():
+            if pattern.lower() in clean_name.lower():
+                total_oz = qty * pour_oz
+                
+                if inv_item not in results:
+                    results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
+                results[inv_item]['oz'] += total_oz
+                results[inv_item]['bottles'] = results[inv_item]['oz'] / LIQUOR_BOTTLE_OZ
+                results[inv_item]['items'].append(f"{item_name}: {qty} × {pour_oz}oz")
+                matched = True
+                break
+        
+        if not matched:
+            unmatched.append(f"{item_name} (qty: {qty})")
+    
+    return results, unmatched
+
+
+def calculate_wine_usage(sales_df):
+    """Calculate theoretical wine bottle usage."""
+    results = {}
+    unmatched = []
+    
+    wine_sales = sales_df[sales_df['Category'] == 'Wine'].copy()
+    
+    for _, row in wine_sales.iterrows():
+        item_name = row['Item']
+        qty = row['Qty']
+        
+        # Determine if it's a glass or bottle
+        is_bottle = 'BTL' in item_name.upper() or 'Bottle' in item_name
+        pour_oz = WINE_BOTTLE_OZ if is_bottle else WINE_GLASS_OZ
+        
+        # Find matching inventory item
+        matched = False
+        for pattern, inv_item in WINE_MAP.items():
+            if pattern.lower() in item_name.lower():
+                total_oz = qty * pour_oz
+                
+                if inv_item not in results:
+                    results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
+                results[inv_item]['oz'] += total_oz
+                results[inv_item]['bottles'] = results[inv_item]['oz'] / WINE_BOTTLE_OZ
+                results[inv_item]['items'].append(f"{item_name}: {qty} × {pour_oz}oz")
+                matched = True
+                break
+        
+        if not matched:
+            unmatched.append(f"{item_name} (qty: {qty})")
+    
+    return results, unmatched
+
+
+def calculate_mixed_drink_usage(sales_df):
+    """Calculate theoretical usage from mixed drinks including frozen margaritas."""
+    results = {}
+    unmatched = []
+    
+    mixed_sales = sales_df[sales_df['Subcategory'] == 'Mixed Drinks'].copy()
+    
+    for _, row in mixed_sales.iterrows():
+        item_name = row['Item']
+        qty = row['Qty']
+        
+        # Clean up item name for matching
+        clean_name = re.sub(r'\s*\(FS\)\s*$', '', item_name).strip()
+        clean_name = re.sub(r'\s*16oz TO GO\s*$', '', clean_name).strip()
+        clean_name = re.sub(r'\s*24oz TO GO\s*$', '', clean_name).strip()
+        clean_name = re.sub(r'\s*BIG RITA\s*$', '', clean_name).strip()
+        
+        # Determine if it's a frozen margarita variant
+        is_frozen_marg = False
+        frozen_size = 10  # default Zipparita size
+        
+        # Check for frozen marg indicators
+        if item_name == 'Zipparita' or clean_name == 'Zipparita':
+            is_frozen_marg = True
+            frozen_size = 10
+        elif 'BIG Zipparita' in item_name:
+            is_frozen_marg = True
+            frozen_size = 16
+        elif 'TO GO RITA 16oz' in item_name or '16oz TO GO' in item_name:
+            is_frozen_marg = True
+            frozen_size = 16
+        elif 'TO GO RITA 24oz' in item_name or '24oz TO GO' in item_name:
+            is_frozen_marg = True
+            frozen_size = 24
+        elif 'BIG RITA' in item_name:
+            is_frozen_marg = True
+            frozen_size = 16
+        elif 'Zippa Rona' in item_name:
+            is_frozen_marg = True
+            frozen_size = 16
+            # Also add coronita
+            inv_item = 'BEER BTL Coronita Extra'
+            if inv_item not in results:
+                results[inv_item] = {'oz': 0, 'bottles': 0, 'qty': 0, 'items': []}
+            results[inv_item]['qty'] = results[inv_item].get('qty', 0) + qty
+            results[inv_item]['items'].append(f"Zippa Rona coronita: {qty}")
+        elif 'Flavor' in item_name:
+            is_frozen_marg = True
+            # Determine size based on item name
+            if '24oz' in item_name:
+                frozen_size = 24
+            elif '16oz' in item_name or 'BIG' in item_name:
+                frozen_size = 16
+            else:
+                frozen_size = 10
+        elif 'Milagro Marg On Tap' in item_name:
+            # Special handling for Milagro on tap
+            is_frozen_marg = True
+            frozen_size = 10  # Assume standard size
+            
+            tequila_oz = qty * frozen_size * ZIPPARITA_TEQUILA_RATIO
+            triple_sec_oz = qty * frozen_size * ZIPPARITA_TRIPLE_SEC_RATIO
+            
+            # Uses Milagro Silver instead of well
+            inv_item = 'TEQUILA Milagro Silver'
+            if inv_item not in results:
+                results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
+            results[inv_item]['oz'] += tequila_oz
+            results[inv_item]['bottles'] = results[inv_item]['oz'] / LIQUOR_BOTTLE_OZ
+            results[inv_item]['items'].append(f"{item_name}: {qty} × {frozen_size}oz × {ZIPPARITA_TEQUILA_RATIO:.1%}")
+            
+            inv_item = 'LIQ Triple Sec'
+            if inv_item not in results:
+                results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
+            results[inv_item]['oz'] += triple_sec_oz
+            results[inv_item]['bottles'] = results[inv_item]['oz'] / LIQUOR_BOTTLE_OZ
+            results[inv_item]['items'].append(f"{item_name}: {qty} × {frozen_size}oz × {ZIPPARITA_TRIPLE_SEC_RATIO:.1%}")
+            continue
+        
+        if is_frozen_marg:
+            # Calculate base frozen marg usage (tequila and triple sec from batch)
+            tequila_oz = qty * frozen_size * ZIPPARITA_TEQUILA_RATIO
+            triple_sec_oz = qty * frozen_size * ZIPPARITA_TRIPLE_SEC_RATIO
+            
+            # Check for premium tequila variants
+            tequila_item = 'TEQUILA Well'
+            for pattern, premium_tequila in PREMIUM_TEQUILA_FLAVORS.items():
+                if pattern.lower() in item_name.lower():
+                    tequila_item = premium_tequila
+                    break
+            
+            # Add tequila usage
+            if tequila_item not in results:
+                results[tequila_item] = {'oz': 0, 'bottles': 0, 'items': []}
+            results[tequila_item]['oz'] += tequila_oz
+            results[tequila_item]['bottles'] = results[tequila_item]['oz'] / LIQUOR_BOTTLE_OZ
+            results[tequila_item]['items'].append(f"{item_name}: {qty} × {frozen_size}oz × {ZIPPARITA_TEQUILA_RATIO:.1%}")
+            
+            # Add triple sec usage
+            inv_item = 'LIQ Triple Sec'
+            if inv_item not in results:
+                results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
+            results[inv_item]['oz'] += triple_sec_oz
+            results[inv_item]['bottles'] = results[inv_item]['oz'] / LIQUOR_BOTTLE_OZ
+            results[inv_item]['items'].append(f"{item_name}: {qty} × {frozen_size}oz × {ZIPPARITA_TRIPLE_SEC_RATIO:.1%}")
+            
+            # Add flavor additions if applicable
+            for flavor_pattern, additions in MARGARITA_FLAVOR_ADDITIONS.items():
+                if flavor_pattern.lower() in clean_name.lower():
+                    for add_inv_item, add_oz in additions.items():
+                        if add_inv_item not in results:
+                            results[add_inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
+                        results[add_inv_item]['oz'] += qty * add_oz
+                        results[add_inv_item]['bottles'] = results[add_inv_item]['oz'] / LIQUOR_BOTTLE_OZ
+                        results[add_inv_item]['items'].append(f"{item_name} flavor: {qty} × {add_oz}oz")
+                    break
+            
+            continue
+        
+        # Check for standard mixed drink recipes
+        matched = False
+        for recipe_name, ingredients in MIXED_DRINK_RECIPES.items():
+            if recipe_name.lower() in clean_name.lower():
+                for inv_item, oz_per_drink in ingredients.items():
+                    if inv_item not in results:
+                        results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
+                    results[inv_item]['oz'] += qty * oz_per_drink
+                    # Use appropriate conversion
+                    if 'JUICE' in inv_item or 'BAR CONS' in inv_item:
+                        results[inv_item]['bottles'] = results[inv_item]['oz']  # Track in oz
+                    else:
+                        results[inv_item]['bottles'] = results[inv_item]['oz'] / LIQUOR_BOTTLE_OZ
+                    results[inv_item]['items'].append(f"{item_name}: {qty} × {oz_per_drink}oz")
+                matched = True
+                break
+        
+        if not matched and qty > 0:
+            unmatched.append(f"{item_name} (qty: {qty})")
+    
+    return results, unmatched
+
+
+def aggregate_all_usage(sales_df):
+    """
+    Aggregate usage calculations from all categories.
+    
+    Returns:
+        all_results: dict of {inv_item: {theoretical_usage, unit, details}}
+        all_unmatched: list of unmatched items
+    """
+    all_results = {}
+    all_unmatched = []
+    
+    # Draft beer
+    draft_results, draft_unmatched = calculate_draft_beer_usage(sales_df)
+    for inv_item, data in draft_results.items():
+        all_results[inv_item] = {
+            'theoretical_usage': round(data['kegs_used'], 2),
+            'unit': 'kegs',
+            'details': data['items']
+        }
+    all_unmatched.extend([f"[Draft] {item}" for item in draft_unmatched])
+    
+    # Bottle beer
+    bottle_results, bottle_unmatched = calculate_bottle_beer_usage(sales_df)
+    for inv_item, data in bottle_results.items():
+        all_results[inv_item] = {
+            'theoretical_usage': data['qty'],
+            'unit': 'bottles/cans',
+            'details': data['items']
+        }
+    all_unmatched.extend([f"[Bottle] {item}" for item in bottle_unmatched])
+    
+    # Liquor (straight pours)
+    liquor_results, liquor_unmatched = calculate_liquor_usage(sales_df)
+    for inv_item, data in liquor_results.items():
+        if inv_item not in all_results:
+            all_results[inv_item] = {
+                'theoretical_usage': round(data['bottles'], 2),
+                'unit': 'bottles',
+                'oz': data['oz'],
+                'details': data['items']
+            }
+        else:
+            all_results[inv_item]['theoretical_usage'] += round(data['bottles'], 2)
+            all_results[inv_item]['oz'] = all_results[inv_item].get('oz', 0) + data['oz']
+            all_results[inv_item]['details'].extend(data['items'])
+    all_unmatched.extend([f"[Liquor] {item}" for item in liquor_unmatched])
+    
+    # Mixed drinks
+    mixed_results, mixed_unmatched = calculate_mixed_drink_usage(sales_df)
+    for inv_item, data in mixed_results.items():
+        if 'BEER BTL' in inv_item:
+            # Handle coronitas from Zippa Rona
+            if inv_item not in all_results:
+                all_results[inv_item] = {
+                    'theoretical_usage': data.get('qty', 0),
+                    'unit': 'bottles/cans',
+                    'details': data['items']
+                }
+            else:
+                all_results[inv_item]['theoretical_usage'] += data.get('qty', 0)
+                all_results[inv_item]['details'].extend(data['items'])
+        elif 'JUICE' in inv_item or 'BAR CONS' in inv_item:
+            # Track consumables in oz
+            if inv_item not in all_results:
+                all_results[inv_item] = {
+                    'theoretical_usage': round(data['oz'], 1),
+                    'unit': 'oz',
+                    'details': data['items']
+                }
+            else:
+                all_results[inv_item]['theoretical_usage'] += round(data['oz'], 1)
+                all_results[inv_item]['details'].extend(data['items'])
+        else:
+            if inv_item not in all_results:
+                all_results[inv_item] = {
+                    'theoretical_usage': round(data['bottles'], 2),
+                    'unit': 'bottles',
+                    'oz': data['oz'],
+                    'details': data['items']
+                }
+            else:
+                all_results[inv_item]['theoretical_usage'] += round(data['bottles'], 2)
+                all_results[inv_item]['oz'] = all_results[inv_item].get('oz', 0) + data['oz']
+                all_results[inv_item]['details'].extend(data['items'])
+    all_unmatched.extend([f"[Mixed] {item}" for item in mixed_unmatched])
+    
+    # Wine
+    wine_results, wine_unmatched = calculate_wine_usage(sales_df)
+    for inv_item, data in wine_results.items():
+        if inv_item not in all_results:
+            all_results[inv_item] = {
+                'theoretical_usage': round(data['bottles'], 2),
+                'unit': 'bottles',
+                'oz': data['oz'],
+                'details': data['items']
+            }
+        else:
+            all_results[inv_item]['theoretical_usage'] += round(data['bottles'], 2)
+            all_results[inv_item]['oz'] = all_results[inv_item].get('oz', 0) + data['oz']
+            all_results[inv_item]['details'].extend(data['items'])
+    all_unmatched.extend([f"[Wine] {item}" for item in wine_unmatched])
+    
+    return all_results, all_unmatched
