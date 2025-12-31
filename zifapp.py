@@ -522,19 +522,71 @@ if uploaded_file:
 
         # Show existing mappings
         st.markdown("### 📋 Current Session Mappings")
-        col_info, col_export = st.columns([3, 1])
+        col_info, col_export, col_commit = st.columns([2, 1, 1])
         with col_info:
-            st.info(f"💡 {len(current_mappings)} mappings active this session (reset on app reload)")
+            st.info(f"💡 {len(current_mappings)} mappings active this session")
         with col_export:
             if current_mappings:
-                if st.download_button(
-                    "📥 Export Code",
+                st.download_button(
+                    "📥 Export",
                     export_mappings_code(current_mappings),
                     file_name="manual_mappings.txt",
                     mime="text/plain",
-                    help="Download to paste into config/manual_overrides.py"
-                ):
-                    pass
+                    help="Download Python code"
+                )
+        with col_commit:
+            if current_mappings:
+                if st.button("💾 Save to Git", help="Commit mappings permanently to config file"):
+                    try:
+                        # Write to config file
+                        with open('config/manual_overrides.py', 'r') as f:
+                            lines = f.readlines()
+
+                        # Find MANUAL_MAPPINGS section
+                        mapping_start = None
+                        for i, line in enumerate(lines):
+                            if line.strip().startswith('MANUAL_MAPPINGS = {'):
+                                mapping_start = i
+                                break
+
+                        if mapping_start is not None:
+                            # Find end of dict
+                            mapping_end = None
+                            brace_count = 0
+                            for i in range(mapping_start, len(lines)):
+                                for char in lines[i]:
+                                    if char == '{':
+                                        brace_count += 1
+                                    elif char == '}':
+                                        brace_count -= 1
+                                        if brace_count == 0:
+                                            mapping_end = i
+                                            break
+                                if mapping_end is not None:
+                                    break
+
+                            # Build new content
+                            new_content = export_mappings_code(current_mappings)
+                            new_lines = lines[:mapping_start] + [new_content] + lines[mapping_end+1:]
+
+                            # Write file
+                            with open('config/manual_overrides.py', 'w') as f:
+                                f.writelines(new_lines)
+
+                            # Git commit and push
+                            import subprocess
+                            subprocess.run(['git', 'add', 'config/manual_overrides.py'], check=True)
+                            subprocess.run(['git', 'commit', '-m', f'Add {len(current_mappings)} manual mappings'], check=True)
+                            subprocess.run(['git', 'push'], check=True)
+
+                            st.success(f"✅ Saved {len(current_mappings)} mappings to git!")
+                            st.info("🔄 Streamlit Cloud will auto-redeploy with your changes")
+                        else:
+                            st.error("Could not find MANUAL_MAPPINGS in config file")
+                    except Exception as e:
+                        st.error(f"Error saving to git: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
 
         if current_mappings:
             cols = st.columns(2)
