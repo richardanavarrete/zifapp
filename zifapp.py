@@ -318,5 +318,143 @@ if uploaded_file:
 
     # --- TAB 3: SALES MIX ANALYSIS ---
     with tab_sales_mix:
-        st.write("Sales Mix functionality coming soon...")
+        st.subheader("📈 Sales Mix Analysis: Theoretical vs Actual Usage")
+        st.markdown("""
+        Upload your Sales Mix CSV from GEMpos to calculate theoretical usage based on what was sold.
+        Compare against your actual inventory usage to identify variances (waste, over-pouring, theft, etc.)
+        """)
+        
+        sales_mix_file = st.file_uploader("Upload Sales Mix CSV", type="csv", key="sales_mix_upload")
+        
+        if sales_mix_file:
+            try:
+                sales_df = parse_sales_mix_csv(sales_mix_file)
+                
+                if sales_df is not None and not sales_df.empty:
+                    st.success(f"✅ Parsed {len(sales_df)} line items from Sales Mix")
+                    
+                    with st.expander("View Parsed Sales Data", expanded=False):
+                        st.dataframe(sales_df, use_container_width=True, hide_index=True)
+                    
+                    all_usage, unmatched_items = aggregate_all_usage(sales_df)
+                    
+                    usage_data = []
+                    for inv_item, data in all_usage.items():
+                        row = {
+                            'Inventory Item': inv_item,
+                            'Theoretical Usage': data['theoretical_usage'],
+                            'Unit': data['unit'],
+                        }
+                        actual_row = summary_df[summary_df['Item'] == inv_item]
+                        if not actual_row.empty:
+                            actual_usage = actual_row['Last Week Usage'].values[0]
+                            row['Actual Usage (Last Week)'] = actual_usage if pd.notna(actual_usage) else None
+                            if pd.notna(actual_usage) and actual_usage > 0:
+                                variance = data['theoretical_usage'] - actual_usage
+                                variance_pct = (variance / actual_usage) * 100
+                                row['Variance'] = round(variance, 2)
+                                row['Variance %'] = round(variance_pct, 1)
+                            else:
+                                row['Variance'] = None
+                                row['Variance %'] = None
+                        else:
+                            row['Actual Usage (Last Week)'] = None
+                            row['Variance'] = None
+                            row['Variance %'] = None
+                        usage_data.append(row)
+                    
+                    usage_df = pd.DataFrame(usage_data)
+                    
+                    st.markdown("---")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        category_filter = st.selectbox(
+                            "Filter by Category:",
+                            ["All", "Draft Beer", "Bottled Beer", "Liquor", "Wine", "Bar Consumables"],
+                            key="sales_mix_category_filter"
+                        )
+                    with col2:
+                        show_variance_only = st.checkbox("Show only items with variance data", value=False)
+                    
+                    display_usage_df = usage_df.copy()
+                    
+                    if category_filter != "All":
+                        if category_filter == "Draft Beer":
+                            display_usage_df = display_usage_df[display_usage_df['Inventory Item'].str.contains('BEER DFT')]
+                        elif category_filter == "Bottled Beer":
+                            display_usage_df = display_usage_df[display_usage_df['Inventory Item'].str.contains('BEER BTL')]
+                        elif category_filter == "Liquor":
+                            display_usage_df = display_usage_df[
+                                display_usage_df['Inventory Item'].str.contains('WHISKEY|VODKA|GIN|TEQUILA|RUM|SCOTCH|LIQ', regex=True)
+                            ]
+                        elif category_filter == "Wine":
+                            display_usage_df = display_usage_df[display_usage_df['Inventory Item'].str.contains('WINE')]
+                        elif category_filter == "Bar Consumables":
+                            display_usage_df = display_usage_df[
+                                display_usage_df['Inventory Item'].str.contains('BAR CONS|JUICE', regex=True)
+                            ]
+                    
+                    if show_variance_only:
+                        display_usage_df = display_usage_df[display_usage_df['Variance'].notna()]
+                    
+                    def highlight_variance(val):
+                        if pd.isna(val):
+                            return ''
+                        if val > 10:
+                            return 'background-color: #ffcccb'
+                        elif val < -10:
+                            return 'background-color: #90EE90'
+                        return ''
+                    
+                    st.markdown("### Theoretical Usage Results")
+                    st.markdown("""
+                    **Variance Interpretation:**
+                    - 🔴 **Positive variance (red):** Theoretical > Actual — You should have used more than you did. 
+                      Possible: theft, waste, spillage, or inventory count error.
+                    - 🟢 **Negative variance (green):** Theoretical < Actual — You used more than sales suggest. 
+                      Possible: over-ringing, comps not tracked, or heavy pours.
+                    """)
+                    
+                    if not display_usage_df.empty:
+                        styled_usage = display_usage_df.style.applymap(
+                            highlight_variance, subset=['Variance %']
+                        ).format({
+                            'Theoretical Usage': '{:.2f}',
+                            'Actual Usage (Last Week)': '{:.2f}',
+                            'Variance': '{:.2f}',
+                            'Variance %': '{:.1f}%'
+                        }, na_rep="-")
+                        
+                        st.dataframe(styled_usage, use_container_width=True, hide_index=True)
+                        
+                        csv_usage = display_usage_df.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            "Download Usage Analysis CSV",
+                            data=csv_usage,
+                            file_name="sales_mix_usage_analysis.csv"
+                        )
+                    else:
+                        st.warning("No data to display with current filters.")
+                    
+                    if unmatched_items:
+                        with st.expander(f"⚠️ Unmatched Items ({len(unmatched_items)})", expanded=False):
+                            st.markdown("These items could not be mapped to inventory:")
+                            for item in unmatched_items:
+                                st.write(f"- {item}")
+                    
+                    with st.expander("📋 Detailed Calculation Breakdown", expanded=False):
+                        for inv_item, data in all_usage.items():
+                            if data.get('details'):
+                                st.markdown(f"**{inv_item}** ({data['theoretical_usage']:.2f} {data['unit']})")
+                                for detail in data['details']:
+                                    st.write(f"  - {detail}")
+                                st.markdown("---")
+                
+            except Exception as e:
+                st.error(f"Error processing Sales Mix: {e}")
+                import traceback
+                st.code(traceback.format_exc())
+        else:
+            st.info("👆 Upload a Sales Mix CSV to begin analysis.")
         # If you have the code for this from previous steps, you can paste it here.
+
