@@ -5,6 +5,7 @@
 COUNT_OZ = 0.375  # oz per 1 count
 STANDARD_POUR_OZ = 1.5  # 4-count standard pour (shot)
 BUMP_OZ = 0.375  # Bump/add-on pour (1 count)
+FLAVOR_OZ=0.375 # Flavor/add-on pour (1 count)
 
 # Keg sizes in oz
 HALF_BARREL_OZ = 1984  # 15.5 gallon keg (most common)
