@@ -1,0 +1,48 @@
+# config/constants.py
+# Pour sizes, keg sizes, and conversion factors
+
+# Pour measurements
+COUNT_OZ = 0.375  # oz per 1 count
+STANDARD_POUR_OZ = 1.5  # 4-count standard pour (shot)
+BUMP_OZ = 0.375  # Bump/add-on pour (1 count)
+
+# Keg sizes in oz
+HALF_BARREL_OZ = 1984  # 15.5 gallon keg (most common)
+KEG_50L_OZ = 1690  # 50L keg (Firestone Walker 805)
+SIXTH_BARREL_OZ = 661  # 5.16 gallon keg
+QUARTER_BARREL_OZ = 992  # 7.75 gallon keg
+
+# Draft pour sizes
+DRAFT_POUR_SIZES = {
+    "16oz": 16,
+    "32oz": 32,
+    "Pitcher": 64,
+    "Grwlr": 64,
+    "Growler": 64,
+}
+
+# Bottle sizes
+LIQUOR_BOTTLE_OZ = 25.36  # 750ml bottle
+WINE_BOTTLE_OZ = 25.36  # 750ml bottle
+WINE_POUR_OZ = 6  # standard wine glass pour
+
+# Canned beverages
+REDBULL_CAN_OZ = 12
+REDBULL_MIXER_OZ = 6  # half can per mixer drink
+
+# Frozen Margarita batch calculations (16L total batch)
+# Recipe: 3 bottles tequila + 2 bottles triple sec + fill to 16L with mix
+ZIPPARITA_BATCH_TOTAL_OZ = 541  # 16L in oz
+ZIPPARITA_TEQUILA_OZ = 76  # 3 × 750ml bottles
+ZIPPARITA_TRIPLE_SEC_OZ = 50.7  # 2 × 750ml bottles
+ZIPPARITA_TEQUILA_RATIO = ZIPPARITA_TEQUILA_OZ / ZIPPARITA_BATCH_TOTAL_OZ  # ~14%
+ZIPPARITA_TRIPLE_SEC_RATIO = ZIPPARITA_TRIPLE_SEC_OZ / ZIPPARITA_BATCH_TOTAL_OZ  # ~9.4%
+
+# Frozen margarita serving sizes
+FROZEN_MARG_SIZES = {
+    "Zipparita": 10,  # Standard 10oz pilsner
+    "BIG Zipparita": 16,
+    "TO GO RITA 16oz": 16,
+    "TO GO RITA 24oz": 24,
+    "Zippa Rona": 16,  # Plus a coronita bottle
+}
