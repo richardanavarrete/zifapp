@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from statsmodels.tsa.holtwinters import SimpleExpSmoothing
 import re
 import docx
 import math
@@ -11,7 +12,7 @@ st.title("🍺 Bev Usage Analyzer")
 
 # --- Caching the data processing ---
 @st.cache_data
-def load_and_process_data(uploaded_file):
+def load_and_process_data(uploaded_file, smoothing_level=0.3, trend_threshold=0.1):
     """
     Reads the uploaded Excel file, processes all data, and calculates summary metrics.
     This function is cached to prevent re-running on every widget interaction.
@@ -51,7 +52,7 @@ def load_and_process_data(uploaded_file):
         inventory = group['End Inventory']
         dates = group['Date']
         last_week_usage = usage.iloc[-1] if not usage.empty else None
-        last_10, last_4, last_2 = usage.tail(10), usage.tail(4), usage.tail(2),
+        last_10, last_4, last_2 = usage.tail(10), usage.tail(4), usage.tail(2)
         ytd_avg = group[dates.dt.year == datetime.now().year]['Usage'].mean() if pd.api.types.is_datetime64_any_dtype(dates) else None
 
         def safe_div(n, d):
@@ -62,7 +63,25 @@ def load_and_process_data(uploaded_file):
         non_zero_usage = usage[usage > 0]
         avg_of_lowest_4_non_zero = non_zero_usage.nsmallest(4).mean() if not non_zero_usage.empty else None
 
+        # Trend calculation using exponential smoothing
+        trend_indicator = "→"
+        if len(usage) >= 4:
+            try:
+                model = SimpleExpSmoothing(usage.values).fit(smoothing_level=smoothing_level, optimized=False)
+                smoothed_current = model.fittedvalues[-1]
+                baseline = usage.mean()
+                
+                if baseline > 0:
+                    ratio = smoothed_current / baseline
+                    if ratio > (1 + trend_threshold):
+                        trend_indicator = "↑"
+                    elif ratio < (1 - trend_threshold):
+                        trend_indicator = "↓"
+            except Exception:
+                trend_indicator = "→"
+
         return pd.Series({
+            'Trend': trend_indicator,
             'On Hand': round(inventory.iloc[-1], 2),
             'Last Week Usage': round(last_week_usage, 2) if pd.notna(last_week_usage) else None,
             'Year-to-Date Average': round(ytd_avg, 2) if pd.notna(ytd_avg) else None,
@@ -86,7 +105,6 @@ def load_and_process_data(uploaded_file):
     original_order_cleaned = [item.strip() for item in original_order]
     summary_df['ItemOrder'] = summary_df['Item'].apply(lambda x: original_order_cleaned.index(x) if x in original_order_cleaned else float('inf'))
     summary_df = summary_df.sort_values(by='ItemOrder').drop(columns='ItemOrder')
-
     vendor_map = {
         "Breakthru": ["WHISKEY Buffalo Trace", "WHISKEY Bulleit Straight Rye", "WHISKEY Crown Royal", "WHISKEY Crown Royal Regal Apple", "WHISKEY Fireball Cinnamon", "WHISKEY Jack Daniels Black", "WHISKEY Jack Daniels Tennessee Fire", "VODKA Deep Eddy Lime", "VODKA Deep Eddy Orange", "VODKA Deep Eddy Ruby Red", "VODKA Fleischmann's Cherry", "VODKA Fleischmann's Grape", "VODKA Ketel One", "LIQ Amaretto", "LIQ Baileys Irish Cream", "LIQ Chambord", "LIQ Melon", "LIQ Rumpleminze", "LIQ Triple Sec", "LIQ Blue Curacao", "LIQ Butterscotch", "LIQ Peach Schnapps", "LIQ Sour Apple", "LIQ Watermelon Schnapps", "BRANDY Well", "GIN Well", "RUM Well", "SCOTCH Well", "TEQUILA Well", "VODKA Well", "WHISKEY Well", "GIN Tanqueray", "TEQUILA Casamigos Blanco", "TEQUILA Corazon Reposado", "TEQUILA Don Julio Blanco", "RUM Captain Morgan Spiced", "WINE LaMarca Prosecco", "WINE William Wycliff Brut Chateauamp", "BAR CONS Bloody Mary", "JUICE Red Bull", "JUICE Red Bull SF", "JUICE Red Bull Yellow"],
         "Southern": ["WHISKEY Basil Hayden", "WHISKEY Jameson", "WHISKEY Jim Beam", "WHISKEY Makers Mark", "WHISKEY Skrewball Peanut Butter", "VODKA Grey Goose", "VODKA Titos", "TEQUILA Cazadores Reposado", "TEQUILA Patron Silver", "RUM Bacardi Superior White", "RUM Malibu Coconut", "WHISKEY Dewars White Label", "WHISKEY Glenlivet", "LIQ Grand Marnier", "LIQ Jagermeister", "LIQ Kahlua", "LIQ Vermouth Dry", "LIQ Vermouth Sweet", "WINE Kendall Jackson Chardonnay", "WINE La Crema Chardonnay", "WINE La Crema Pinot Noir", "WINE Troublemaker Red", "WINE Villa Sandi Pinot Grigio", "BAR CONS Bitters", "BAR CONS Simple Syrup"],
@@ -296,6 +314,7 @@ if uploaded_file:
                 with tab:
                     category_name = category_keys[i]
                     render_worksheet_table(category_map.get(category_name, []), category_name)
+
 
 
 
