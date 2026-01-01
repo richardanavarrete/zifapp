@@ -7,9 +7,9 @@ from .constants import COUNT_OZ, STANDARD_POUR_OZ
 # Format: "Exact Sales Mix Item Name": {"Inventory Item": oz_per_sale}
 # Use the EXACT item name as it appears in your sales mix export
 MANUAL_MAPPINGS = {
-    "[Liquor] Iceberg": {
-        "teqila well": 0.14,
-        "triple sec": 0.09,
+    "Iceberg": {
+        "TEQUILA Well": 0.14,
+        "LIQ Triple Sec": 0.094,
     },
 }
 
