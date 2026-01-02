@@ -5,6 +5,7 @@ from utils import parse_sales_mix_csv, aggregate_all_usage
 from statsmodels.tsa.holtwinters import SimpleExpSmoothing
 import re
 import math
+import database as db
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
@@ -152,7 +153,7 @@ def load_and_process_data(uploaded_file, smoothing_level=0.3, trend_threshold=0.
         elif "JUICE" in upper_item: category_map["Juice"].append(item)
         elif "BAR CONS" in upper_item: category_map["Bar Consumables"].append(item)
         
-    return summary_df, vendor_map, category_map
+    return summary_df, vendor_map, category_map, full_df  # Also return full_df for database saving
 
 # --- Main App UI ---
 uploaded_file = st.file_uploader("Upload your BEVWEEKLY Excel File", type="xlsx")
@@ -163,12 +164,30 @@ if uploaded_file:
         trend_threshold = st.slider("Trend Threshold", 0.05, 0.30, 0.10, 0.05)
 
     try:
-        summary_df, vendor_map, category_map = load_and_process_data(uploaded_file, smoothing_level, trend_threshold)
+        summary_df, vendor_map, category_map, full_df = load_and_process_data(uploaded_file, smoothing_level, trend_threshold)
+
+        # Save usage data to database (one record per item per week)
+        # Get the most recent week from the data
+        if not full_df.empty and 'Date' in full_df.columns:
+            latest_week = full_df['Date'].max()
+            if pd.notna(latest_week):
+                # Get data for the latest week only
+                latest_week_df = full_df[full_df['Date'] == latest_week][['Item', 'Usage', 'End Inventory']].copy()
+                latest_week_df = latest_week_df.dropna(subset=['Usage', 'End Inventory'])
+
+                if not latest_week_df.empty:
+                    try:
+                        saved_count = db.save_weekly_usage(latest_week_df, str(latest_week.date()))
+                        if saved_count > 0:
+                            st.toast(f"💾 Saved {saved_count} usage records to database", icon="✅")
+                    except Exception as db_error:
+                        st.warning(f"Database save warning: {db_error}")
+
     except Exception as e:
         st.error(f"An error occurred during data processing: {e}")
         st.stop()
 
-    tab_summary, tab_ordering_worksheet, tab_sales_mix, tab_mapping = st.tabs(["📊 Summary", "🧪 Ordering Worksheet", "Sales Mix Analysis", "🔧 Mapping Manager"])
+    tab_summary, tab_ordering_worksheet, tab_sales_mix, tab_mapping, tab_database = st.tabs(["📊 Summary", "🧪 Ordering Worksheet", "Sales Mix Analysis", "🔧 Mapping Manager", "💾 Database"])
 
     # --- TAB 1: SUMMARY ---
     with tab_summary:
@@ -329,12 +348,30 @@ if uploaded_file:
         if sales_mix_file:
             try:
                 sales_df = parse_sales_mix_csv(sales_mix_file)
-                
+
                 if sales_df is not None and not sales_df.empty:
                     st.success(f"✅ Parsed {len(sales_df)} line items from Sales Mix")
-                    
+
+                    # Save sales mix data to database
+                    # Use the latest week from the BEVWEEKLY data as the week_ending
+                    if not full_df.empty and 'Date' in full_df.columns:
+                        latest_week = full_df['Date'].max()
+                        if pd.notna(latest_week):
+                            try:
+                                inserted = db.save_sales_mix(sales_df, str(latest_week.date()))
+                                if inserted > 0:
+                                    st.toast(f"💾 Saved {inserted} new sales mix records to database", icon="✅")
+                            except Exception as db_error:
+                                st.warning(f"Database save warning: {db_error}")
+
                     with st.expander("View Parsed Sales Data", expanded=False):
                         st.dataframe(sales_df, use_container_width=True, hide_index=True)
+
+                    # DEBUG: Show exact item names for mapping
+                    with st.expander("🔍 DEBUG: Exact Item Names from POS", expanded=False):
+                        st.markdown("**Use these EXACT names in your mappings:**")
+                        liquor_items = sales_df[sales_df['Category'] == 'Liquor']['Item'].unique()
+                        st.code('\n'.join([f'"{item}"' for item in sorted(liquor_items)]))
 
                     # Pass session state mappings to parser
                     runtime_mappings = st.session_state.get('runtime_mappings', {})
@@ -576,11 +613,31 @@ if uploaded_file:
                             # Git commit and push
                             import subprocess
                             subprocess.run(['git', 'add', 'config/manual_overrides.py'], check=True)
-                            subprocess.run(['git', 'commit', '-m', f'Add {len(current_mappings)} manual mappings'], check=True)
-                            subprocess.run(['git', 'push'], check=True)
 
-                            st.success(f"✅ Saved {len(current_mappings)} mappings to git!")
-                            st.info("🔄 Streamlit Cloud will auto-redeploy with your changes")
+                            # Check if there are changes to commit
+                            result = subprocess.run(['git', 'diff', '--cached', '--quiet'], capture_output=True)
+                            if result.returncode == 0:
+                                # No changes to commit
+                                st.info("ℹ️ No changes to commit - mappings are already saved")
+                            else:
+                                # There are changes, proceed with commit
+                                subprocess.run(['git', 'commit', '-m', f'Add {len(current_mappings)} manual mappings'], check=True)
+
+                                # Get current branch name and push
+                                branch_result = subprocess.run(['git', 'branch', '--show-current'], capture_output=True, text=True, check=True)
+                                current_branch = branch_result.stdout.strip()
+
+                                # Push to origin with upstream tracking
+                                push_result = subprocess.run(['git', 'push', '-u', 'origin', current_branch], capture_output=True, text=True)
+
+                                if push_result.returncode == 0:
+                                    st.success(f"✅ Saved {len(current_mappings)} mappings to git!")
+                                    st.info("🔄 Streamlit Cloud will auto-redeploy with your changes")
+                                    st.info("💡 **Important:** Refresh this page to reload the mappings into memory")
+                                else:
+                                    st.warning(f"⚠️ Committed locally but push failed: {push_result.stderr}")
+                                    st.info(f"💡 You can manually push later with: `git push -u origin {current_branch}`")
+                                    st.info("💡 **Important:** Refresh this page to reload the mappings into memory")
                         else:
                             st.error("Could not find MANUAL_MAPPINGS in config file")
                     except Exception as e:
@@ -596,6 +653,7 @@ if uploaded_file:
                         for inv_item, oz in recipe.items():
                             st.write(f"• {inv_item}: {oz}oz")
                         if st.button("🗑️ Delete", key=f"del_{item_name}"):
+                            db.log_mapping_change(item_name, recipe, 'deleted')
                             del st.session_state.runtime_mappings[item_name]
                             st.rerun()
         else:
@@ -645,7 +703,9 @@ if uploaded_file:
 
                     if st.button("💾 Save Mapping", type="primary"):
                         scaled = {inv: oz * scale for inv, oz in base.items()}
+                        action = 'updated' if item_to_map in st.session_state.runtime_mappings else 'created'
                         st.session_state.runtime_mappings[item_to_map] = scaled
+                        db.log_mapping_change(item_to_map, scaled, action)
                         st.success(f"✅ Saved: {item_to_map}")
                         st.rerun()
 
@@ -680,7 +740,9 @@ if uploaded_file:
                     with col_save:
                         if st.button("💾 Save", type="primary", use_container_width=True):
                             recipe = {i['inv']: i['oz'] for i in st.session_state.custom_recipe}
+                            action = 'updated' if item_to_map in st.session_state.runtime_mappings else 'created'
                             st.session_state.runtime_mappings[item_to_map] = recipe
+                            db.log_mapping_change(item_to_map, recipe, action)
                             st.success(f"✅ Saved!")
                             st.session_state.custom_recipe = []
                             st.rerun()
@@ -697,4 +759,104 @@ if uploaded_file:
                 st.markdown("**Inventory Names:**\n- `VODKA Well`\n- `TEQUILA Well`\n- `LIQ Triple Sec`\n- `LIQ Blue Curacao`\n- `BAR CONS Mango Puree`")
             with col2:
                 st.markdown("**Pour Sizes:**\n- 0.375oz = 1 count\n- 1.5oz = standard shot\n- 3.0oz = double\n\n**Scaling:**\n- 0.5 = half\n- 1.6 = 16oz marg\n- 2.4 = 24oz marg")
+
+    # --- TAB 5: DATABASE ---
+    with tab_database:
+        st.subheader("💾 Database Management")
+        st.markdown("""
+        View and manage historical data stored in the database for forecasting and analysis.
+        """)
+
+        # Get database statistics
+        stats = db.get_stats()
+
+        # Display statistics
+        st.markdown("### 📊 Database Statistics")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Weekly Usage Records", stats.get('weekly_usage', 0))
+            st.metric("Sales Mix Records", stats.get('sales_mix', 0))
+        with col2:
+            st.metric("Daily Sales Records", stats.get('daily_sales', 0))
+            st.metric("Events", stats.get('events', 0))
+        with col3:
+            st.metric("Weather Records", stats.get('weather', 0))
+            st.metric("Hourly Sales Records", stats.get('hourly_sales', 0))
+        with col4:
+            st.metric("Category Sales Records", stats.get('category_sales', 0))
+            st.metric("Mapping Changes", stats.get('mapping_history', 0))
+
+        # Show date ranges
+        st.markdown("### 📅 Data Coverage")
+        col1, col2 = st.columns(2)
+        with col1:
+            usage_range = stats.get('usage_date_range', (None, None))
+            if usage_range[0]:
+                st.info(f"**Usage Data:** {usage_range[0]} to {usage_range[1]}")
+            else:
+                st.info("**Usage Data:** No data yet")
+        with col2:
+            sales_range = stats.get('sales_date_range', (None, None))
+            if sales_range[0]:
+                st.info(f"**Sales Data:** {sales_range[0]} to {sales_range[1]}")
+            else:
+                st.info("**Sales Data:** No data yet")
+
+        # View recent usage history
+        st.markdown("---")
+        st.markdown("### 📈 Recent Usage History")
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            item_search = st.text_input("Search for item:", placeholder="e.g., VODKA Well")
+        with col2:
+            weeks_to_show = st.number_input("Weeks to show:", min_value=1, max_value=52, value=10)
+
+        if item_search:
+            history_df = db.get_usage_history(item_name=item_search, weeks=weeks_to_show)
+            if not history_df.empty:
+                st.dataframe(
+                    history_df[['week_ending', 'usage', 'end_inventory']].sort_values('week_ending', ascending=False),
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                # Simple visualization
+                import plotly.express as px
+                fig = px.line(
+                    history_df.sort_values('week_ending'),
+                    x='week_ending',
+                    y='usage',
+                    title=f'Usage Trend for {item_search}',
+                    labels={'week_ending': 'Week Ending', 'usage': 'Usage'}
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning(f"No usage history found for '{item_search}'")
+        else:
+            st.info("👆 Enter an item name to view its usage history from the database")
+
+        # Mapping history
+        st.markdown("---")
+        st.markdown("### 🗺️ Recent Mapping Changes")
+        conn = db.get_connection()
+        mapping_history_df = pd.read_sql_query("""
+            SELECT item_name, action, created_at
+            FROM mapping_history
+            ORDER BY created_at DESC
+            LIMIT 20
+        """, conn)
+        conn.close()
+
+        if not mapping_history_df.empty:
+            st.dataframe(mapping_history_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No mapping changes recorded yet")
+
+        # Database maintenance
+        st.markdown("---")
+        st.markdown("### 🔧 Database Info")
+        st.code(f"Database location: {db.DB_PATH.absolute()}")
+
+        if st.button("🔄 Refresh Statistics"):
+            st.rerun()
 

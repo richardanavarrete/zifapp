@@ -27,3 +27,7 @@ Thumbs.db
 *.xlsx
 *.csv
 *.log
+
+# Database
+*.db
+*.db-journal
