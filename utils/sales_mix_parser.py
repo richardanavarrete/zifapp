@@ -73,18 +73,20 @@ def parse_sales_mix_csv(uploaded_csv):
         if 'Grand Total' in row_str:
             break
         
-        # Check for category markers [+]
+        # Check for category markers [+] (e.g., "[+],Bottle,..." or "[+],Liquor,...")
+        # The [+] is in column 0, category name in column 1
         if str(row.iloc[0]).strip() == '[+]':
             current_category = str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else None
             current_subcategory = None
             continue
         
-        # Check for subcategory markers
-        if len(row) > 1 and str(row.iloc[1]).strip() == '[+]':
-            current_subcategory = str(row.iloc[2]).strip() if pd.notna(row.iloc[2]) else None
+        # Check for subcategory markers (e.g., ",,[+],Mixed Drinks,...")
+        # The [+] is in column 2, subcategory name in column 3
+        if len(row) > 3 and str(row.iloc[2]).strip() == '[+]':
+            current_subcategory = str(row.iloc[3]).strip() if pd.notna(row.iloc[3]) else None
             continue
         
-        # Find the item name (usually in columns 2-5)
+        # Find the item name (usually in columns 2-6)
         item_name = None
         for col_idx in range(2, 7):
             if col_idx < len(row) and pd.notna(row.iloc[col_idx]) and str(row.iloc[col_idx]).strip():
@@ -395,21 +397,18 @@ def calculate_mixed_drink_usage(sales_df, runtime_mappings=None):
         frozen_size = 10  # default Zipparita size
         
         # Check for frozen marg indicators
-        if item_name == '[Liquor] Zipparita' or clean_name == 'Zipparita':
+        if clean_name == 'Zipparita':
             is_frozen_marg = True
             frozen_size = 10
-        elif '[Liquor] BIG Zipparita' in item_name:
+        elif clean_name == 'BIG Zipparita':
             is_frozen_marg = True
             frozen_size = 16
-        elif '[Liquor] TO GO RITA 16oz' in item_name or '16oz TO GO' in item_name:
+        elif item_name == 'TO GO RITA 16oz':
             is_frozen_marg = True
             frozen_size = 16
-        elif '[Liquor] TO GO RITA 24oz' in item_name or '24oz TO GO' in item_name:
+        elif item_name == 'TO GO RITA 24oz':
             is_frozen_marg = True
             frozen_size = 24
-        elif '[Liquor] BIG RITA' in item_name:
-            is_frozen_marg = True
-            frozen_size = 16
         elif 'Flavor' in item_name:
             is_frozen_marg = True
             # Determine size based on item name
