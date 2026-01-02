@@ -262,6 +262,10 @@ MIXED_DRINK_RECIPES = {
         "Frozen Margarita Batch": 16.0,  # The 16oz of slush
         "Coronita": 1.0                  # The full bottle of beer
     },
+    "Zippa Rona": {
+        "Frozen Margarita Batch": 16.0,
+        "Coronita": 1.0
+    },
 }
 
 # Items that use 86'd products (vanilla vodka) - will flag if sold
