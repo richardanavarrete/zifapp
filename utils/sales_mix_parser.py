@@ -1,21 +1,22 @@
+"""
+Sales Mix Parser - Robust GEMpos CSV Parser
+Handles varying column positions and nesting levels automatically.
+"""
 import pandas as pd
 import re
 import sys
 import os
 
-# --- PRO FIX: Add Project Root to Path ---
-# This ensures Python can find the 'config' folder even from inside 'utils'
+# --- Add Project Root to Path ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
-# -----------------------------------------
 
-# Now import specific submodules (Explicit is better than implicit)
 from config.constants import (
     COUNT_OZ, STANDARD_POUR_OZ, HALF_BARREL_OZ, LIQUOR_BOTTLE_OZ, KEG_50L_OZ,
     DRAFT_POUR_SIZES, ZIPPARITA_TEQUILA_RATIO, ZIPPARITA_TRIPLE_SEC_RATIO,
-    WINE_GLASS_OZ, WINE_BOTTLE_OZ, KEG_50L_OZ, LIQUOR_BOTTLE_750_OZ, WINE_BOTTLE_MAGNUM_OZ
+    WINE_GLASS_OZ, WINE_BOTTLE_OZ, LIQUOR_BOTTLE_750_OZ, WINE_BOTTLE_MAGNUM_OZ
 )
 from config.draft_beer_map import DRAFT_BEER_MAP, DRAFT_SKIP_ITEMS
 from config.bottle_beer_map import BOTTLE_BEER_MAP
@@ -26,72 +27,124 @@ from config.margarita_flavors import MARGARITA_FLAVOR_ADDITIONS, PREMIUM_TEQUILA
 from config.bar_consumables import BAR_CONSUMABLES_MAP
 from config.manual_overrides import MANUAL_MAPPINGS, ENABLE_MANUAL_MAPPINGS
 
+
+def find_marker_position(row):
+    """
+    Find where [+] marker is in the row and return (marker_col, name_col, nesting_level).
+    Returns (None, None, None) if no marker found.
+    
+    Nesting levels:
+      - Level 0: [+] in column 0 = top category (Bottle, Draft, Liquor, Wine, Food)
+      - Level 1: [+] in column 1 = subcategory under Food (Add, Appetizers, etc.)
+      - Level 2: [+] in column 2 = sub-subcategory (Mixed Drinks, Whiskey, Vodka, etc.)
+    """
+    for col_idx in range(min(6, len(row))):
+        val = row.iloc[col_idx] if col_idx < len(row) else None
+        if pd.notna(val) and str(val).strip() == '[+]':
+            # The name follows the [+] marker
+            name_col = col_idx + 1
+            if name_col < len(row) and pd.notna(row.iloc[name_col]):
+                return col_idx, name_col, col_idx
+    return None, None, None
+
+
+def find_item_name(row, start_col=0):
+    """
+    Find the first non-empty, non-marker text in the row starting from start_col.
+    Skip numeric-only values (like Item IDs).
+    """
+    for col_idx in range(start_col, min(8, len(row))):  # Don't go past column 7
+        val = row.iloc[col_idx] if col_idx < len(row) else None
+        if pd.notna(val):
+            val_str = str(val).strip()
+            # Skip [+] markers, empty strings, and pure numbers (Item IDs)
+            if val_str and val_str != '[+]' and not val_str.replace(',', '').replace('.', '').isdigit():
+                return val_str
+    return None
+
+
+def find_qty_column(df, header_row_idx):
+    """Find the Qty column dynamically."""
+    header_row = df.iloc[header_row_idx]
+    for i, val in enumerate(header_row):
+        if pd.notna(val) and str(val).strip() == 'Qty':
+            return i
+    # Fallback: usually column 8
+    return 8
+
+
+def find_amount_column(df, header_row_idx):
+    """Find the Amount column dynamically."""
+    header_row = df.iloc[header_row_idx]
+    for i, val in enumerate(header_row):
+        if pd.notna(val) and str(val).strip() == 'Amount':
+            return i
+    # Fallback: usually column 9
+    return 9
+
+
 def parse_sales_mix_csv(uploaded_csv):
     """
-    Parse the GEMpos Sales Mix CSV into a structured DataFrame.
+    Parse any GEMpos Sales Mix CSV into a structured DataFrame.
+    
+    Automatically detects:
+    - Header row location
+    - Category/subcategory markers at any nesting level
+    - Item names in varying column positions
+    - Qty and Amount column positions
     
     Returns DataFrame with columns: Category, Subcategory, Item, Qty, Amount
     """
     # Read the CSV
     df = pd.read_csv(uploaded_csv, header=None)
     
-    # Find the header row (contains "Item ID", "Qty", "Amount")
+    # Find the header row (contains "Qty")
     header_row_idx = None
     for idx, row in df.iterrows():
-        row_str = ','.join(row.astype(str))
-        if 'Item ID' in row_str and 'Qty' in row_str:
+        row_str = ','.join(str(v) for v in row if pd.notna(v))
+        if 'Qty' in row_str:
             header_row_idx = idx
             break
     
     if header_row_idx is None:
-        raise ValueError("Could not find header row in CSV")
+        raise ValueError("Could not find header row with 'Qty' column in CSV")
     
     # Get column positions
-    header_row = df.iloc[header_row_idx]
-    qty_col = None
-    amount_col = None
-    
-    for i, val in enumerate(header_row):
-        if str(val).strip() == 'Qty':
-            qty_col = i
-        elif str(val).strip() == 'Amount':
-            amount_col = i
-    
-    if qty_col is None:
-        raise ValueError("Could not find 'Qty' column")
+    qty_col = find_qty_column(df, header_row_idx)
+    amount_col = find_amount_column(df, header_row_idx)
     
     # Parse the data rows
     parsed_items = []
-    current_category = None
-    current_subcategory = None
+    
+    # Track hierarchy - can have multiple levels
+    # Level 0 = top category, Level 1 = subcategory, Level 2 = sub-subcategory
+    hierarchy = {0: None, 1: None, 2: None}
     
     for idx in range(header_row_idx + 1, len(df)):
         row = df.iloc[idx]
         
-        # Skip empty rows and grand total
-        row_str = ','.join(row.astype(str).fillna(''))
+        # Check for end of data
+        row_values = [str(v) for v in row if pd.notna(v)]
+        row_str = ' '.join(row_values)
         if 'Grand Total' in row_str:
             break
         
-        # Check for category markers [+] (e.g., "[+],Bottle,..." or "[+],Liquor,...")
-        # The [+] is in column 0, category name in column 1
-        if str(row.iloc[0]).strip() == '[+]':
-            current_category = str(row.iloc[1]).strip() if pd.notna(row.iloc[1]) else None
-            current_subcategory = None
+        # Check for category/subcategory markers
+        marker_col, name_col, level = find_marker_position(row)
+        
+        if marker_col is not None:
+            # This is a category/subcategory header row
+            category_name = str(row.iloc[name_col]).strip() if name_col < len(row) else None
+            hierarchy[level] = category_name
+            
+            # Clear deeper levels when we encounter a new category at this level
+            for deeper_level in range(level + 1, 3):
+                hierarchy[deeper_level] = None
+            
             continue
         
-        # Check for subcategory markers (e.g., ",,[+],Mixed Drinks,...")
-        # The [+] is in column 2, subcategory name in column 3
-        if len(row) > 3 and str(row.iloc[2]).strip() == '[+]':
-            current_subcategory = str(row.iloc[3]).strip() if pd.notna(row.iloc[3]) else None
-            continue
-        
-        # Find the item name (usually in columns 2-6)
-        item_name = None
-        for col_idx in range(2, 7):
-            if col_idx < len(row) and pd.notna(row.iloc[col_idx]) and str(row.iloc[col_idx]).strip():
-                item_name = str(row.iloc[col_idx]).strip()
-                break
+        # This should be an item row - find the item name
+        item_name = find_item_name(row)
         
         if not item_name:
             continue
@@ -106,25 +159,47 @@ def parse_sales_mix_csv(uploaded_csv):
                 qty = 0
         
         # Get amount
-        amount = 0
-        if amount_col and amount_col < len(row) and pd.notna(row.iloc[amount_col]):
+        amount = 0.0
+        if amount_col < len(row) and pd.notna(row.iloc[amount_col]):
             try:
                 amt_str = str(row.iloc[amount_col]).replace('$', '').replace(',', '')
                 amount = float(amt_str)
             except (ValueError, TypeError):
-                amount = 0
-       
+                amount = 0.0
         
+        # Only include items with qty > 0
         if qty > 0:
+            # Determine category and subcategory from hierarchy
+            # Level 0 is always the main category
+            # Levels 1+ are subcategories (we'll combine them if needed)
+            main_category = hierarchy.get(0)
+            
+            # For subcategory, prefer the deepest non-None level
+            subcategory = None
+            for level in [2, 1]:
+                if hierarchy.get(level):
+                    subcategory = hierarchy[level]
+                    break
+            
             parsed_items.append({
-                'Category': current_category,
-                'Subcategory': current_subcategory,
+                'Category': main_category,
+                'Subcategory': subcategory,
                 'Item': item_name,
                 'Qty': qty,
                 'Amount': amount,
             })
     
-    return pd.DataFrame(parsed_items)
+    result_df = pd.DataFrame(parsed_items)
+    
+    # Debug info
+    if len(result_df) > 0:
+        categories = result_df['Category'].unique().tolist()
+        subcategories = result_df['Subcategory'].dropna().unique().tolist()
+        print(f"Parsed {len(result_df)} items")
+        print(f"Categories: {categories}")
+        print(f"Subcategories: {subcategories}")
+    
+    return result_df
 
 
 def calculate_draft_beer_usage(sales_df, runtime_mappings=None):
@@ -132,7 +207,6 @@ def calculate_draft_beer_usage(sales_df, runtime_mappings=None):
     results = {}
     unmatched = []
 
-    # Merge runtime mappings with config mappings
     all_manual_mappings = dict(MANUAL_MAPPINGS)
     if runtime_mappings:
         all_manual_mappings.update(runtime_mappings)
@@ -143,21 +217,15 @@ def calculate_draft_beer_usage(sales_df, runtime_mappings=None):
         item_name = row['Item']
         qty = row['Qty']
 
-        # Check manual overrides first (exact match, takes precedence)
+        # Check manual overrides first
         if ENABLE_MANUAL_MAPPINGS and item_name in all_manual_mappings:
             for inv_item, oz_per_item in all_manual_mappings[item_name].items():
                 if inv_item not in results:
-                    results[inv_item] = {
-                        'total_oz': 0,
-                        'keg_size': HALF_BARREL_OZ,  # default
-                        'kegs_used': 0,
-                        'items': []
-                    }
+                    results[inv_item] = {'total_oz': 0, 'keg_size': HALF_BARREL_OZ, 'kegs_used': 0, 'items': []}
                 oz_used = qty * oz_per_item
                 results[inv_item]['total_oz'] += oz_used
                 results[inv_item]['kegs_used'] = results[inv_item]['total_oz'] / results[inv_item]['keg_size']
                 results[inv_item]['items'].append(f"{item_name}: {qty} × {oz_per_item}oz [MANUAL]")
-            # Manual mapping found, skip all other matching
             continue
 
         # Skip non-beer items
@@ -176,15 +244,8 @@ def calculate_draft_beer_usage(sales_df, runtime_mappings=None):
         for pattern, (inv_item, keg_size) in DRAFT_BEER_MAP.items():
             if pattern.lower() in item_name.lower():
                 total_oz = qty * pour_oz
-                kegs_used = total_oz / keg_size
-
                 if inv_item not in results:
-                    results[inv_item] = {
-                        'total_oz': 0,
-                        'keg_size': keg_size,
-                        'kegs_used': 0,
-                        'items': []
-                    }
+                    results[inv_item] = {'total_oz': 0, 'keg_size': keg_size, 'kegs_used': 0, 'items': []}
                 results[inv_item]['total_oz'] += total_oz
                 results[inv_item]['kegs_used'] = results[inv_item]['total_oz'] / keg_size
                 results[inv_item]['items'].append(f"{item_name}: {qty} × {pour_oz}oz")
@@ -202,7 +263,6 @@ def calculate_bottle_beer_usage(sales_df, runtime_mappings=None):
     results = {}
     unmatched = []
 
-    # Merge runtime mappings with config mappings
     all_manual_mappings = dict(MANUAL_MAPPINGS)
     if runtime_mappings:
         all_manual_mappings.update(runtime_mappings)
@@ -213,20 +273,17 @@ def calculate_bottle_beer_usage(sales_df, runtime_mappings=None):
         item_name = row['Item']
         qty = row['Qty']
 
-        # Check manual overrides first (exact match, takes precedence)
         if ENABLE_MANUAL_MAPPINGS and item_name in all_manual_mappings:
             for inv_item, count_per_item in all_manual_mappings[item_name].items():
                 if inv_item not in results:
                     results[inv_item] = {'qty': 0, 'items': []}
                 results[inv_item]['qty'] += qty * count_per_item
                 results[inv_item]['items'].append(f"{item_name}: {qty} × {count_per_item} [MANUAL]")
-            # Manual mapping found, skip all other matching
             continue
 
-        # Clean up item name for matching (remove (FS) suffix)
+        # Clean up item name
         clean_name = re.sub(r'\s*\(FS\)\s*$', '', item_name).strip()
 
-        # Find matching inventory item
         matched = False
         for pattern, inv_item in BOTTLE_BEER_MAP.items():
             if pattern.lower() in clean_name.lower():
@@ -248,19 +305,21 @@ def calculate_liquor_usage(sales_df, runtime_mappings=None):
     results = {}
     unmatched = []
 
-    # Merge runtime mappings with config mappings
     all_manual_mappings = dict(MANUAL_MAPPINGS)
     if runtime_mappings:
         all_manual_mappings.update(runtime_mappings)
 
-    # Process Liquor category (straight pours)
-    liquor_sales = sales_df[sales_df['Category'] == 'Liquor'].copy()
+    # Get liquor items - Category == 'Liquor' but NOT Mixed Drinks
+    # This includes subcategories like Bourbon & Whiskey, Vodka, Gin, Tequila, Rum, Scotch, Cordials, Bar Other
+    liquor_sales = sales_df[
+        (sales_df['Category'] == 'Liquor') & 
+        (sales_df['Subcategory'] != 'Mixed Drinks')
+    ].copy()
 
     for _, row in liquor_sales.iterrows():
         item_name = row['Item']
         qty = row['Qty']
 
-        # Check manual overrides first (exact match, takes precedence)
         if ENABLE_MANUAL_MAPPINGS and item_name in all_manual_mappings:
             for inv_item, oz_per_drink in all_manual_mappings[item_name].items():
                 if inv_item not in results:
@@ -268,23 +327,19 @@ def calculate_liquor_usage(sales_df, runtime_mappings=None):
                 results[inv_item]['oz'] += qty * oz_per_drink
                 results[inv_item]['bottles'] = results[inv_item]['oz'] / LIQUOR_BOTTLE_OZ
                 results[inv_item]['items'].append(f"{item_name}: {qty} × {oz_per_drink}oz [MANUAL]")
-            # Manual mapping found, skip all other matching
             continue
 
         # Clean up item name
         clean_name = re.sub(r'\s*\(FS\)\s*$', '', item_name).strip()
-        is_bump = '(Flavor)', '(Bump)' in item_name
+        is_bump = '(Bump)' in item_name
         clean_name = re.sub(r'\s*\(Bump\)\s*$', '', clean_name).strip()
 
-        # Determine pour size
         pour_oz = COUNT_OZ if is_bump else STANDARD_POUR_OZ
 
-        # Find matching inventory item
         matched = False
         for pattern, inv_item in LIQUOR_MAP.items():
             if pattern.lower() in clean_name.lower():
                 total_oz = qty * pour_oz
-
                 if inv_item not in results:
                     results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
                 results[inv_item]['oz'] += total_oz
@@ -304,7 +359,6 @@ def calculate_wine_usage(sales_df, runtime_mappings=None):
     results = {}
     unmatched = []
 
-    # Merge runtime mappings with config mappings
     all_manual_mappings = dict(MANUAL_MAPPINGS)
     if runtime_mappings:
         all_manual_mappings.update(runtime_mappings)
@@ -315,7 +369,6 @@ def calculate_wine_usage(sales_df, runtime_mappings=None):
         item_name = row['Item']
         qty = row['Qty']
 
-        # Check manual overrides first (exact match, takes precedence)
         if ENABLE_MANUAL_MAPPINGS and item_name in all_manual_mappings:
             for inv_item, oz_per_drink in all_manual_mappings[item_name].items():
                 if inv_item not in results:
@@ -323,19 +376,15 @@ def calculate_wine_usage(sales_df, runtime_mappings=None):
                 results[inv_item]['oz'] += qty * oz_per_drink
                 results[inv_item]['bottles'] = results[inv_item]['oz'] / WINE_BOTTLE_OZ
                 results[inv_item]['items'].append(f"{item_name}: {qty} × {oz_per_drink}oz [MANUAL]")
-            # Manual mapping found, skip all other matching
             continue
 
-        # Determine if it's a glass or bottle
         is_bottle = 'BTL' in item_name.upper() or 'Bottle' in item_name
         pour_oz = WINE_BOTTLE_OZ if is_bottle else WINE_GLASS_OZ
 
-        # Find matching inventory item
         matched = False
         for pattern, inv_item in WINE_MAP.items():
             if pattern.lower() in item_name.lower():
                 total_oz = qty * pour_oz
-
                 if inv_item not in results:
                     results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
                 results[inv_item]['oz'] += total_oz
@@ -351,67 +400,56 @@ def calculate_wine_usage(sales_df, runtime_mappings=None):
 
 
 def calculate_mixed_drink_usage(sales_df, runtime_mappings=None):
-    """Calculate theoretical usage from mixed drinks including frozen margaritas.
-
-    Args:
-        sales_df: DataFrame with sales data
-        runtime_mappings: Optional dict of runtime manual mappings to merge with config
-    """
+    """Calculate theoretical usage from mixed drinks including frozen margaritas."""
     results = {}
     unmatched = []
 
-    # Merge runtime mappings with config mappings
     all_manual_mappings = dict(MANUAL_MAPPINGS)
     if runtime_mappings:
         all_manual_mappings.update(runtime_mappings)
 
+    # Get mixed drinks - Subcategory == 'Mixed Drinks'
     mixed_sales = sales_df[sales_df['Subcategory'] == 'Mixed Drinks'].copy()
 
     for _, row in mixed_sales.iterrows():
         item_name = row['Item']
         qty = row['Qty']
 
-        # Check manual overrides first (exact match, takes precedence)
+        # Check manual overrides first
         if ENABLE_MANUAL_MAPPINGS and item_name in all_manual_mappings:
             for inv_item, oz_per_drink in all_manual_mappings[item_name].items():
                 if inv_item not in results:
                     results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
                 results[inv_item]['oz'] += qty * oz_per_drink
-                # Use appropriate conversion
                 if 'JUICE' in inv_item or 'BAR CONS' in inv_item:
-                    results[inv_item]['bottles'] = results[inv_item]['oz']  # Track in oz
+                    results[inv_item]['bottles'] = results[inv_item]['oz']
                 else:
                     results[inv_item]['bottles'] = results[inv_item]['oz'] / LIQUOR_BOTTLE_OZ
                 results[inv_item]['items'].append(f"{item_name}: {qty} × {oz_per_drink}oz [MANUAL]")
-            # Manual mapping found, skip all other matching
             continue
 
-        # Clean up item name for matching
+        # Clean up item name
         clean_name = re.sub(r'\s*\(FS\)\s*$', '', item_name).strip()
-        clean_name = re.sub(r'\s*16oz TO GO\s*$', '', clean_name).strip()
-        clean_name = re.sub(r'\s*24oz TO GO\s*$', '', clean_name).strip()
-        clean_name = re.sub(r'\s*BIG RITA\s*$', '', clean_name).strip()
         
-        # Determine if it's a frozen margarita variant
+        # Check for frozen margarita variants
         is_frozen_marg = False
-        frozen_size = 10  # default Zipparita size
+        frozen_size = 10
         
-        # Check for frozen marg indicators
+        # Detect frozen marg by name patterns
         if clean_name == 'Zipparita':
             is_frozen_marg = True
             frozen_size = 10
         elif clean_name == 'BIG Zipparita':
             is_frozen_marg = True
             frozen_size = 16
-        elif item_name == 'TO GO RITA 16oz':
+        elif 'TO GO RITA 16oz' in item_name:
             is_frozen_marg = True
             frozen_size = 16
-        elif item_name == 'TO GO RITA 24oz':
+        elif 'TO GO RITA 24oz' in item_name:
             is_frozen_marg = True
             frozen_size = 24
         elif 'Flavor' in item_name:
             is_frozen_marg = True
-            # Determine size based on item name
             if '24oz' in item_name:
                 frozen_size = 24
             elif '16oz' in item_name or 'BIG' in item_name:
@@ -419,14 +457,13 @@ def calculate_mixed_drink_usage(sales_df, runtime_mappings=None):
             else:
                 frozen_size = 10
         elif 'Milagro Marg On Tap' in item_name:
-            # Special handling for Milagro on tap
             is_frozen_marg = True
-            frozen_size = 5  # Assume standard size
+            frozen_size = 10  # Standard on-tap size
             
+            # Uses Milagro Silver instead of well
             tequila_oz = qty * frozen_size * ZIPPARITA_TEQUILA_RATIO
             triple_sec_oz = qty * frozen_size * ZIPPARITA_TRIPLE_SEC_RATIO
             
-            # Uses Milagro Silver instead of well
             inv_item = 'TEQUILA Milagro Silver'
             if inv_item not in results:
                 results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
@@ -443,7 +480,7 @@ def calculate_mixed_drink_usage(sales_df, runtime_mappings=None):
             continue
         
         if is_frozen_marg:
-            # Calculate base frozen marg usage (tequila and triple sec from batch)
+            # Base frozen marg: tequila and triple sec from batch
             tequila_oz = qty * frozen_size * ZIPPARITA_TEQUILA_RATIO
             triple_sec_oz = qty * frozen_size * ZIPPARITA_TRIPLE_SEC_RATIO
             
@@ -454,14 +491,14 @@ def calculate_mixed_drink_usage(sales_df, runtime_mappings=None):
                     tequila_item = premium_tequila
                     break
             
-            # Add tequila usage
+            # Add tequila
             if tequila_item not in results:
                 results[tequila_item] = {'oz': 0, 'bottles': 0, 'items': []}
             results[tequila_item]['oz'] += tequila_oz
             results[tequila_item]['bottles'] = results[tequila_item]['oz'] / LIQUOR_BOTTLE_OZ
             results[tequila_item]['items'].append(f"{item_name}: {qty} × {frozen_size}oz × {ZIPPARITA_TEQUILA_RATIO:.1%}")
             
-            # Add triple sec usage
+            # Add triple sec
             inv_item = 'LIQ Triple Sec'
             if inv_item not in results:
                 results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
@@ -470,42 +507,32 @@ def calculate_mixed_drink_usage(sales_df, runtime_mappings=None):
             results[inv_item]['items'].append(f"{item_name}: {qty} × {frozen_size}oz × {ZIPPARITA_TRIPLE_SEC_RATIO:.1%}")
 
             # Check for flavor additions
+            # Remove size suffixes to get the base flavor name
+            flavor_clean = re.sub(r'\s*(16oz TO GO|24oz TO GO|BIG RITA)\s*$', '', clean_name).strip()
+            
             for flavor_pattern, additions in MARGARITA_FLAVOR_ADDITIONS.items():
-                if flavor_pattern.lower() in clean_name.lower():
-                    # We found a flavor! (e.g. "Mango Flavor")
-
-                    # Determine multiplier based on size
-                    # (You already set frozen_size above, so just use that ratio)
-                    # Standard flavor dose is for a 10oz drink.
-                    # If drink is 16oz, we need 1.6x the flavor.
+                if flavor_pattern.lower() in flavor_clean.lower():
                     flavor_multiplier = frozen_size / 10.0
-
+                    
                     for add_inv_item, add_oz in additions.items():
                         total_flavor_oz = qty * add_oz * flavor_multiplier
-
+                        
                         if add_inv_item not in results:
                             results[add_inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
-
+                        
                         results[add_inv_item]['oz'] += total_flavor_oz
-
-                        # Handle units (Bottles vs Puree/Consumables)
+                        
                         if 'BAR CONS' in add_inv_item or 'JUICE' in add_inv_item:
-                             # Keep consumables in oz (don't divide by bottle size)
-                             # We'll set 'bottles' to match 'oz' for now so it doesn't crash,
-                             # but the aggregator handles unit types later.
-                             results[add_inv_item]['bottles'] = results[add_inv_item]['oz']
+                            results[add_inv_item]['bottles'] = results[add_inv_item]['oz']
                         else:
                             results[add_inv_item]['bottles'] = results[add_inv_item]['oz'] / LIQUOR_BOTTLE_OZ
-
-                        results[add_inv_item]['items'].append(f"{item_name}: {qty} x {add_oz}oz (x{flavor_multiplier} size)")
-
-                    # Stop looking for other flavors once we found the right one
+                        
+                        results[add_inv_item]['items'].append(f"{item_name}: {qty} × {add_oz}oz (×{flavor_multiplier:.1f} size)")
                     break
-
-            # Frozen marg processed, skip standard mixed drink matching
+            
             continue
 
-        # Check for standard mixed drink recipes
+        # Standard mixed drink recipes
         matched = False
         for recipe_name, ingredients in MIXED_DRINK_RECIPES.items():
             if recipe_name.lower() in clean_name.lower():
@@ -513,9 +540,8 @@ def calculate_mixed_drink_usage(sales_df, runtime_mappings=None):
                     if inv_item not in results:
                         results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
                     results[inv_item]['oz'] += qty * oz_per_drink
-                    # Use appropriate conversion
                     if 'JUICE' in inv_item or 'BAR CONS' in inv_item:
-                        results[inv_item]['bottles'] = results[inv_item]['oz']  # Track in oz
+                        results[inv_item]['bottles'] = results[inv_item]['oz']
                     else:
                         results[inv_item]['bottles'] = results[inv_item]['oz'] / LIQUOR_BOTTLE_OZ
                     results[inv_item]['items'].append(f"{item_name}: {qty} × {oz_per_drink}oz")
@@ -531,11 +557,7 @@ def calculate_mixed_drink_usage(sales_df, runtime_mappings=None):
 def aggregate_all_usage(sales_df, runtime_mappings=None):
     """
     Aggregate usage calculations from all categories.
-
-    Args:
-        sales_df: DataFrame with sales data
-        runtime_mappings: Optional dict of runtime manual mappings
-
+    
     Returns:
         all_results: dict of {inv_item: {theoretical_usage, unit, details}}
         all_unmatched: list of unmatched items
@@ -583,7 +605,6 @@ def aggregate_all_usage(sales_df, runtime_mappings=None):
     mixed_results, mixed_unmatched = calculate_mixed_drink_usage(sales_df, runtime_mappings)
     for inv_item, data in mixed_results.items():
         if 'BEER BTL' in inv_item:
-            # Handle coronitas from Zippa Rona
             if inv_item not in all_results:
                 all_results[inv_item] = {
                     'theoretical_usage': data.get('qty', 0),
@@ -594,7 +615,6 @@ def aggregate_all_usage(sales_df, runtime_mappings=None):
                 all_results[inv_item]['theoretical_usage'] += data.get('qty', 0)
                 all_results[inv_item]['details'].extend(data['items'])
         elif 'JUICE' in inv_item or 'BAR CONS' in inv_item:
-            # Track consumables in oz
             if inv_item not in all_results:
                 all_results[inv_item] = {
                     'theoretical_usage': round(data['oz'], 1),
