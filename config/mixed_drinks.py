@@ -258,7 +258,7 @@ MIXED_DRINK_RECIPES = {
         "RUM Malibu Coconut": 0.75,
         "LIQ Chambord": 0.5,
     },
-    "[Liquor] Zippa Rona": {
+    "[Liquor]Zippa Rona": {
         "Frozen Margarita Batch": 16.0,  # The 16oz of slush
         "Coronita": 1.0                  # The full bottle of beer
     },
