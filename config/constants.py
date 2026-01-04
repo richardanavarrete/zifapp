@@ -46,6 +46,7 @@ ZIPPARITA_TRIPLE_SEC_RATIO = ZIPPARITA_TRIPLE_SEC_OZ / ZIPPARITA_BATCH_TOTAL_OZ 
 
 # Frozen margarita serving sizes
 FROZEN_MARG_SIZES = {
+    "Iceberg": 1,
     "Zipparita": 10,  # Standard 10oz pilsner
     "BIG Zipparita": 16,
     "TO GO RITA 16oz": 16,
