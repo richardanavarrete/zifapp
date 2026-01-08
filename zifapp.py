@@ -40,7 +40,7 @@ def load_and_process_data(uploaded_file, smoothing_level=0.3, trend_threshold=0.
             
             # extract date
             date_value = xls.parse(sheet).iloc[1, 0]
-            df['Date'] = pd.to_datetime(date_value) if isinstance(date_value, datetime) else pd.NaT
+            df['Date'] = pd.to_datetime(date_value, errors='coerce')
             compiled_data.append(df)
         except Exception:
             continue
