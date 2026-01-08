@@ -65,7 +65,12 @@ def load_and_process_data(uploaded_file, smoothing_level=0.3, trend_threshold=0.
         last_4 = usage.tail(4)
         last_2 = usage.tail(2)
         
-        ytd_avg = group[dates.dt.year == datetime.now().year]['Usage'].mean() if pd.api.types.is_datetime64_any_dtype(dates) else None
+        # Calculate YTD average for the most recent year in the data
+        if pd.api.types.is_datetime64_any_dtype(dates) and not dates.isna().all():
+            max_year = dates.max().year
+            ytd_avg = group[dates.dt.year == max_year]['Usage'].mean()
+        else:
+            ytd_avg = None
         
         def safe_div(n, d):
             if pd.notna(d) and d > 0:
