@@ -157,7 +157,7 @@ def load_and_process_data(uploaded_file, smoothing_level=0.3, trend_threshold=0.
         elif "JUICE" in upper_item: category_map["Juice"].append(item)
         elif "BAR CONS" in upper_item: category_map["Bar Consumables"].append(item)
         
-    return summary_df, vendor_map, category_map, full_df  # Also return full_df for database saving
+    return summary_df, vendor_map, category_map, full_df
 
 # --- Main App UI ---
 uploaded_file = st.file_uploader("Upload your BEVWEEKLY Excel File", type="xlsx")
@@ -170,7 +170,6 @@ if uploaded_file:
     try:
         summary_df, vendor_map, category_map, full_df = load_and_process_data(uploaded_file, smoothing_level, trend_threshold)
 
-        # Save usage data to database (one record per item per week)
         # Get the most recent week from the data
         if not full_df.empty and 'Date' in full_df.columns:
             latest_week = full_df['Date'].max()
