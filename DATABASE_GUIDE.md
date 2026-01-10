@@ -18,11 +18,6 @@ ZifApp now includes a SQLite database (`zifapp_data.db`) that automatically stor
 - **Columns**: week_ending, category, subcategory, item, qty, amount, data_hash
 - **Deduplication**: Uses hash-based duplicate detection
 
-### 3. Manual Mapping Changes
-- **When**: Every time you create, update, or delete a manual mapping
-- **What**: Complete history of all mapping changes
-- **Columns**: item_name, mapping_json, action, created_at
-
 ## Database Schema
 
 ### Tables Ready for Use
@@ -34,7 +29,6 @@ ZifApp now includes a SQLite database (`zifapp_data.db`) that automatically stor
 5. **weather** - Weather data for correlation analysis (ready for your data)
 6. **hourly_sales** - Hourly sales patterns for labor scheduling (ready for your data)
 7. **category_sales** - Sales breakdown by category (ready for your data)
-8. **mapping_history** - Audit trail of mapping changes
 
 ## Using the Database Tab
 
@@ -44,7 +38,6 @@ Navigate to the **💾 Database** tab to:
 2. **Check Data Coverage**: See date ranges for your stored data
 3. **Search Usage History**: Look up any item and see its usage trend
 4. **View Charts**: Visualize usage patterns over time
-5. **Track Mapping Changes**: See when mappings were created/modified
 
 ## Future Forecasting Features
 

@@ -6,7 +6,6 @@ import pandas as pd
 from datetime import datetime
 from pathlib import Path
 import hashlib
-import json
 
 DB_PATH = Path("zifapp_data.db")
 
@@ -119,18 +118,6 @@ def init_database():
             qty INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(sale_date, category)
-        )
-    """)
-
-    # Table 8: Manual Mappings History
-    # Track when mappings were added/changed
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS mapping_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_name TEXT NOT NULL,
-            mapping_json TEXT NOT NULL,  -- JSON of the mapping recipe
-            action TEXT NOT NULL,  -- 'created', 'updated', 'deleted'
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
@@ -355,34 +342,6 @@ def save_category_sales(category_df: pd.DataFrame, sale_date: str):
     return cursor.rowcount
 
 
-def log_mapping_change(item_name: str, mapping_dict: dict, action: str):
-    """
-    Log when manual mappings are created/updated/deleted
-
-    Args:
-        item_name: The item being mapped
-        mapping_dict: The mapping recipe (dict of inv_item: oz)
-        action: 'created', 'updated', or 'deleted'
-    """
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT INTO mapping_history
-        (item_name, mapping_json, action)
-        VALUES (?, ?, ?)
-    """, (
-        item_name,
-        json.dumps(mapping_dict),
-        action
-    ))
-
-    conn.commit()
-    conn.close()
-
-    return cursor.lastrowid
-
-
 def get_stats():
     """Get database statistics"""
     conn = get_connection()
@@ -393,7 +352,7 @@ def get_stats():
     # Count records in each table
     tables = [
         'weekly_usage', 'sales_mix', 'daily_sales', 'events',
-        'weather', 'hourly_sales', 'category_sales', 'mapping_history'
+        'weather', 'hourly_sales', 'category_sales'
     ]
 
     for table in tables:
