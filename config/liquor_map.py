@@ -68,8 +68,8 @@ LIQUOR_MAP = {
     "Western Son Blueberry": "VODKA Western Son Blueberry",
     "Western Son Lemon": "VODKA Western Son Lemon",
     "Western Son Original": "VODKA Western Son Original",
-    "Western Son": "VOKDA Western Son Original",
-    "Western Son (FS): "VODKA Western Son Original",
+    "Western Son": "VODKA Western Son Original",
+    "Western Son (FS)": "VODKA Western Son Original",
     "Western Son Prickly Pear": "VODKA Western Son Prickly Pear",
     "Western Son Raspberry": "VODKA Western Son Raspberry",
     
