@@ -4,7 +4,7 @@
 # Pour measurements
 COUNT_OZ = 0.375  # oz per 1 count
 STANDARD_POUR_OZ = 1.5  # 4-count standard pour (shot)
-BUMP_OZ = 0.375  # Bump/add-on pour (1 count)
+BUMP_OZ = 1.5  # Liquor upgrade (4 count)
 FLAVOR_OZ=0.375 # Flavor/add-on pour (1 count)
 
 # Keg sizes in oz
