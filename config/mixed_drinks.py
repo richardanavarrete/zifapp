@@ -89,13 +89,11 @@ MIXED_DRINK_RECIPES = {
     },
     
     "Espresso Martini": {
-        "VODKA Well": STANDARD_POUR_OZ,
-        "LIQ Kahlua": 0.75,
+        "VODKA Blue Ice Double Espresso": 5.0,
     },
 
     "Espresso Shot": {
-        "VODKA Well": 3.0,  # 3oz pour (double the standard Espresso Martini)
-        "LIQ Kahlua": 1.5,
+        "VODKA Blue Ie Double Espresso": 3.0
     },
 
     "Gimlet Vodka": {
@@ -250,6 +248,7 @@ MIXED_DRINK_RECIPES = {
     "White Gummy Bear": {
         # Uses vanilla vodka (86'd) - only peach tracked
         "LIQ Peach Schnapps": COUNT_OZ,
+        "VODKA Well": COUNT_OZ,
     },
     
     "White Russian": {
