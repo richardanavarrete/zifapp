@@ -19,7 +19,8 @@ if project_root not in sys.path:
 from config.constants import (
     COUNT_OZ, STANDARD_POUR_OZ, HALF_BARREL_OZ, LIQUOR_BOTTLE_OZ, KEG_50L_OZ,
     DRAFT_POUR_SIZES, ZIPPARITA_TEQUILA_RATIO, ZIPPARITA_TRIPLE_SEC_RATIO,
-    WINE_GLASS_OZ, WINE_BOTTLE_OZ, LIQUOR_BOTTLE_750_OZ, WINE_BOTTLE_MAGNUM_OZ
+    WINE_GLASS_OZ, WINE_BOTTLE_OZ, LIQUOR_BOTTLE_750_OZ, WINE_BOTTLE_MAGNUM_OZ,
+    FROZEN_MARG_SIZES
 )
 from config.draft_beer_map import DRAFT_BEER_MAP, DRAFT_SKIP_ITEMS
 from config.bottle_beer_map import BOTTLE_BEER_MAP
@@ -319,7 +320,34 @@ def calculate_liquor_usage(sales_df):
                 if (recipe_name.lower() in clean_name.lower() or
                     clean_name.lower() in recipe_name.lower() or
                     recipe_name.lower() == clean_name.lower()):
-                    # Process as mixed drink using the recipe
+
+                    # Special handling for frozen margaritas (e.g., Iceberg)
+                    # These use frozen marg batch, so calculate tequila/triple sec from batch ratios
+                    if recipe_name in FROZEN_MARG_SIZES:
+                        frozen_size = FROZEN_MARG_SIZES[recipe_name]
+                        tequila_oz = qty * frozen_size * ZIPPARITA_TEQUILA_RATIO
+                        triple_sec_oz = qty * frozen_size * ZIPPARITA_TRIPLE_SEC_RATIO
+
+                        # Add tequila usage
+                        inv_item = 'TEQUILA Well'
+                        if inv_item not in results:
+                            results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
+                        results[inv_item]['oz'] += tequila_oz
+                        results[inv_item]['bottles'] = results[inv_item]['oz'] / LIQUOR_BOTTLE_OZ
+                        results[inv_item]['items'].append(f"{item_name}: {qty} × {frozen_size}oz × {ZIPPARITA_TEQUILA_RATIO:.1%} [FROZEN MARG]")
+
+                        # Add triple sec usage
+                        inv_item = 'LIQ Triple Sec'
+                        if inv_item not in results:
+                            results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
+                        results[inv_item]['oz'] += triple_sec_oz
+                        results[inv_item]['bottles'] = results[inv_item]['oz'] / LIQUOR_BOTTLE_OZ
+                        results[inv_item]['items'].append(f"{item_name}: {qty} × {frozen_size}oz × {ZIPPARITA_TRIPLE_SEC_RATIO:.1%} [FROZEN MARG]")
+
+                        matched = True
+                        break
+
+                    # Process as regular mixed drink using the recipe
                     for inv_item, oz_per_drink in ingredients.items():
                         if inv_item not in results:
                             results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}

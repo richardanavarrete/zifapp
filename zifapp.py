@@ -5,7 +5,6 @@ from utils import parse_sales_mix_csv, aggregate_all_usage
 from statsmodels.tsa.holtwinters import SimpleExpSmoothing
 import re
 import math
-import database as db
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
@@ -176,23 +175,13 @@ if uploaded_file:
         if not full_df.empty and 'Date' in full_df.columns:
             latest_week = full_df['Date'].max()
             if pd.notna(latest_week):
-                # Get data for the latest week only
-                latest_week_df = full_df[full_df['Date'] == latest_week][['Item', 'Usage', 'End Inventory']].copy()
-                latest_week_df = latest_week_df.dropna(subset=['Usage', 'End Inventory'])
-
-                if not latest_week_df.empty:
-                    try:
-                        saved_count = db.save_weekly_usage(latest_week_df, str(latest_week.date()))
-                        if saved_count > 0:
-                            st.toast(f"💾 Saved {saved_count} usage records to database", icon="✅")
-                    except Exception as db_error:
-                        st.warning(f"Database save warning: {db_error}")
+                # Data loaded successfully
 
     except Exception as e:
         st.error(f"An error occurred during data processing: {e}")
         st.stop()
 
-    tab_summary, tab_ordering_worksheet, tab_sales_mix, tab_database = st.tabs(["📊 Summary", "🧪 Ordering Worksheet", "Sales Mix Analysis", "💾 Database"])
+    tab_summary, tab_ordering_worksheet, tab_sales_mix = st.tabs(["📊 Summary", "🧪 Ordering Worksheet", "Sales Mix Analysis"])
 
     # --- TAB 1: SUMMARY ---
     with tab_summary:
@@ -357,18 +346,6 @@ if uploaded_file:
                 if sales_df is not None and not sales_df.empty:
                     st.success(f"✅ Parsed {len(sales_df)} line items from Sales Mix")
 
-                    # Save sales mix data to database
-                    # Use the latest week from the BEVWEEKLY data as the week_ending
-                    if not full_df.empty and 'Date' in full_df.columns:
-                        latest_week = full_df['Date'].max()
-                        if pd.notna(latest_week):
-                            try:
-                                inserted = db.save_sales_mix(sales_df, str(latest_week.date()))
-                                if inserted > 0:
-                                    st.toast(f"💾 Saved {inserted} new sales mix records to database", icon="✅")
-                            except Exception as db_error:
-                                st.warning(f"Database save warning: {db_error}")
-
                     with st.expander("View Parsed Sales Data", expanded=False):
                         st.dataframe(sales_df, use_container_width=True, hide_index=True)
 
@@ -499,104 +476,3 @@ if uploaded_file:
                 st.code(traceback.format_exc())
         else:
             st.info("👆 Upload a Sales Mix CSV to begin analysis.")
-
-    # --- TAB 4: DATABASE ---
-    with tab_database:
-        st.subheader("💾 Database Management")
-        st.markdown("""
-        View and manage historical data stored in the database for forecasting and analysis.
-        """)
-
-        # Get database statistics
-        stats = db.get_stats()
-
-        # Display statistics
-        st.markdown("### 📊 Database Statistics")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Weekly Usage Records", stats.get('weekly_usage', 0))
-            st.metric("Sales Mix Records", stats.get('sales_mix', 0))
-        with col2:
-            st.metric("Daily Sales Records", stats.get('daily_sales', 0))
-            st.metric("Events", stats.get('events', 0))
-        with col3:
-            st.metric("Weather Records", stats.get('weather', 0))
-            st.metric("Hourly Sales Records", stats.get('hourly_sales', 0))
-        with col4:
-            st.metric("Category Sales Records", stats.get('category_sales', 0))
-            st.metric("Mapping Changes", stats.get('mapping_history', 0))
-
-        # Show date ranges
-        st.markdown("### 📅 Data Coverage")
-        col1, col2 = st.columns(2)
-        with col1:
-            usage_range = stats.get('usage_date_range', (None, None))
-            if usage_range[0]:
-                st.info(f"**Usage Data:** {usage_range[0]} to {usage_range[1]}")
-            else:
-                st.info("**Usage Data:** No data yet")
-        with col2:
-            sales_range = stats.get('sales_date_range', (None, None))
-            if sales_range[0]:
-                st.info(f"**Sales Data:** {sales_range[0]} to {sales_range[1]}")
-            else:
-                st.info("**Sales Data:** No data yet")
-
-        # View recent usage history
-        st.markdown("---")
-        st.markdown("### 📈 Recent Usage History")
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            item_search = st.text_input("Search for item:", placeholder="e.g., VODKA Well")
-        with col2:
-            weeks_to_show = st.number_input("Weeks to show:", min_value=1, max_value=52, value=10)
-
-        if item_search:
-            history_df = db.get_usage_history(item_name=item_search, weeks=weeks_to_show)
-            if not history_df.empty:
-                st.dataframe(
-                    history_df[['week_ending', 'usage', 'end_inventory']].sort_values('week_ending', ascending=False),
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-                # Simple visualization
-                import plotly.express as px
-                fig = px.line(
-                    history_df.sort_values('week_ending'),
-                    x='week_ending',
-                    y='usage',
-                    title=f'Usage Trend for {item_search}',
-                    labels={'week_ending': 'Week Ending', 'usage': 'Usage'}
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning(f"No usage history found for '{item_search}'")
-        else:
-            st.info("👆 Enter an item name to view its usage history from the database")
-
-        # Mapping history
-        st.markdown("---")
-        st.markdown("### 🗺️ Recent Mapping Changes")
-        conn = db.get_connection()
-        mapping_history_df = pd.read_sql_query("""
-            SELECT item_name, action, created_at
-            FROM mapping_history
-            ORDER BY created_at DESC
-            LIMIT 20
-        """, conn)
-        conn.close()
-
-        if not mapping_history_df.empty:
-            st.dataframe(mapping_history_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("No mapping changes recorded yet")
-
-        # Database maintenance
-        st.markdown("---")
-        st.markdown("### 🔧 Database Info")
-        st.code(f"Database location: {db.DB_PATH.absolute()}")
-
-        if st.button("🔄 Refresh Statistics"):
-            st.rerun()
-
