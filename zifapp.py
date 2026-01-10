@@ -175,6 +175,7 @@ if uploaded_file:
             latest_week = full_df['Date'].max()
             if pd.notna(latest_week):
                 # Data loaded successfully
+                pass
 
     except Exception as e:
         st.error(f"An error occurred during data processing: {e}")
