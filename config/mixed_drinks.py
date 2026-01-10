@@ -116,6 +116,10 @@ MIXED_DRINK_RECIPES = {
         "VODKA Western Son Raspberry": 1.125,
         "LIQ Peach Schnapps": COUNT_OZ,
     },
+
+    "Iceberg": {
+        "Frozen Margarita Batch": 1,
+    },
     
     "Lemon Drop": {
         "VODKA Well": 1.125,
