@@ -152,10 +152,10 @@ In `config/manual_overrides.py`:
 
 ```python
 # Enable manual mappings
-ENABLE_MANUAL_MAPPINGS = True
+ENABLE_MANUAL_MAPPINGS = False
 
 # Disable manual mappings (use automatic matching only)
-ENABLE_MANUAL_MAPPINGS = False
+ENABLE_MANUAL_MAPPINGS = True
 ```
 
 ## Workflow
