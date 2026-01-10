@@ -115,9 +115,7 @@ MIXED_DRINK_RECIPES = {
         "LIQ Peach Schnapps": COUNT_OZ,
     },
 
-    "Iceberg": {
-        "Frozen Margarita Batch": 1,
-    },
+    "Iceberg": {},  # Frozen marg floater - uses frozen mix, no tracked liquor
     
     "Lemon Drop": {
         "VODKA Well": 1.125,

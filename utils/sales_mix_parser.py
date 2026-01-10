@@ -314,7 +314,11 @@ def calculate_liquor_usage(sales_df):
             # Fallback: Check if this is a mixed drink miscategorized as liquor
             # (e.g., "Iceberg" comes in as Bar Other but is actually a frozen drink)
             for recipe_name, ingredients in MIXED_DRINK_RECIPES.items():
-                if recipe_name.lower() in clean_name.lower():
+                # Match if recipe name is in POS item OR POS item is in recipe name
+                # This handles both exact matches and partial matches in either direction
+                if (recipe_name.lower() in clean_name.lower() or
+                    clean_name.lower() in recipe_name.lower() or
+                    recipe_name.lower() == clean_name.lower()):
                     # Process as mixed drink using the recipe
                     for inv_item, oz_per_drink in ingredients.items():
                         if inv_item not in results:
