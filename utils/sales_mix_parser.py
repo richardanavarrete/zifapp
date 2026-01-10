@@ -311,6 +311,25 @@ def calculate_liquor_usage(sales_df):
                 break
 
         if not matched:
+            # Fallback: Check if this is a mixed drink miscategorized as liquor
+            # (e.g., "Iceberg" comes in as Bar Other but is actually a frozen drink)
+            for recipe_name, ingredients in MIXED_DRINK_RECIPES.items():
+                if recipe_name.lower() in clean_name.lower():
+                    # Process as mixed drink using the recipe
+                    for inv_item, oz_per_drink in ingredients.items():
+                        if inv_item not in results:
+                            results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
+                        results[inv_item]['oz'] += qty * oz_per_drink
+                        # Check if consumable (juice/bar cons) or liquor bottle
+                        if 'JUICE' in inv_item or 'BAR CONS' in inv_item:
+                            results[inv_item]['bottles'] = results[inv_item]['oz']
+                        else:
+                            results[inv_item]['bottles'] = results[inv_item]['oz'] / LIQUOR_BOTTLE_OZ
+                        results[inv_item]['items'].append(f"{item_name}: {qty} × {oz_per_drink}oz [MIXED]")
+                    matched = True
+                    break
+
+        if not matched:
             unmatched.append(f"{item_name} (qty: {qty})")
 
     return results, unmatched
