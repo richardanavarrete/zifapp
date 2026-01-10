@@ -1,6 +1,9 @@
 """
 Sales Mix Parser - Robust GEMpos CSV Parser
 Handles varying column positions and nesting levels automatically.
+
+FIX: Frozen margarita FLAVORS should ONLY add the flavor ingredient,
+     not recalculate the base tequila/triple sec (that's already in Zipparita sales)
 """
 import pandas as pd
 import re
@@ -400,7 +403,12 @@ def calculate_wine_usage(sales_df, runtime_mappings=None):
 
 
 def calculate_mixed_drink_usage(sales_df, runtime_mappings=None):
-    """Calculate theoretical usage from mixed drinks including frozen margaritas."""
+    """
+    Calculate theoretical usage from mixed drinks including frozen margaritas.
+    
+    FIX: Frozen margarita FLAVORS (like "Blue Flavor") should ONLY add the flavor ingredient.
+         The base tequila/triple sec is already counted in the "Zipparita" line items.
+    """
     results = {}
     unmatched = []
 
@@ -431,36 +439,32 @@ def calculate_mixed_drink_usage(sales_df, runtime_mappings=None):
         # Clean up item name
         clean_name = re.sub(r'\s*\(FS\)\s*$', '', item_name).strip()
         
-        # Check for frozen margarita variants
-        is_frozen_marg = False
+        # === FROZEN MARGARITA HANDLING ===
+        # Only the BASE drinks (Zipparita, BIG Zipparita, TO GO RITA) get base recipe
+        # FLAVOR items (Blue Flavor, Chambord Flavor, etc.) get ONLY the flavor add
+        
+        is_base_frozen_marg = False
+        is_flavor_only = False
         frozen_size = 10
         
-        # Detect frozen marg by name patterns
+        # Detect BASE frozen margaritas (these get tequila + triple sec)
         if clean_name == 'Zipparita':
-            is_frozen_marg = True
+            is_base_frozen_marg = True
             frozen_size = 10
         elif clean_name == 'BIG Zipparita':
-            is_frozen_marg = True
+            is_base_frozen_marg = True
             frozen_size = 16
         elif 'TO GO RITA 16oz' in item_name:
-            is_frozen_marg = True
+            is_base_frozen_marg = True
             frozen_size = 16
         elif 'TO GO RITA 24oz' in item_name:
-            is_frozen_marg = True
+            is_base_frozen_marg = True
             frozen_size = 24
-        elif 'Flavor' in item_name:
-            is_frozen_marg = True
-            if '24oz' in item_name:
-                frozen_size = 24
-            elif '16oz' in item_name or 'BIG' in item_name:
-                frozen_size = 16
-            else:
-                frozen_size = 10
         elif 'Milagro Marg On Tap' in item_name:
-            is_frozen_marg = True
-            frozen_size = 10  # Standard on-tap size
+            is_base_frozen_marg = True
+            frozen_size = 10
             
-            # Uses Milagro Silver instead of well
+            # Special case: uses Milagro Silver instead of well
             tequila_oz = qty * frozen_size * ZIPPARITA_TEQUILA_RATIO
             triple_sec_oz = qty * frozen_size * ZIPPARITA_TRIPLE_SEC_RATIO
             
@@ -478,9 +482,20 @@ def calculate_mixed_drink_usage(sales_df, runtime_mappings=None):
             results[inv_item]['bottles'] = results[inv_item]['oz'] / LIQUOR_BOTTLE_OZ
             results[inv_item]['items'].append(f"{item_name}: {qty} × {frozen_size}oz × {ZIPPARITA_TRIPLE_SEC_RATIO:.1%}")
             continue
+            
+        # Detect FLAVOR-ONLY items (these get ONLY the flavor liqueur, NO base)
+        elif 'Flavor' in item_name:
+            is_flavor_only = True
+            # Determine size from the flavor name
+            if '24oz' in item_name:
+                frozen_size = 24
+            elif '16oz' in item_name or 'BIG' in item_name:
+                frozen_size = 16
+            else:
+                frozen_size = 10
         
-        if is_frozen_marg:
-            # Base frozen marg: tequila and triple sec from batch
+        # Process BASE frozen margaritas (add tequila + triple sec)
+        if is_base_frozen_marg:
             tequila_oz = qty * frozen_size * ZIPPARITA_TEQUILA_RATIO
             triple_sec_oz = qty * frozen_size * ZIPPARITA_TRIPLE_SEC_RATIO
             
@@ -505,11 +520,15 @@ def calculate_mixed_drink_usage(sales_df, runtime_mappings=None):
             results[inv_item]['oz'] += triple_sec_oz
             results[inv_item]['bottles'] = results[inv_item]['oz'] / LIQUOR_BOTTLE_OZ
             results[inv_item]['items'].append(f"{item_name}: {qty} × {frozen_size}oz × {ZIPPARITA_TRIPLE_SEC_RATIO:.1%}")
+            
+            continue
 
-            # Check for flavor additions
+        # Process FLAVOR-ONLY items (add ONLY the flavor, no base)
+        if is_flavor_only:
             # Remove size suffixes to get the base flavor name
             flavor_clean = re.sub(r'\s*(16oz TO GO|24oz TO GO|BIG RITA)\s*$', '', clean_name).strip()
             
+            matched_flavor = False
             for flavor_pattern, additions in MARGARITA_FLAVOR_ADDITIONS.items():
                 if flavor_pattern.lower() in flavor_clean.lower():
                     flavor_multiplier = frozen_size / 10.0
@@ -527,12 +546,18 @@ def calculate_mixed_drink_usage(sales_df, runtime_mappings=None):
                         else:
                             results[add_inv_item]['bottles'] = results[add_inv_item]['oz'] / LIQUOR_BOTTLE_OZ
                         
-                        results[add_inv_item]['items'].append(f"{item_name}: {qty} × {add_oz}oz (×{flavor_multiplier:.1f} size)")
+                        results[add_inv_item]['items'].append(f"{item_name}: {qty} × {add_oz}oz (×{flavor_multiplier:.1f} size) [FLAVOR ONLY]")
+                    matched_flavor = True
                     break
             
-            continue
+            if matched_flavor:
+                continue
+            else:
+                # Flavor pattern not found
+                unmatched.append(f"{item_name} (qty: {qty})")
+                continue
 
-        # Standard mixed drink recipes
+        # Standard mixed drink recipes (non-margarita drinks)
         matched = False
         for recipe_name, ingredients in MIXED_DRINK_RECIPES.items():
             if recipe_name.lower() in clean_name.lower():
