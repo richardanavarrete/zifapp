@@ -12,46 +12,81 @@ st.title("🍺 Bev Usage Analyzer")
 
 # --- Caching the data processing ---
 @st.cache_data
-def load_and_process_data(uploaded_file, smoothing_level=0.3, trend_threshold=0.1):
+def load_and_process_data(uploaded_files, smoothing_level=0.3, trend_threshold=0.1):
     """
-    Reads the uploaded Excel file, processes all data, and calculates summary metrics.
+    Reads the uploaded Excel files, processes all data, and calculates summary metrics.
+    Supports multiple files (e.g., multiple years) to combine historical data.
     This function is cached to prevent re-running on every widget interaction.
+
+    Args:
+        uploaded_files: List of uploaded file objects (or single file for backwards compatibility)
+        smoothing_level: Alpha parameter for exponential smoothing (default 0.3)
+        trend_threshold: Threshold for trend detection (default 0.1)
+
+    Returns:
+        summary_df: Summary DataFrame with metrics per item
+        vendor_map: Dictionary mapping vendors to their items
+        category_map: Dictionary mapping categories to their items
+        full_df: Full DataFrame with all weeks from all files
     """
-    xls = pd.ExcelFile(uploaded_file)
-    sheet_names = xls.sheet_names
-    
-    # Parse the original order from the first sheet
-    original_order_df = xls.parse(sheet_names[0], skiprows=4)
+    # Handle single file or multiple files
+    if not isinstance(uploaded_files, list):
+        uploaded_files = [uploaded_files]
+
+    # Get original order from the first sheet of the first file
+    first_xls = pd.ExcelFile(uploaded_files[0])
+    first_sheet_names = first_xls.sheet_names
+    original_order_df = first_xls.parse(first_sheet_names[0], skiprows=4)
     original_order = original_order_df.iloc[:, 0].dropna().astype(str).tolist()
-    
+
+    # Process all files
     compiled_data = []
-    for sheet in sheet_names:
+    for uploaded_file in uploaded_files:
         try:
-            df = xls.parse(sheet, skiprows=4)
-            # Rename columns based on index positions
-            df = df.rename(columns={
-                df.columns[0]: 'Item', 
-                df.columns[9]: 'Usage', 
-                df.columns[7]: 'End Inventory'
-            })
-            df = df[['Item', 'Usage', 'End Inventory']]
-            df['Week'] = sheet
-            
-            # extract date
-            date_value = xls.parse(sheet).iloc[1, 0]
-            df['Date'] = pd.to_datetime(date_value, errors='coerce')
-            compiled_data.append(df)
+            xls = pd.ExcelFile(uploaded_file)
+            sheet_names = xls.sheet_names
+
+            for sheet in sheet_names:
+                try:
+                    df = xls.parse(sheet, skiprows=4)
+                    # Rename columns based on index positions
+                    df = df.rename(columns={
+                        df.columns[0]: 'Item',
+                        df.columns[9]: 'Usage',
+                        df.columns[7]: 'End Inventory'
+                    })
+                    df = df[['Item', 'Usage', 'End Inventory']]
+                    df['Week'] = sheet
+                    df['Source File'] = uploaded_file.name  # Track which file this came from
+
+                    # extract date
+                    date_value = xls.parse(sheet).iloc[1, 0]
+                    df['Date'] = pd.to_datetime(date_value, errors='coerce')
+                    compiled_data.append(df)
+                except Exception:
+                    continue
         except Exception:
+            st.warning(f"⚠️ Error processing file: {uploaded_file.name}")
             continue
             
     full_df = pd.concat(compiled_data, ignore_index=True)
     full_df = full_df.dropna(subset=['Item', 'Usage'])
     full_df['Item'] = full_df['Item'].astype(str).str.strip()
     full_df = full_df[~full_df['Item'].str.upper().str.startswith('TOTAL')]
-    
+
     full_df['Usage'] = pd.to_numeric(full_df['Usage'], errors='coerce')
     full_df['End Inventory'] = pd.to_numeric(full_df['End Inventory'], errors='coerce')
     full_df = full_df.dropna(subset=['Usage', 'End Inventory'])
+
+    # Remove duplicate (Item, Date) combinations (keep the last occurrence)
+    # This handles cases where multiple files have overlapping weeks
+    duplicates_before = len(full_df)
+    full_df = full_df.drop_duplicates(subset=['Item', 'Date'], keep='last')
+    duplicates_removed = duplicates_before - len(full_df)
+    if duplicates_removed > 0:
+        st.info(f"ℹ️ Removed {duplicates_removed} duplicate entries from overlapping files.")
+
+    # Sort by Item and Date to ensure chronological order
     full_df = full_df.sort_values(by=['Item', 'Date'])
 
     def compute_metrics(group):
@@ -160,22 +195,47 @@ def load_and_process_data(uploaded_file, smoothing_level=0.3, trend_threshold=0.
     return summary_df, vendor_map, category_map, full_df
 
 # --- Main App UI ---
-uploaded_file = st.file_uploader("Upload your BEVWEEKLY Excel File", type="xlsx")
+uploaded_files = st.file_uploader(
+    "Upload your BEVWEEKLY Excel Files (you can select multiple years)",
+    type="xlsx",
+    accept_multiple_files=True,
+    help="Hold Ctrl/Cmd to select multiple files, or drag & drop multiple files. Upload multiple years (e.g., 2026, 2025, 2024) to see historical trends."
+)
 
-if uploaded_file:
+if uploaded_files:
+    # Show file summary
+    st.info(f"**{len(uploaded_files)} file(s) uploaded**")
+    cols = st.columns(min(len(uploaded_files), 4))  # Max 4 columns for readability
+    for idx, file in enumerate(uploaded_files):
+        with cols[idx % 4]:
+            try:
+                sheet_count = len(pd.ExcelFile(file).sheet_names)
+                st.metric(
+                    label=file.name,
+                    value=f"{sheet_count} weeks"
+                )
+            except Exception:
+                st.metric(label=file.name, value="Error")
+
     with st.expander("Trend Settings", expanded=False):
         smoothing_level = st.slider("Smoothing Level (α)", 0.1, 0.9, 0.3, 0.05)
         trend_threshold = st.slider("Trend Threshold", 0.05, 0.30, 0.10, 0.05)
 
     try:
-        summary_df, vendor_map, category_map, full_df = load_and_process_data(uploaded_file, smoothing_level, trend_threshold)
+        summary_df, vendor_map, category_map, full_df = load_and_process_data(uploaded_files, smoothing_level, trend_threshold)
 
-        # Get the most recent week from the data
+        # Show combined data summary
         if not full_df.empty and 'Date' in full_df.columns:
-            latest_week = full_df['Date'].max()
-            if pd.notna(latest_week):
-                # Data loaded successfully
-                pass
+            total_weeks = full_df['Week'].nunique()
+            date_range_start = full_df['Date'].min().strftime('%m/%d/%Y')
+            date_range_end = full_df['Date'].max().strftime('%m/%d/%Y')
+            unique_items = full_df['Item'].nunique()
+
+            st.success("✅ Data loaded successfully!")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Weeks Loaded", total_weeks)
+            col2.metric("Date Range", f"{date_range_start} - {date_range_end}")
+            col3.metric("Unique Items", unique_items)
 
     except Exception as e:
         st.error(f"An error occurred during data processing: {e}")
