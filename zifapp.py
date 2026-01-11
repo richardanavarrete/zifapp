@@ -5,6 +5,7 @@ from utils import parse_sales_mix_csv, aggregate_all_usage
 from statsmodels.tsa.holtwinters import SimpleExpSmoothing
 import re
 import math
+import plotly.express as px
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
@@ -181,7 +182,7 @@ if uploaded_file:
         st.error(f"An error occurred during data processing: {e}")
         st.stop()
 
-    tab_summary, tab_ordering_worksheet, tab_sales_mix = st.tabs(["📊 Summary", "🧪 Ordering Worksheet", "Sales Mix Analysis"])
+    tab_summary, tab_ordering_worksheet, tab_sales_mix, tab_trends = st.tabs(["📊 Summary", "🧪 Ordering Worksheet", "Sales Mix Analysis", "📈 Item Trends"])
 
     # --- TAB 1: SUMMARY ---
     with tab_summary:
@@ -476,3 +477,161 @@ if uploaded_file:
                 st.code(traceback.format_exc())
         else:
             st.info("👆 Upload a Sales Mix CSV to begin analysis.")
+
+    # --- TAB 4: ITEM TRENDS ---
+    with tab_trends:
+        st.subheader("📈 Item Trends Visualization")
+        st.markdown("Select an item to view its historical usage trends over time.")
+
+        # Item selector and date range in columns
+        col1, col2 = st.columns([2, 1])
+
+        with col1:
+            # Get all unique items sorted
+            all_items = sorted(summary_df['Item'].unique().tolist())
+            selected_item = st.selectbox(
+                "Select Item:",
+                options=all_items,
+                key="trends_item_selector"
+            )
+
+        with col2:
+            date_range_option = st.selectbox(
+                "Date Range:",
+                options=["All Available Data", "Last 4 Weeks", "Last 10 Weeks", "Last 6 Months", "Year to Date"],
+                key="trends_date_range"
+            )
+
+        if selected_item:
+            # Filter data for selected item
+            item_data = full_df[full_df['Item'] == selected_item].copy()
+            item_data = item_data.sort_values('Date')
+
+            # Apply date range filter
+            if date_range_option != "All Available Data" and not item_data.empty:
+                latest_date = item_data['Date'].max()
+                if date_range_option == "Last 4 Weeks":
+                    cutoff_date = latest_date - pd.Timedelta(weeks=4)
+                    item_data = item_data[item_data['Date'] >= cutoff_date]
+                elif date_range_option == "Last 10 Weeks":
+                    cutoff_date = latest_date - pd.Timedelta(weeks=10)
+                    item_data = item_data[item_data['Date'] >= cutoff_date]
+                elif date_range_option == "Last 6 Months":
+                    cutoff_date = latest_date - pd.Timedelta(days=180)
+                    item_data = item_data[item_data['Date'] >= cutoff_date]
+                elif date_range_option == "Year to Date":
+                    if pd.api.types.is_datetime64_any_dtype(item_data['Date']):
+                        most_recent_year = latest_date.year
+                        item_data = item_data[item_data['Date'].dt.year == most_recent_year]
+
+            if not item_data.empty:
+                # Get summary stats for this item
+                item_summary = summary_df[summary_df['Item'] == selected_item].iloc[0]
+
+                # Display key metrics in columns
+                st.markdown("---")
+                metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+
+                with metric_col1:
+                    trend_emoji = item_summary['Trend']
+                    st.metric("Trend", trend_emoji, help="↑ Increasing | → Stable | ↓ Decreasing")
+
+                with metric_col2:
+                    last_week = item_summary['Last Week Usage']
+                    st.metric("Last Week Usage", f"{last_week:.2f}" if pd.notna(last_week) else "N/A")
+
+                with metric_col3:
+                    # Show the appropriate average based on date range
+                    if date_range_option == "Last 4 Weeks":
+                        avg_val = item_summary['4-Week Average']
+                        avg_label = "4-Week Avg"
+                    elif date_range_option == "Last 10 Weeks":
+                        avg_val = item_summary['10-Week Average']
+                        avg_label = "10-Week Avg"
+                    elif date_range_option == "Year to Date":
+                        avg_val = item_summary['Year-to-Date Average']
+                        avg_label = "YTD Avg"
+                    else:
+                        avg_val = item_data['Usage'].mean()
+                        avg_label = "Average"
+                    st.metric(avg_label, f"{avg_val:.2f}" if pd.notna(avg_val) else "N/A")
+
+                with metric_col4:
+                    on_hand = item_summary['On Hand']
+                    st.metric("On Hand", f"{on_hand:.2f}" if pd.notna(on_hand) else "N/A")
+
+                st.markdown("---")
+
+                # Create the main line chart
+                fig = px.line(
+                    item_data,
+                    x='Date',
+                    y='Usage',
+                    title=f'{selected_item} - Weekly Usage Trend',
+                    markers=True,
+                    labels={'Usage': 'Usage (Bottles/Units)', 'Date': 'Week'}
+                )
+
+                # Customize the chart
+                fig.update_traces(
+                    line_color='#1f77b4',
+                    marker=dict(size=8, line=dict(width=1, color='white'))
+                )
+
+                fig.update_layout(
+                    hovermode='x unified',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    xaxis=dict(
+                        showgrid=True,
+                        gridcolor='rgba(128,128,128,0.2)',
+                        title_font=dict(size=14)
+                    ),
+                    yaxis=dict(
+                        showgrid=True,
+                        gridcolor='rgba(128,128,128,0.2)',
+                        title_font=dict(size=14)
+                    ),
+                    title_font=dict(size=18),
+                    height=500
+                )
+
+                # Display the chart
+                st.plotly_chart(fig, use_container_width=True)
+
+                # Additional stats section
+                with st.expander("📊 Detailed Statistics", expanded=False):
+                    stats_col1, stats_col2 = st.columns(2)
+
+                    with stats_col1:
+                        st.markdown("**Usage Statistics:**")
+                        st.write(f"• Total weeks of data: {len(item_data)}")
+                        st.write(f"• Average usage: {item_data['Usage'].mean():.2f}")
+                        st.write(f"• Median usage: {item_data['Usage'].median():.2f}")
+                        st.write(f"• Std deviation: {item_data['Usage'].std():.2f}")
+
+                    with stats_col2:
+                        st.markdown("**Peak Usage:**")
+                        max_usage_idx = item_data['Usage'].idxmax()
+                        max_usage_row = item_data.loc[max_usage_idx]
+                        st.write(f"• Highest week: {max_usage_row['Usage']:.2f}")
+                        st.write(f"• Date: {max_usage_row['Date'].strftime('%Y-%m-%d') if pd.notna(max_usage_row['Date']) else 'N/A'}")
+
+                        min_usage_idx = item_data['Usage'].idxmin()
+                        min_usage_row = item_data.loc[min_usage_idx]
+                        st.write(f"• Lowest week: {min_usage_row['Usage']:.2f}")
+                        st.write(f"• Date: {min_usage_row['Date'].strftime('%Y-%m-%d') if pd.notna(min_usage_row['Date']) else 'N/A'}")
+
+                # Export option
+                st.markdown("---")
+                csv_export = item_data[['Date', 'Usage', 'End Inventory']].to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="Download Item Data as CSV",
+                    data=csv_export,
+                    file_name=f"{selected_item.replace(' ', '_')}_trend_data.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.warning(f"No data available for {selected_item} in the selected date range.")
+        else:
+            st.info("👆 Select an item to view its trend visualization.")
