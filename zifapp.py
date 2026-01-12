@@ -754,18 +754,23 @@ if uploaded_files:
         else:
             st.info(f"📊 Cost data available for {items_with_cost} out of {items_total} items ({items_with_cost/items_total*100:.1f}%)")
 
-            # Get COGS summary
-            cogs_summary = get_cogs_summary(features_df)
+            # Get COGS summary (uses pre-calculated values from spreadsheet's "Weekly COGS" section)
+            cogs_summary = get_cogs_summary(features_df, dataset)
 
             # Section 1: Weekly COGS Summary
             st.markdown("### 📅 Weekly COGS Summary")
+
+            # Show which week the data is from if available
+            if 'week_name' in cogs_summary:
+                st.caption(f"Showing data from: **{cogs_summary['week_name']}** (most recent complete week)")
+
             col1, col2, col3, col4 = st.columns(4)
 
             with col1:
                 st.metric(
                     "Total COGS This Week",
                     f"${cogs_summary['total_weekly_cogs']:,.2f}",
-                    help="Total cost of goods sold last week"
+                    help="Total cost of goods sold from the spreadsheet's Weekly COGS section"
                 )
 
             with col2:
@@ -791,8 +796,25 @@ if uploaded_files:
 
             st.markdown("---")
 
-            # Section 2: COGS by Category
+            # Section 2: COGS by Category (from spreadsheet's Weekly COGS section)
             st.markdown("### 📊 COGS by Category")
+
+            # Show spreadsheet's pre-calculated COGS by category if available
+            if 'liquor_cogs' in cogs_summary:
+                cat_col1, cat_col2, cat_col3, cat_col4, cat_col5 = st.columns(5)
+                with cat_col1:
+                    st.metric("Liquor", f"${cogs_summary.get('liquor_cogs', 0) or 0:,.2f}")
+                with cat_col2:
+                    st.metric("Wine", f"${cogs_summary.get('wine_cogs', 0) or 0:,.2f}")
+                with cat_col3:
+                    st.metric("Draft Beer", f"${cogs_summary.get('draft_beer_cogs', 0) or 0:,.2f}")
+                with cat_col4:
+                    st.metric("Bottle Beer", f"${cogs_summary.get('bottle_beer_cogs', 0) or 0:,.2f}")
+                with cat_col5:
+                    st.metric("Juice", f"${cogs_summary.get('juice_cogs', 0) or 0:,.2f}")
+                st.markdown("---")
+
+            # Also show detailed breakdown by item categories
             cogs_by_cat = calculate_cogs_by_category(dataset, features_df)
 
             if not cogs_by_cat.empty:

@@ -9,6 +9,32 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional
 import pandas as pd
+import numpy as np
+
+
+@dataclass
+class WeeklyCOGSSummary:
+    """Summary COGS data extracted from the 'Weekly COGS' section of spreadsheet."""
+    week_date: datetime
+    week_name: str
+    source_file: str
+    is_complete: bool  # True if all COGS values are valid (not #DIV/0! or NaN)
+
+    # COGS by category (directly from spreadsheet's "Weekly COGS" section)
+    liquor_cogs: Optional[float] = None
+    wine_cogs: Optional[float] = None
+    draft_beer_cogs: Optional[float] = None
+    bottle_beer_cogs: Optional[float] = None
+    juice_cogs: Optional[float] = None
+    total_cogs: Optional[float] = None
+
+    # Sales by category
+    liquor_sales: Optional[float] = None
+    wine_sales: Optional[float] = None
+    draft_beer_sales: Optional[float] = None
+    bottle_beer_sales: Optional[float] = None
+    juice_sales: Optional[float] = None
+    total_sales: Optional[float] = None
 
 
 @dataclass
@@ -58,6 +84,7 @@ class InventoryDataset:
     """Complete inventory dataset with items and records."""
     items: Dict[str, Item]  # item_id -> Item
     records: pd.DataFrame  # Columns: item_id, week_date, on_hand, usage, week_name, source_file
+    weekly_cogs_summaries: List[WeeklyCOGSSummary] = field(default_factory=list)  # Weekly COGS from spreadsheet
 
     def get_item(self, item_id: str) -> Optional[Item]:
         """Get item by ID."""
@@ -81,6 +108,112 @@ class InventoryDataset:
         """Get total number of unique weeks in dataset."""
         return self.records['week_date'].nunique()
 
+    def get_latest_complete_cogs_summary(self) -> Optional[WeeklyCOGSSummary]:
+        """Get the most recent complete (non-zero ending inventory) weekly COGS summary."""
+        complete_summaries = [s for s in self.weekly_cogs_summaries if s.is_complete]
+        if not complete_summaries:
+            return None
+        # Sort by date and return most recent
+        complete_summaries.sort(key=lambda x: x.week_date, reverse=True)
+        return complete_summaries[0]
+
+    def get_complete_cogs_summaries(self, n: int = 4) -> List[WeeklyCOGSSummary]:
+        """Get the N most recent complete weekly COGS summaries."""
+        complete_summaries = [s for s in self.weekly_cogs_summaries if s.is_complete]
+        complete_summaries.sort(key=lambda x: x.week_date, reverse=True)
+        return complete_summaries[:n]
+
+
+def _parse_weekly_cogs_section(xls, sheet: str, week_date, source_file: str) -> Optional[WeeklyCOGSSummary]:
+    """
+    Parse the 'Weekly COGS' summary section from a sheet.
+
+    The BEVWEEKLY spreadsheet has a 'Weekly COGS' section that contains
+    pre-calculated COGS values by category (LIQUOR, WINE, DRAFT BEER, BOTTLE BEER, JUICE).
+
+    Args:
+        xls: pandas ExcelFile object
+        sheet: Sheet name
+        week_date: Date for this week
+        source_file: Source file name
+
+    Returns:
+        WeeklyCOGSSummary if found, None otherwise
+    """
+    try:
+        # Read the full sheet without skipping rows to find the Weekly COGS section
+        full_sheet = xls.parse(sheet, header=None)
+
+        # Find the row containing "Weekly COGS" text
+        weekly_cogs_row = None
+        for idx, row in full_sheet.iterrows():
+            row_str = ' '.join(str(v) for v in row.values if pd.notna(v))
+            if 'weekly cogs' in row_str.lower():
+                weekly_cogs_row = idx
+                break
+
+        if weekly_cogs_row is None:
+            return None
+
+        # The category data starts a few rows after "Weekly COGS" header
+        # Look for LIQUOR, WINE, DRAFT BEER, BOTTLE BEER, JUICE rows
+        categories = {}
+        search_start = weekly_cogs_row + 1
+        search_end = min(weekly_cogs_row + 15, len(full_sheet))  # Search up to 15 rows below
+
+        for idx in range(search_start, search_end):
+            row = full_sheet.iloc[idx]
+            first_cell = str(row.iloc[0]).strip().upper() if pd.notna(row.iloc[0]) else ''
+
+            if first_cell in ['LIQUOR', 'WINE', 'DRAFT BEER', 'BOTTLE BEER', 'JUICE', 'TOTAL']:
+                # Column layout from screenshots:
+                # 0: PRODUCT, 1: SALES, 2: BEG INV, 3: PURCH, 4: END INV, 5: COGS, ...
+                sales_val = pd.to_numeric(row.iloc[1], errors='coerce') if len(row) > 1 else None
+                cogs_val = pd.to_numeric(row.iloc[5], errors='coerce') if len(row) > 5 else None
+
+                categories[first_cell] = {
+                    'sales': sales_val,
+                    'cogs': cogs_val
+                }
+
+        if not categories:
+            return None
+
+        # Check if the week is complete (all required categories have valid COGS values)
+        # A week is incomplete if COGS values are NaN (which happens when ending inventory isn't filled in)
+        required_categories = ['LIQUOR', 'WINE', 'DRAFT BEER', 'BOTTLE BEER', 'JUICE']
+        is_complete = all(
+            categories.get(cat, {}).get('cogs') is not None and
+            pd.notna(categories.get(cat, {}).get('cogs'))
+            for cat in required_categories
+        )
+
+        # Also check that total COGS is valid
+        total_cogs = categories.get('TOTAL', {}).get('cogs')
+        if total_cogs is None or pd.isna(total_cogs) or total_cogs == 0:
+            is_complete = False
+
+        return WeeklyCOGSSummary(
+            week_date=week_date,
+            week_name=sheet,
+            source_file=source_file,
+            is_complete=is_complete,
+            liquor_cogs=categories.get('LIQUOR', {}).get('cogs'),
+            wine_cogs=categories.get('WINE', {}).get('cogs'),
+            draft_beer_cogs=categories.get('DRAFT BEER', {}).get('cogs'),
+            bottle_beer_cogs=categories.get('BOTTLE BEER', {}).get('cogs'),
+            juice_cogs=categories.get('JUICE', {}).get('cogs'),
+            total_cogs=total_cogs,
+            liquor_sales=categories.get('LIQUOR', {}).get('sales'),
+            wine_sales=categories.get('WINE', {}).get('sales'),
+            draft_beer_sales=categories.get('DRAFT BEER', {}).get('sales'),
+            bottle_beer_sales=categories.get('BOTTLE BEER', {}).get('sales'),
+            juice_sales=categories.get('JUICE', {}).get('sales'),
+            total_sales=categories.get('TOTAL', {}).get('sales'),
+        )
+    except Exception:
+        return None
+
 
 def create_dataset_from_excel(uploaded_files) -> InventoryDataset:
     """
@@ -100,6 +233,8 @@ def create_dataset_from_excel(uploaded_files) -> InventoryDataset:
 
     # Process all files
     compiled_records = []
+    weekly_cogs_summaries = []
+
     for uploaded_file in uploaded_files:
         try:
             xls = pd.ExcelFile(uploaded_file)
@@ -127,8 +262,14 @@ def create_dataset_from_excel(uploaded_files) -> InventoryDataset:
 
                     # Extract date
                     date_value = xls.parse(sheet).iloc[1, 0]
-                    df['Date'] = pd.to_datetime(date_value, errors='coerce')
+                    week_date = pd.to_datetime(date_value, errors='coerce')
+                    df['Date'] = week_date
                     compiled_records.append(df)
+
+                    # Parse the Weekly COGS summary section
+                    cogs_summary = _parse_weekly_cogs_section(xls, sheet, week_date, uploaded_file.name)
+                    if cogs_summary:
+                        weekly_cogs_summaries.append(cogs_summary)
                 except Exception:
                     continue
         except Exception:
@@ -200,4 +341,15 @@ def create_dataset_from_excel(uploaded_files) -> InventoryDataset:
     records_df['usage_cost'] = records_df['beg_inv_value'] + records_df['purchases_value'] - records_df['end_inv_value']
     records_df['inventory_value'] = records_df['end_inv_value']
 
-    return InventoryDataset(items=items, records=records_df)
+    # Sort weekly COGS summaries by date and remove duplicates (keep last)
+    weekly_cogs_summaries.sort(key=lambda x: x.week_date)
+    seen_dates = set()
+    unique_summaries = []
+    for summary in reversed(weekly_cogs_summaries):
+        date_key = summary.week_date.date() if hasattr(summary.week_date, 'date') else summary.week_date
+        if date_key not in seen_dates:
+            seen_dates.add(date_key)
+            unique_summaries.append(summary)
+    unique_summaries.reverse()  # Restore chronological order
+
+    return InventoryDataset(items=items, records=records_df, weekly_cogs_summaries=unique_summaries)
