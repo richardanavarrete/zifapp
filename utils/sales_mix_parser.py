@@ -86,6 +86,16 @@ def find_amount_column(df, header_row_idx):
     return 9
 
 
+def find_net_amount_column(df, header_row_idx):
+    """Find the Net Amount column dynamically (revenue after discounts)."""
+    header_row = df.iloc[header_row_idx]
+    for i, val in enumerate(header_row):
+        if pd.notna(val) and 'Net' in str(val) and 'Amount' in str(val):
+            return i
+    # If no Net Amount column exists, return None (fallback to Amount)
+    return None
+
+
 def parse_sales_mix_csv(uploaded_csv):
     """
     Parse any GEMpos Sales Mix CSV into a structured DataFrame.
@@ -96,11 +106,11 @@ def parse_sales_mix_csv(uploaded_csv):
     - Item names in varying column positions
     - Qty and Amount column positions
     
-    Returns DataFrame with columns: Category, Subcategory, Item, Qty, Amount
+    Returns DataFrame with columns: Category, Subcategory, Item, Qty, Amount, Net_Amount
     """
     # Read the CSV
     df = pd.read_csv(uploaded_csv, header=None)
-    
+
     # Find the header row (contains "Qty")
     header_row_idx = None
     for idx, row in df.iterrows():
@@ -108,13 +118,14 @@ def parse_sales_mix_csv(uploaded_csv):
         if 'Qty' in row_str:
             header_row_idx = idx
             break
-    
+
     if header_row_idx is None:
         raise ValueError("Could not find header row with 'Qty' column in CSV")
-    
+
     # Get column positions
     qty_col = find_qty_column(df, header_row_idx)
     amount_col = find_amount_column(df, header_row_idx)
+    net_amount_col = find_net_amount_column(df, header_row_idx)
     
     # Parse the data rows
     parsed_items = []
@@ -169,7 +180,16 @@ def parse_sales_mix_csv(uploaded_csv):
                 amount = float(amt_str)
             except (ValueError, TypeError):
                 amount = 0.0
-        
+
+        # Get net amount (revenue after discounts)
+        net_amount = amount  # Default to amount if Net Amount column doesn't exist
+        if net_amount_col is not None and net_amount_col < len(row) and pd.notna(row.iloc[net_amount_col]):
+            try:
+                net_amt_str = str(row.iloc[net_amount_col]).replace('$', '').replace(',', '')
+                net_amount = float(net_amt_str)
+            except (ValueError, TypeError):
+                net_amount = amount
+
         # Only include items with qty > 0
         if qty > 0:
             # Determine category and subcategory from hierarchy
@@ -190,6 +210,7 @@ def parse_sales_mix_csv(uploaded_csv):
                 'Item': item_name,
                 'Qty': qty,
                 'Amount': amount,
+                'Net_Amount': net_amount,
             })
     
     result_df = pd.DataFrame(parsed_items)
@@ -564,11 +585,15 @@ def aggregate_all_usage(sales_df):
     Aggregate usage calculations from all categories.
 
     Returns:
-        all_results: dict of {inv_item: {theoretical_usage, unit, details}}
+        all_results: dict of {inv_item: {theoretical_usage, unit, details, revenue}}
         all_unmatched: list of unmatched items
+        total_revenue: float - total Net_Amount from sales_df
     """
     all_results = {}
     all_unmatched = []
+
+    # Calculate total revenue from Net_Amount column
+    total_revenue = sales_df['Net_Amount'].sum() if 'Net_Amount' in sales_df.columns else 0.0
 
     # Draft beer
     draft_results, draft_unmatched = calculate_draft_beer_usage(sales_df)
@@ -658,5 +683,5 @@ def aggregate_all_usage(sales_df):
             all_results[inv_item]['oz'] = all_results[inv_item].get('oz', 0) + data['oz']
             all_results[inv_item]['details'].extend(data['items'])
     all_unmatched.extend([f"[Wine] {item}" for item in wine_unmatched])
-    
-    return all_results, all_unmatched
+
+    return all_results, all_unmatched, total_revenue

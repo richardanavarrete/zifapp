@@ -39,6 +39,11 @@ def compute_features(
         - trend: Indicator (↑→↓)
         - recent_trend_ratio: Last 4 weeks vs prior 4 weeks
         - anomaly_negative_usage, anomaly_huge_jump, anomaly_missing_count: Data quality flags
+        - unit_cost: Cost per unit (bottle, keg, etc.)
+        - weekly_cogs: Last week's cost (usage × unit_cost)
+        - avg_weekly_cogs_4wk: Average weekly cost over last 4 weeks
+        - inventory_value: Current inventory value (on_hand × unit_cost)
+        - cogs_ytd: Year-to-date cost of goods sold
     """
 
     def compute_item_features(group):
@@ -46,6 +51,18 @@ def compute_features(
         usage = group['usage']
         inventory = group['on_hand']
         dates = group['week_date']
+
+        # Get item_id and cost data
+        item_id = group['item_id'].iloc[0] if not group.empty else None
+        item = dataset.get_item(item_id) if item_id else None
+        unit_cost = item.unit_cost if item and item.unit_cost else None
+
+        # Cost data from records (use most recent)
+        if 'unit_cost' in group.columns:
+            record_cost = group['unit_cost'].iloc[-1] if not group.empty else None
+            # Prefer item cost, fall back to record cost
+            if unit_cost is None:
+                unit_cost = record_cost
 
         # Basic stats
         last_week_usage = usage.iloc[-1] if not usage.empty else None
@@ -124,6 +141,18 @@ def compute_features(
         # Check for zero usage items (possible discontinued items)
         is_zero_usage = (usage.tail(4).sum() == 0) if len(usage) >= 4 else False
 
+        # COGS calculations
+        weekly_cogs = (last_week_usage * unit_cost) if (unit_cost and pd.notna(last_week_usage)) else None
+        avg_weekly_cogs_4wk = (last_4.mean() * unit_cost) if (unit_cost and not last_4.empty) else None
+        inventory_value = (on_hand_val * unit_cost) if unit_cost else None
+
+        # Year-to-date COGS (sum of all usage_cost in most recent year)
+        cogs_ytd = None
+        if pd.api.types.is_datetime64_any_dtype(dates) and not dates.empty and unit_cost:
+            most_recent_year = dates.max().year
+            ytd_usage = group[dates.dt.year == most_recent_year]['usage'].sum()
+            cogs_ytd = ytd_usage * unit_cost
+
         return pd.Series({
             'on_hand': round(on_hand_val, 2),
             'last_week_usage': round(last_week_usage, 2) if pd.notna(last_week_usage) else None,
@@ -147,6 +176,12 @@ def compute_features(
             'anomaly_huge_jump': anomaly_huge_jump,
             'anomaly_missing_count': anomaly_missing_count,
             'is_zero_usage': is_zero_usage,
+            # COGS features
+            'unit_cost': round(unit_cost, 2) if pd.notna(unit_cost) else None,
+            'weekly_cogs': round(weekly_cogs, 2) if pd.notna(weekly_cogs) else None,
+            'avg_weekly_cogs_4wk': round(avg_weekly_cogs_4wk, 2) if pd.notna(avg_weekly_cogs_4wk) else None,
+            'inventory_value': round(inventory_value, 2) if pd.notna(inventory_value) else None,
+            'cogs_ytd': round(cogs_ytd, 2) if pd.notna(cogs_ytd) else None,
         })
 
     if dataset.records.empty:
@@ -156,7 +191,8 @@ def compute_features(
             'avg_highest_4', 'avg_lowest_4_nonzero', 'all_time_high', 'volatility',
             'weeks_on_hand_ytd', 'weeks_on_hand_10wk', 'weeks_on_hand_4wk', 'weeks_on_hand_2wk',
             'weeks_on_hand_ath', 'weeks_on_hand_lowest4', 'trend', 'recent_trend_ratio',
-            'anomaly_negative_usage', 'anomaly_huge_jump', 'anomaly_missing_count', 'is_zero_usage'
+            'anomaly_negative_usage', 'anomaly_huge_jump', 'anomaly_missing_count', 'is_zero_usage',
+            'unit_cost', 'weekly_cogs', 'avg_weekly_cogs_4wk', 'inventory_value', 'cogs_ytd'
         ])
 
     # Compute features for all items

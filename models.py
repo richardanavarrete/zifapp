@@ -24,6 +24,10 @@ class Item:
     unit: str = "bottles"
     case_size: Optional[int] = None
 
+    # Cost data
+    unit_cost: Optional[float] = None  # $ per unit (bottle, keg, etc.)
+    unit_of_measure: Optional[str] = None  # "Bottle (1 L)", "Keg", etc.
+
     def __post_init__(self):
         # Ensure item_id is always stripped and consistent
         self.item_id = self.item_id.strip()
@@ -39,6 +43,11 @@ class WeeklyRecord:
     usage: float
     week_name: str  # Original sheet name
     source_file: str
+
+    # Cost data
+    unit_cost: Optional[float] = None  # $ per unit at this point in time
+    usage_cost: Optional[float] = None  # usage × unit_cost
+    inventory_value: Optional[float] = None  # on_hand × unit_cost
 
     def __post_init__(self):
         self.item_id = self.item_id.strip()
@@ -103,10 +112,12 @@ def create_dataset_from_excel(uploaded_files) -> InventoryDataset:
                     # Rename columns based on index positions
                     df = df.rename(columns={
                         df.columns[0]: 'Item',
+                        df.columns[1]: 'Unit of Measure',
+                        df.columns[2]: 'Unit Cost',
                         df.columns[9]: 'Usage',
                         df.columns[7]: 'End Inventory'
                     })
-                    df = df[['Item', 'Usage', 'End Inventory']]
+                    df = df[['Item', 'Unit of Measure', 'Unit Cost', 'Usage', 'End Inventory']]
                     df['Week'] = sheet
                     df['Source File'] = uploaded_file.name
 
@@ -123,7 +134,7 @@ def create_dataset_from_excel(uploaded_files) -> InventoryDataset:
         # Return empty dataset
         return InventoryDataset(
             items={},
-            records=pd.DataFrame(columns=['item_id', 'week_date', 'on_hand', 'usage', 'week_name', 'source_file'])
+            records=pd.DataFrame(columns=['item_id', 'week_date', 'on_hand', 'usage', 'week_name', 'source_file', 'unit_cost', 'usage_cost', 'inventory_value'])
         )
 
     # Combine all records
@@ -136,21 +147,27 @@ def create_dataset_from_excel(uploaded_files) -> InventoryDataset:
     full_df['End Inventory'] = pd.to_numeric(full_df['End Inventory'], errors='coerce')
     full_df = full_df.dropna(subset=['Usage', 'End Inventory'])
 
+    # Process cost data
+    full_df['Unit Cost'] = pd.to_numeric(full_df['Unit Cost'], errors='coerce')
+    full_df['Unit of Measure'] = full_df['Unit of Measure'].astype(str).str.strip()
+
     # Remove duplicates (keep last occurrence for overlapping weeks)
     full_df = full_df.drop_duplicates(subset=['Item', 'Date'], keep='last')
     full_df = full_df.sort_values(by=['Item', 'Date'])
 
     # Build items dictionary (will be enriched by mappings module later)
-    unique_items = full_df['Item'].unique()
-    items = {
-        item_id: Item(
+    # Use most recent cost for each item
+    items = {}
+    for item_id in full_df['Item'].unique():
+        item_data = full_df[full_df['Item'] == item_id].sort_values('Date', ascending=False).iloc[0]
+        items[item_id] = Item(
             item_id=item_id,
             display_name=item_id,
             category="Unknown",
-            vendor="Unknown"
+            vendor="Unknown",
+            unit_cost=item_data['Unit Cost'] if pd.notna(item_data['Unit Cost']) else None,
+            unit_of_measure=item_data['Unit of Measure'] if pd.notna(item_data['Unit of Measure']) and item_data['Unit of Measure'] != 'nan' else None
         )
-        for item_id in unique_items
-    }
 
     # Build records dataframe with canonical column names
     records_df = full_df.rename(columns={
@@ -159,7 +176,12 @@ def create_dataset_from_excel(uploaded_files) -> InventoryDataset:
         'End Inventory': 'on_hand',
         'Usage': 'usage',
         'Week': 'week_name',
-        'Source File': 'source_file'
-    })[['item_id', 'week_date', 'on_hand', 'usage', 'week_name', 'source_file']]
+        'Source File': 'source_file',
+        'Unit Cost': 'unit_cost'
+    })[['item_id', 'week_date', 'on_hand', 'usage', 'week_name', 'source_file', 'unit_cost']]
+
+    # Calculate cost metrics for each record
+    records_df['usage_cost'] = records_df['usage'] * records_df['unit_cost']
+    records_df['inventory_value'] = records_df['on_hand'] * records_df['unit_cost']
 
     return InventoryDataset(items=items, records=records_df)
