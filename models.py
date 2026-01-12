@@ -193,6 +193,17 @@ def _parse_weekly_cogs_section(xls, sheet: str, week_date, source_file: str) -> 
         if total_cogs is None or pd.isna(total_cogs) or total_cogs == 0:
             is_complete = False
 
+        # Only mark a week as complete if it's in the past (with a buffer)
+        # This prevents the current or future weeks from being shown as "complete"
+        # even if they have COGS data (which might be stale or partial)
+        if is_complete and week_date is not None and pd.notna(week_date):
+            from datetime import datetime, timedelta
+            today = datetime.now()
+            # Require the week to be at least 8 days old to be considered "complete"
+            # This ensures the 7-day week has ended plus 1 day buffer for data entry
+            if week_date + timedelta(days=8) > today:
+                is_complete = False
+
         return WeeklyCOGSSummary(
             week_date=week_date,
             week_name=sheet,
