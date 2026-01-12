@@ -292,7 +292,7 @@ def generate_shrinkage_report(
 
     Args:
         variance_df: DataFrame from calculate_variance_analysis
-        top_n: Number of top items to include
+        top_n: Number of top items to include (None for all items)
 
     Returns:
         DataFrame with top shrinkage items
@@ -301,7 +301,9 @@ def generate_shrinkage_report(
     shrinkage = variance_df[variance_df['variance_dollars'] > 0].copy()
 
     # Sort by variance dollars descending and take top N
-    shrinkage = shrinkage.sort_values('variance_dollars', ascending=False).head(top_n)
+    shrinkage = shrinkage.sort_values('variance_dollars', ascending=False)
+    if top_n is not None:
+        shrinkage = shrinkage.head(top_n)
 
     return shrinkage
 
