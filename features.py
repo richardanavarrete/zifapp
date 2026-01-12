@@ -65,10 +65,30 @@ def compute_features(
                 unit_cost = record_cost
 
         # Basic stats
-        last_week_usage = usage.iloc[-1] if not usage.empty else None
-        last_10 = usage.tail(10)
-        last_4 = usage.tail(4)
-        last_2 = usage.tail(2)
+        # Use most recent week with complete data (non-zero on_hand) if possible
+        if 'on_hand' in group.columns:
+            complete_weeks = group[group['on_hand'] > 0].copy()
+            if not complete_weeks.empty:
+                last_week_usage = complete_weeks['usage'].iloc[-1]
+                on_hand_val = complete_weeks['on_hand'].iloc[-1]
+                # For averages, use all available data
+                last_10 = usage.tail(10)
+                last_4 = usage.tail(4)
+                last_2 = usage.tail(2)
+            else:
+                # Fallback if no complete weeks
+                last_week_usage = usage.iloc[-1] if not usage.empty else None
+                on_hand_val = inventory.iloc[-1] if not inventory.empty else 0
+                last_10 = usage.tail(10)
+                last_4 = usage.tail(4)
+                last_2 = usage.tail(2)
+        else:
+            # Original logic if on_hand column not available
+            last_week_usage = usage.iloc[-1] if not usage.empty else None
+            on_hand_val = inventory.iloc[-1] if not inventory.empty else 0
+            last_10 = usage.tail(10)
+            last_4 = usage.tail(4)
+            last_2 = usage.tail(2)
 
         # YTD based on most recent year in data (not current calendar year)
         if pd.api.types.is_datetime64_any_dtype(dates) and not dates.empty:
@@ -92,7 +112,7 @@ def compute_features(
                 return round(n / d, 2)
             return None
 
-        on_hand_val = inventory.iloc[-1] if not inventory.empty else 0
+        # on_hand_val already set above based on complete weeks
         weeks_on_hand_ytd = safe_div(on_hand_val, ytd_avg)
         weeks_on_hand_10wk = safe_div(on_hand_val, last_10.mean())
         weeks_on_hand_4wk = safe_div(on_hand_val, last_4.mean())
@@ -143,10 +163,19 @@ def compute_features(
 
         # COGS calculations using TRADITIONAL FORMULA (from usage_cost in records)
         # usage_cost is calculated as: BEG $ + PUR $ - END $
+        # IMPORTANT: Only use weeks with complete data (non-zero ending inventory)
         if 'usage_cost' in group.columns:
-            # Use the traditional COGS formula from records
-            weekly_cogs = group['usage_cost'].iloc[-1] if not group.empty else None
-            avg_weekly_cogs_4wk = group['usage_cost'].tail(4).mean() if len(group) >= 4 else None
+            # Filter for complete weeks only (where on_hand > 0 or usage_cost is reasonable)
+            complete_weeks = group[group['on_hand'] > 0].copy() if 'on_hand' in group.columns else group
+
+            if not complete_weeks.empty:
+                # Use the most recent COMPLETE week
+                weekly_cogs = complete_weeks['usage_cost'].iloc[-1]
+                avg_weekly_cogs_4wk = complete_weeks['usage_cost'].tail(4).mean() if len(complete_weeks) >= 4 else None
+            else:
+                # Fallback if no complete weeks
+                weekly_cogs = (last_week_usage * unit_cost) if (unit_cost and pd.notna(last_week_usage)) else None
+                avg_weekly_cogs_4wk = (last_4.mean() * unit_cost) if (unit_cost and not last_4.empty) else None
         else:
             # Fallback to old calculation if usage_cost not available
             weekly_cogs = (last_week_usage * unit_cost) if (unit_cost and pd.notna(last_week_usage)) else None
@@ -156,11 +185,14 @@ def compute_features(
         inventory_value = (on_hand_val * unit_cost) if unit_cost else None
 
         # Year-to-date COGS (sum of all usage_cost in most recent year)
+        # Only include complete weeks (non-zero ending inventory)
         cogs_ytd = None
         if pd.api.types.is_datetime64_any_dtype(dates) and not dates.empty:
             most_recent_year = dates.max().year
-            if 'usage_cost' in group.columns:
-                cogs_ytd = group[dates.dt.year == most_recent_year]['usage_cost'].sum()
+            if 'usage_cost' in group.columns and 'on_hand' in group.columns:
+                # Filter for complete weeks only
+                complete_weeks = group[(dates.dt.year == most_recent_year) & (group['on_hand'] > 0)]
+                cogs_ytd = complete_weeks['usage_cost'].sum() if not complete_weeks.empty else None
             elif unit_cost:
                 ytd_usage = group[dates.dt.year == most_recent_year]['usage'].sum()
                 cogs_ytd = ytd_usage * unit_cost
