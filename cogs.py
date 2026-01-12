@@ -306,16 +306,60 @@ def generate_shrinkage_report(
     return shrinkage
 
 
-def get_cogs_summary(features_df: pd.DataFrame) -> Dict:
+def get_cogs_summary(features_df: pd.DataFrame, dataset: InventoryDataset = None) -> Dict:
     """
     Get summary statistics for COGS.
 
+    Uses the pre-calculated "Weekly COGS" section from the spreadsheet when available,
+    which is more accurate than calculating from individual line items.
+
     Args:
         features_df: Features dataframe with cost metrics
+        dataset: Optional InventoryDataset with weekly_cogs_summaries
 
     Returns:
         Dict with summary metrics
     """
+    # Try to get COGS from the spreadsheet's "Weekly COGS" section (most accurate)
+    if dataset is not None:
+        latest_summary = dataset.get_latest_complete_cogs_summary()
+        if latest_summary:
+            # Calculate 4-week average from complete weeks
+            complete_summaries = dataset.get_complete_cogs_summaries(4)
+            avg_weekly_cogs = (
+                sum(s.total_cogs for s in complete_summaries if s.total_cogs) / len(complete_summaries)
+                if complete_summaries else 0
+            )
+
+            # Calculate YTD COGS from all complete weeks in the most recent year
+            complete_summaries_all = [s for s in dataset.weekly_cogs_summaries if s.is_complete]
+            if complete_summaries_all:
+                most_recent_year = max(s.week_date.year for s in complete_summaries_all)
+                ytd_cogs = sum(
+                    s.total_cogs for s in complete_summaries_all
+                    if s.week_date.year == most_recent_year and s.total_cogs
+                )
+            else:
+                ytd_cogs = 0
+
+            return {
+                'total_weekly_cogs': round(latest_summary.total_cogs or 0, 2),
+                'total_avg_weekly_cogs_4wk': round(avg_weekly_cogs, 2),
+                'total_inventory_value': round(features_df['inventory_value'].sum(), 2),
+                'total_cogs_ytd': round(ytd_cogs, 2),
+                'items_with_cost_data': len(features_df[features_df['unit_cost'].notna()]),
+                'items_missing_cost_data': len(features_df[features_df['unit_cost'].isna()]),
+                # COGS by category from the spreadsheet
+                'liquor_cogs': latest_summary.liquor_cogs,
+                'wine_cogs': latest_summary.wine_cogs,
+                'draft_beer_cogs': latest_summary.draft_beer_cogs,
+                'bottle_beer_cogs': latest_summary.bottle_beer_cogs,
+                'juice_cogs': latest_summary.juice_cogs,
+                'week_name': latest_summary.week_name,
+                'week_date': latest_summary.week_date,
+            }
+
+    # Fallback to calculating from individual items (less accurate)
     return {
         'total_weekly_cogs': round(features_df['weekly_cogs'].sum(), 2),
         'total_avg_weekly_cogs_4wk': round(features_df['avg_weekly_cogs_4wk'].sum(), 2),
