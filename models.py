@@ -123,6 +123,19 @@ class InventoryDataset:
         complete_summaries.sort(key=lambda x: x.week_date, reverse=True)
         return complete_summaries[:n]
 
+    def get_all_cogs_summaries(self) -> List[WeeklyCOGSSummary]:
+        """Get all weekly COGS summaries sorted by date (most recent first)."""
+        summaries = self.weekly_cogs_summaries.copy()
+        summaries.sort(key=lambda x: x.week_date, reverse=True)
+        return summaries
+
+    def get_cogs_summary_by_name(self, week_name: str) -> Optional[WeeklyCOGSSummary]:
+        """Get a specific weekly COGS summary by week name (e.g., 'Q1 WK3')."""
+        for summary in self.weekly_cogs_summaries:
+            if summary.week_name == week_name:
+                return summary
+        return None
+
 
 def _parse_weekly_cogs_section(xls, sheet: str, week_date, source_file: str) -> Optional[WeeklyCOGSSummary]:
     """
