@@ -754,15 +754,44 @@ if uploaded_files:
         else:
             st.info(f"📊 Cost data available for {items_with_cost} out of {items_total} items ({items_with_cost/items_total*100:.1f}%)")
 
+            # Week selection dropdown
+            all_weeks = dataset.get_all_cogs_summaries() if dataset else []
+            if all_weeks:
+                week_options = [f"{w.week_name}" for w in all_weeks]
+                # Default to most recent complete week
+                latest_complete = dataset.get_latest_complete_cogs_summary()
+                default_index = 0
+                if latest_complete:
+                    try:
+                        default_index = week_options.index(latest_complete.week_name)
+                    except ValueError:
+                        default_index = 0
+
+                selected_week = st.selectbox(
+                    "Select Week to View",
+                    options=week_options,
+                    index=default_index,
+                    help="Choose which week's COGS data to display"
+                )
+            else:
+                selected_week = None
+
             # Get COGS summary (uses pre-calculated values from spreadsheet's "Weekly COGS" section)
-            cogs_summary = get_cogs_summary(features_df, dataset)
+            cogs_summary = get_cogs_summary(features_df, dataset, week_name=selected_week)
 
             # Section 1: Weekly COGS Summary
             st.markdown("### 📅 Weekly COGS Summary")
 
             # Show which week the data is from if available
             if 'week_name' in cogs_summary:
-                st.caption(f"Showing data from: **{cogs_summary['week_name']}** (most recent complete week)")
+                week_status = ""
+                if dataset and selected_week:
+                    week_obj = dataset.get_cogs_summary_by_name(selected_week)
+                    if week_obj and week_obj.is_complete:
+                        week_status = " ✓ Complete"
+                    else:
+                        week_status = " ⚠️ Incomplete"
+                st.caption(f"Showing data from: **{cogs_summary['week_name']}**{week_status}")
 
             col1, col2, col3, col4 = st.columns(4)
 

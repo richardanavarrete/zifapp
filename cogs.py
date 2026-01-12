@@ -308,7 +308,7 @@ def generate_shrinkage_report(
     return shrinkage
 
 
-def get_cogs_summary(features_df: pd.DataFrame, dataset: InventoryDataset = None) -> Dict:
+def get_cogs_summary(features_df: pd.DataFrame, dataset: InventoryDataset = None, week_name: str = None) -> Dict:
     """
     Get summary statistics for COGS.
 
@@ -318,13 +318,20 @@ def get_cogs_summary(features_df: pd.DataFrame, dataset: InventoryDataset = None
     Args:
         features_df: Features dataframe with cost metrics
         dataset: Optional InventoryDataset with weekly_cogs_summaries
+        week_name: Optional specific week name to display (e.g., 'Q1 WK3').
+                   If None, uses the most recent complete week.
 
     Returns:
         Dict with summary metrics
     """
     # Try to get COGS from the spreadsheet's "Weekly COGS" section (most accurate)
     if dataset is not None:
-        latest_summary = dataset.get_latest_complete_cogs_summary()
+        # Get the specific week or fall back to latest complete
+        if week_name:
+            latest_summary = dataset.get_cogs_summary_by_name(week_name)
+        else:
+            latest_summary = dataset.get_latest_complete_cogs_summary()
+
         if latest_summary:
             # Calculate 4-week average from complete weeks
             complete_summaries = dataset.get_complete_cogs_summaries(4)
