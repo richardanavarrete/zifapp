@@ -461,7 +461,7 @@ if uploaded_files:
                         st.code('\n'.join([f'"{item}"' for item in sorted(liquor_items)]))
 
                     # Calculate theoretical usage
-                    all_usage, unmatched_items = aggregate_all_usage(sales_df)
+                    all_usage, unmatched_items, total_revenue = aggregate_all_usage(sales_df)
                     
                     usage_data = []
                     for inv_item, data in all_usage.items():
@@ -1028,10 +1028,10 @@ if uploaded_files:
                 variance_df = calculate_variance_analysis(usage_results, actual_usage_df, dataset)
 
                 if not variance_df.empty:
-                    st.markdown("**Top 20 Variances (by absolute dollar amount)**")
+                    st.markdown("**All Item Variances (sorted by absolute dollar amount)**")
 
-                    # Show top 20 variances
-                    top_variances = variance_df.head(20)
+                    # Show all variances
+                    top_variances = variance_df
 
                     # Add status icons
                     top_variances_display = top_variances.copy()
@@ -1059,9 +1059,9 @@ if uploaded_files:
 
                     # Shrinkage report
                     st.markdown("---")
-                    st.markdown("### 🚨 Shrinkage Report (Items with Loss)")
+                    st.markdown("### 🚨 Shrinkage Report (All Items with Loss)")
 
-                    shrinkage_df = generate_shrinkage_report(variance_df, top_n=10)
+                    shrinkage_df = generate_shrinkage_report(variance_df, top_n=None)
 
                     if not shrinkage_df.empty:
                         shrinkage_display = shrinkage_df[['item_id', 'category', 'theoretical', 'actual', 'variance_units', 'variance_dollars', 'variance_pct']].copy()
