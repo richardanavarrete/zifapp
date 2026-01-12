@@ -6,6 +6,18 @@ from statsmodels.tsa.holtwinters import SimpleExpSmoothing
 import re
 import math
 import plotly.express as px
+import plotly.graph_objects as go
+from models import create_dataset_from_excel
+from features import compute_features
+from cogs import (
+    calculate_cogs_by_category,
+    calculate_cogs_by_vendor,
+    calculate_theoretical_cogs,
+    calculate_pour_cost,
+    calculate_variance_analysis,
+    generate_shrinkage_report,
+    get_cogs_summary
+)
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
@@ -195,6 +207,28 @@ def load_and_process_data(uploaded_files, smoothing_level=0.3, trend_threshold=0
         
     return summary_df, vendor_map, category_map, full_df
 
+
+@st.cache_data
+def load_cogs_data(uploaded_files):
+    """
+    Load COGS data using the new models and features modules.
+
+    Args:
+        uploaded_files: List of uploaded file objects
+
+    Returns:
+        dataset: InventoryDataset with cost data
+        features_df: Features DataFrame with COGS metrics
+    """
+    # Create dataset using new models module (extracts cost data)
+    dataset = create_dataset_from_excel(uploaded_files)
+
+    # Compute features including COGS metrics
+    features_df = compute_features(dataset)
+
+    return dataset, features_df
+
+
 # --- Main App UI ---
 uploaded_files = st.file_uploader(
     "Upload your BEVWEEKLY Excel Files (you can select multiple years)",
@@ -225,6 +259,9 @@ if uploaded_files:
     try:
         summary_df, vendor_map, category_map, full_df = load_and_process_data(uploaded_files, smoothing_level, trend_threshold)
 
+        # Load COGS data using new models
+        dataset, features_df = load_cogs_data(uploaded_files)
+
         # Show combined data summary
         if not full_df.empty and 'Date' in full_df.columns:
             total_weeks = full_df['Week'].nunique()
@@ -242,7 +279,14 @@ if uploaded_files:
         st.error(f"An error occurred during data processing: {e}")
         st.stop()
 
-    tab_summary, tab_ordering_worksheet, tab_sales_mix, tab_trends = st.tabs(["📊 Summary", "🧪 Ordering Worksheet", "Sales Mix Analysis", "📈 Item Trends"])
+    tab_summary, tab_ordering_worksheet, tab_sales_mix, tab_trends, tab_cogs, tab_pour_cost = st.tabs([
+        "📊 Summary",
+        "🧪 Ordering Worksheet",
+        "Sales Mix Analysis",
+        "📈 Item Trends",
+        "💰 COGS Analysis",
+        "📊 Pour Cost"
+    ])
 
     # --- TAB 1: SUMMARY ---
     with tab_summary:
@@ -695,3 +739,352 @@ if uploaded_files:
                 st.warning(f"No data available for {selected_item} in the selected date range.")
         else:
             st.info("👆 Select an item to view its trend visualization.")
+
+    # --- TAB 5: COGS ANALYSIS ---
+    with tab_cogs:
+        st.subheader("💰 Cost of Goods Sold (COGS) Analysis")
+        st.markdown("Analyze your beverage costs, inventory value, and profitability metrics.")
+
+        # Check if cost data is available
+        items_with_cost = len(features_df[features_df['unit_cost'].notna()])
+        items_total = len(features_df)
+
+        if items_with_cost == 0:
+            st.warning("⚠️ No cost data found in the uploaded files. Please ensure your BEVWEEKLY files include Unit Cost data in column 2.")
+        else:
+            st.info(f"📊 Cost data available for {items_with_cost} out of {items_total} items ({items_with_cost/items_total*100:.1f}%)")
+
+            # Get COGS summary
+            cogs_summary = get_cogs_summary(features_df)
+
+            # Section 1: Weekly COGS Summary
+            st.markdown("### 📅 Weekly COGS Summary")
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                st.metric(
+                    "Total COGS This Week",
+                    f"${cogs_summary['total_weekly_cogs']:,.2f}",
+                    help="Total cost of goods sold last week"
+                )
+
+            with col2:
+                st.metric(
+                    "4-Week Average COGS",
+                    f"${cogs_summary['total_avg_weekly_cogs_4wk']:,.2f}",
+                    help="Average weekly COGS over last 4 weeks"
+                )
+
+            with col3:
+                st.metric(
+                    "Total Inventory Value",
+                    f"${cogs_summary['total_inventory_value']:,.2f}",
+                    help="Current value of inventory on hand"
+                )
+
+            with col4:
+                st.metric(
+                    "YTD COGS",
+                    f"${cogs_summary['total_cogs_ytd']:,.2f}",
+                    help="Year-to-date cost of goods sold"
+                )
+
+            st.markdown("---")
+
+            # Section 2: COGS by Category
+            st.markdown("### 📊 COGS by Category")
+            cogs_by_cat = calculate_cogs_by_category(dataset, features_df)
+
+            if not cogs_by_cat.empty:
+                # Create bar chart
+                fig_cat = px.bar(
+                    cogs_by_cat.head(10),
+                    x='category',
+                    y='weekly_cogs',
+                    title='Top 10 Categories by Weekly COGS',
+                    labels={'category': 'Category', 'weekly_cogs': 'Weekly COGS ($)'},
+                    color='weekly_cogs',
+                    color_continuous_scale='Blues'
+                )
+                fig_cat.update_layout(showlegend=False, height=400)
+                st.plotly_chart(fig_cat, use_container_width=True)
+
+                # Show detailed table
+                with st.expander("📋 Detailed Category Breakdown", expanded=False):
+                    st.dataframe(
+                        cogs_by_cat.style.format({
+                            'weekly_cogs': '${:,.2f}',
+                            'avg_weekly_cogs_4wk': '${:,.2f}',
+                            'inventory_value': '${:,.2f}',
+                            'cogs_ytd': '${:,.2f}'
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+            st.markdown("---")
+
+            # Section 3: COGS by Vendor
+            st.markdown("### 🏢 COGS by Vendor")
+            cogs_by_vendor = calculate_cogs_by_vendor(dataset, features_df)
+
+            if not cogs_by_vendor.empty:
+                # Create pie chart
+                fig_vendor = px.pie(
+                    cogs_by_vendor,
+                    values='weekly_cogs',
+                    names='vendor',
+                    title='Weekly COGS Distribution by Vendor',
+                    hole=0.4
+                )
+                fig_vendor.update_traces(textposition='inside', textinfo='percent+label')
+                fig_vendor.update_layout(height=400)
+                st.plotly_chart(fig_vendor, use_container_width=True)
+
+                # Show detailed table
+                with st.expander("📋 Detailed Vendor Breakdown", expanded=False):
+                    st.dataframe(
+                        cogs_by_vendor.style.format({
+                            'weekly_cogs': '${:,.2f}',
+                            'avg_weekly_cogs_4wk': '${:,.2f}',
+                            'inventory_value': '${:,.2f}',
+                            'cogs_ytd': '${:,.2f}'
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+            st.markdown("---")
+
+            # Section 4: Top Items by COGS
+            st.markdown("### 🔝 Top 10 Highest COGS Items")
+
+            # Filter items with cost data and sort by weekly_cogs
+            items_with_cogs = features_df[features_df['weekly_cogs'].notna()].copy()
+            items_with_cogs = items_with_cogs.sort_values('weekly_cogs', ascending=False).head(10)
+
+            if not items_with_cogs.empty:
+                # Calculate percentage of total
+                total_cogs = cogs_summary['total_weekly_cogs']
+                items_with_cogs['pct_of_total'] = (items_with_cogs['weekly_cogs'] / total_cogs * 100).round(1)
+
+                # Display table
+                display_cols = ['item_id', 'last_week_usage', 'unit_cost', 'weekly_cogs', 'pct_of_total']
+                display_df = items_with_cogs[display_cols].copy()
+                display_df.columns = ['Item', 'Usage', 'Unit Cost', 'COGS', '% of Total']
+
+                st.dataframe(
+                    display_df.style.format({
+                        'Usage': '{:.2f}',
+                        'Unit Cost': '${:.2f}',
+                        'COGS': '${:.2f}',
+                        '% of Total': '{:.1f}%'
+                    }),
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+            # Export option
+            st.markdown("---")
+            csv_export = features_df[['item_id', 'unit_cost', 'weekly_cogs', 'avg_weekly_cogs_4wk', 'inventory_value', 'cogs_ytd']].to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Download COGS Data as CSV",
+                data=csv_export,
+                file_name="cogs_analysis.csv",
+                mime="text/csv"
+            )
+
+    # --- TAB 6: POUR COST ANALYSIS ---
+    with tab_pour_cost:
+        st.subheader("📊 Pour Cost & Profitability Analysis")
+        st.markdown("Analyze pour cost percentages, shrinkage, and variance between theoretical and actual usage.")
+
+        # Check if both BEVWEEKLY and Sales Mix are uploaded
+        st.info("📤 Upload a Sales Mix CSV file to calculate pour cost and variance analysis.")
+
+        sales_mix_file = st.file_uploader(
+            "Upload Sales Mix CSV",
+            type="csv",
+            key="pour_cost_sales_mix_upload"
+        )
+
+        if sales_mix_file is not None:
+            try:
+                # Parse sales mix
+                sales_df = parse_sales_mix_csv(sales_mix_file)
+
+                # Calculate theoretical usage and revenue
+                usage_results, unmatched, total_revenue = aggregate_all_usage(sales_df)
+
+                # Calculate theoretical COGS
+                theoretical_cogs = calculate_theoretical_cogs(usage_results, dataset)
+
+                # Calculate pour cost
+                pour_cost_results = calculate_pour_cost(theoretical_cogs, total_revenue)
+
+                # Section 1: Overall Pour Cost
+                st.markdown("### 🎯 Overall Pour Cost")
+
+                col1, col2, col3, col4 = st.columns(4)
+
+                with col1:
+                    pour_pct = pour_cost_results['overall_pour_cost_pct']
+                    status_color = "🟢" if pour_pct <= 25 else "🟡" if pour_pct <= 30 else "🔴"
+                    st.metric(
+                        "Overall Pour Cost",
+                        f"{pour_pct:.1f}%",
+                        help="COGS / Revenue × 100"
+                    )
+                    st.markdown(f"{status_color} {'On Target' if pour_pct <= 25 else 'Warning' if pour_pct <= 30 else 'Critical'}")
+
+                with col2:
+                    st.metric(
+                        "Total Revenue",
+                        f"${total_revenue:,.2f}",
+                        help="Net revenue from sales"
+                    )
+
+                with col3:
+                    st.metric(
+                        "Total COGS",
+                        f"${pour_cost_results['total_cogs']:,.2f}",
+                        help="Total cost of goods sold"
+                    )
+
+                with col4:
+                    st.metric(
+                        "Gross Profit",
+                        f"${pour_cost_results['gross_profit']:,.2f}",
+                        help="Revenue - COGS"
+                    )
+
+                st.markdown("---")
+
+                # Section 2: Pour Cost by Category
+                st.markdown("### 📊 Pour Cost by Category")
+
+                if pour_cost_results['pour_cost_by_category']:
+                    # Convert to dataframe for display
+                    pour_cat_data = []
+                    for cat, data in pour_cost_results['pour_cost_by_category'].items():
+                        status_emoji = "✅" if data['status'] == 'on_target' else "⚠️" if data['status'] == 'warning' else "🔴"
+                        pour_cat_data.append({
+                            'Category': cat,
+                            'Revenue': data['revenue'],
+                            'COGS': data['cogs'],
+                            'Pour Cost %': data['pour_cost_pct'],
+                            'Target %': data['target'],
+                            'Status': f"{status_emoji} {data['status'].replace('_', ' ').title()}"
+                        })
+
+                    pour_cat_df = pd.DataFrame(pour_cat_data)
+                    pour_cat_df = pour_cat_df.sort_values('Pour Cost %', ascending=False)
+
+                    st.dataframe(
+                        pour_cat_df.style.format({
+                            'Revenue': '${:,.2f}',
+                            'COGS': '${:,.2f}',
+                            'Pour Cost %': '{:.1f}%',
+                            'Target %': '{:.0f}%'
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.info("Pour cost by category data not available. Revenue breakdown by category is needed.")
+
+                st.markdown("---")
+
+                # Section 3: Variance Analysis
+                st.markdown("### 📉 Variance Analysis (Theoretical vs Actual)")
+
+                # Get actual usage from most recent week
+                most_recent_week = dataset.records.sort_values('week_date', ascending=False)
+                actual_usage_df = most_recent_week.groupby('item_id')['usage'].first().reset_index()
+
+                # Calculate variance
+                variance_df = calculate_variance_analysis(usage_results, actual_usage_df, dataset)
+
+                if not variance_df.empty:
+                    st.markdown("**Top 20 Variances (by absolute dollar amount)**")
+
+                    # Show top 20 variances
+                    top_variances = variance_df.head(20)
+
+                    # Add status icons
+                    top_variances_display = top_variances.copy()
+                    top_variances_display['Status'] = top_variances_display['severity'].map({
+                        'normal': '✅ Normal',
+                        'warning': '⚠️ Monitor',
+                        'critical': '🔴 Investigate'
+                    })
+
+                    display_cols = ['item_id', 'category', 'theoretical', 'actual', 'variance_units', 'variance_dollars', 'variance_pct', 'Status']
+                    display_df = top_variances_display[display_cols].copy()
+                    display_df.columns = ['Item', 'Category', 'Theoretical', 'Actual', 'Variance (Units)', 'Variance ($)', 'Variance %', 'Status']
+
+                    st.dataframe(
+                        display_df.style.format({
+                            'Theoretical': '{:.2f}',
+                            'Actual': '{:.2f}',
+                            'Variance (Units)': '{:.2f}',
+                            'Variance ($)': '${:.2f}',
+                            'Variance %': '{:.1f}%'
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                    # Shrinkage report
+                    st.markdown("---")
+                    st.markdown("### 🚨 Shrinkage Report (Items with Loss)")
+
+                    shrinkage_df = generate_shrinkage_report(variance_df, top_n=10)
+
+                    if not shrinkage_df.empty:
+                        shrinkage_display = shrinkage_df[['item_id', 'category', 'theoretical', 'actual', 'variance_units', 'variance_dollars', 'variance_pct']].copy()
+                        shrinkage_display.columns = ['Item', 'Category', 'Theoretical', 'Actual', 'Over-Usage', 'Loss ($)', 'Loss %']
+
+                        st.dataframe(
+                            shrinkage_display.style.format({
+                                'Theoretical': '{:.2f}',
+                                'Actual': '{:.2f}',
+                                'Over-Usage': '{:.2f}',
+                                'Loss ($)': '${:.2f}',
+                                'Loss %': '{:.1f}%'
+                            }),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+
+                        # Calculate total shrinkage
+                        total_shrinkage = shrinkage_df['variance_dollars'].sum()
+                        st.error(f"**Total Shrinkage (Loss): ${total_shrinkage:,.2f}**")
+                    else:
+                        st.success("✅ No significant shrinkage detected!")
+
+                    # Export variance data
+                    st.markdown("---")
+                    csv_export = variance_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="Download Variance Analysis as CSV",
+                        data=csv_export,
+                        file_name="variance_analysis.csv",
+                        mime="text/csv"
+                    )
+
+                # Show unmatched items
+                if unmatched:
+                    with st.expander(f"⚠️ Unmatched Items ({len(unmatched)})", expanded=False):
+                        st.markdown("The following items from Sales Mix could not be matched to inventory items:")
+                        for item in unmatched[:20]:  # Show first 20
+                            st.text(f"• {item}")
+                        if len(unmatched) > 20:
+                            st.text(f"... and {len(unmatched) - 20} more")
+
+            except Exception as e:
+                st.error(f"Error processing Sales Mix file: {e}")
+                import traceback
+                st.code(traceback.format_exc())
+        else:
+            st.info("👆 Upload a Sales Mix CSV file to see pour cost analysis and variance reports.")
