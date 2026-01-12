@@ -114,10 +114,14 @@ def create_dataset_from_excel(uploaded_files) -> InventoryDataset:
                         df.columns[0]: 'Item',
                         df.columns[1]: 'Unit of Measure',
                         df.columns[2]: 'Unit Cost',
-                        df.columns[9]: 'Usage',
-                        df.columns[7]: 'End Inventory'
+                        df.columns[3]: 'BEG INV',
+                        df.columns[4]: 'BEG $',
+                        df.columns[5]: 'PURCH QTY',
+                        df.columns[6]: 'PUR $',
+                        df.columns[7]: 'End Inventory',
+                        df.columns[9]: 'Usage'
                     })
-                    df = df[['Item', 'Unit of Measure', 'Unit Cost', 'Usage', 'End Inventory']]
+                    df = df[['Item', 'Unit of Measure', 'Unit Cost', 'BEG INV', 'BEG $', 'PURCH QTY', 'PUR $', 'End Inventory', 'Usage']]
                     df['Week'] = sheet
                     df['Source File'] = uploaded_file.name
 
@@ -134,7 +138,7 @@ def create_dataset_from_excel(uploaded_files) -> InventoryDataset:
         # Return empty dataset
         return InventoryDataset(
             items={},
-            records=pd.DataFrame(columns=['item_id', 'week_date', 'on_hand', 'usage', 'week_name', 'source_file', 'unit_cost', 'usage_cost', 'inventory_value'])
+            records=pd.DataFrame(columns=['item_id', 'week_date', 'on_hand', 'usage', 'week_name', 'source_file', 'unit_cost', 'beg_inv_value', 'purchases_value', 'beg_inv_qty', 'purchases_qty', 'end_inv_value', 'usage_cost', 'inventory_value'])
         )
 
     # Combine all records
@@ -150,6 +154,12 @@ def create_dataset_from_excel(uploaded_files) -> InventoryDataset:
     # Process cost data
     full_df['Unit Cost'] = pd.to_numeric(full_df['Unit Cost'], errors='coerce')
     full_df['Unit of Measure'] = full_df['Unit of Measure'].astype(str).str.strip()
+
+    # Process COGS-related columns
+    full_df['BEG $'] = pd.to_numeric(full_df['BEG $'], errors='coerce').fillna(0)
+    full_df['PUR $'] = pd.to_numeric(full_df['PUR $'], errors='coerce').fillna(0)
+    full_df['BEG INV'] = pd.to_numeric(full_df['BEG INV'], errors='coerce').fillna(0)
+    full_df['PURCH QTY'] = pd.to_numeric(full_df['PURCH QTY'], errors='coerce').fillna(0)
 
     # Remove duplicates (keep last occurrence for overlapping weeks)
     full_df = full_df.drop_duplicates(subset=['Item', 'Date'], keep='last')
@@ -177,11 +187,17 @@ def create_dataset_from_excel(uploaded_files) -> InventoryDataset:
         'Usage': 'usage',
         'Week': 'week_name',
         'Source File': 'source_file',
-        'Unit Cost': 'unit_cost'
-    })[['item_id', 'week_date', 'on_hand', 'usage', 'week_name', 'source_file', 'unit_cost']]
+        'Unit Cost': 'unit_cost',
+        'BEG $': 'beg_inv_value',
+        'PUR $': 'purchases_value',
+        'BEG INV': 'beg_inv_qty',
+        'PURCH QTY': 'purchases_qty'
+    })[['item_id', 'week_date', 'on_hand', 'usage', 'week_name', 'source_file', 'unit_cost', 'beg_inv_value', 'purchases_value', 'beg_inv_qty', 'purchases_qty']]
 
-    # Calculate cost metrics for each record
-    records_df['usage_cost'] = records_df['usage'] * records_df['unit_cost']
-    records_df['inventory_value'] = records_df['on_hand'] * records_df['unit_cost']
+    # Calculate cost metrics for each record using TRADITIONAL COGS FORMULA
+    # COGS = Beginning Inventory $ + Purchases $ - Ending Inventory $
+    records_df['end_inv_value'] = records_df['on_hand'] * records_df['unit_cost']
+    records_df['usage_cost'] = records_df['beg_inv_value'] + records_df['purchases_value'] - records_df['end_inv_value']
+    records_df['inventory_value'] = records_df['end_inv_value']
 
     return InventoryDataset(items=items, records=records_df)

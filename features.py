@@ -141,17 +141,29 @@ def compute_features(
         # Check for zero usage items (possible discontinued items)
         is_zero_usage = (usage.tail(4).sum() == 0) if len(usage) >= 4 else False
 
-        # COGS calculations
-        weekly_cogs = (last_week_usage * unit_cost) if (unit_cost and pd.notna(last_week_usage)) else None
-        avg_weekly_cogs_4wk = (last_4.mean() * unit_cost) if (unit_cost and not last_4.empty) else None
+        # COGS calculations using TRADITIONAL FORMULA (from usage_cost in records)
+        # usage_cost is calculated as: BEG $ + PUR $ - END $
+        if 'usage_cost' in group.columns:
+            # Use the traditional COGS formula from records
+            weekly_cogs = group['usage_cost'].iloc[-1] if not group.empty else None
+            avg_weekly_cogs_4wk = group['usage_cost'].tail(4).mean() if len(group) >= 4 else None
+        else:
+            # Fallback to old calculation if usage_cost not available
+            weekly_cogs = (last_week_usage * unit_cost) if (unit_cost and pd.notna(last_week_usage)) else None
+            avg_weekly_cogs_4wk = (last_4.mean() * unit_cost) if (unit_cost and not last_4.empty) else None
+
+        # Inventory value (ending inventory × unit cost)
         inventory_value = (on_hand_val * unit_cost) if unit_cost else None
 
         # Year-to-date COGS (sum of all usage_cost in most recent year)
         cogs_ytd = None
-        if pd.api.types.is_datetime64_any_dtype(dates) and not dates.empty and unit_cost:
+        if pd.api.types.is_datetime64_any_dtype(dates) and not dates.empty:
             most_recent_year = dates.max().year
-            ytd_usage = group[dates.dt.year == most_recent_year]['usage'].sum()
-            cogs_ytd = ytd_usage * unit_cost
+            if 'usage_cost' in group.columns:
+                cogs_ytd = group[dates.dt.year == most_recent_year]['usage_cost'].sum()
+            elif unit_cost:
+                ytd_usage = group[dates.dt.year == most_recent_year]['usage'].sum()
+                cogs_ytd = ytd_usage * unit_cost
 
         return pd.Series({
             'on_hand': round(on_hand_val, 2),
