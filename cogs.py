@@ -55,9 +55,9 @@ def calculate_cogs_by_category(dataset: InventoryDataset, features_df: pd.DataFr
         'cogs_ytd': 'sum'
     }).reset_index()
 
-    # Round values
+    # Convert to numeric and round values (handles object dtype from None values)
     for col in ['weekly_cogs', 'avg_weekly_cogs_4wk', 'inventory_value', 'cogs_ytd']:
-        cogs_by_cat[col] = cogs_by_cat[col].round(2)
+        cogs_by_cat[col] = pd.to_numeric(cogs_by_cat[col], errors='coerce').fillna(0).round(2)
 
     # Sort by weekly_cogs descending
     cogs_by_cat = cogs_by_cat.sort_values('weekly_cogs', ascending=False)
@@ -90,9 +90,9 @@ def calculate_cogs_by_vendor(dataset: InventoryDataset, features_df: pd.DataFram
         'cogs_ytd': 'sum'
     }).reset_index()
 
-    # Round values
+    # Convert to numeric and round values (handles object dtype from None values)
     for col in ['weekly_cogs', 'avg_weekly_cogs_4wk', 'inventory_value', 'cogs_ytd']:
-        cogs_by_vendor[col] = cogs_by_vendor[col].round(2)
+        cogs_by_vendor[col] = pd.to_numeric(cogs_by_vendor[col], errors='coerce').fillna(0).round(2)
 
     # Sort by weekly_cogs descending
     cogs_by_vendor = cogs_by_vendor.sort_values('weekly_cogs', ascending=False)
