@@ -461,7 +461,7 @@ if uploaded_files:
                         st.code('\n'.join([f'"{item}"' for item in sorted(liquor_items)]))
 
                     # Calculate theoretical usage
-                    all_usage, unmatched_items = aggregate_all_usage(sales_df)
+                    all_usage, unmatched_items, total_revenue = aggregate_all_usage(sales_df)
                     
                     usage_data = []
                     for inv_item, data in all_usage.items():
