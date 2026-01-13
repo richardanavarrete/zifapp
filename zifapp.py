@@ -1553,73 +1553,85 @@ if uploaded_files:
     with tab_excess_inventory:
         st.subheader("📦 Excess Inventory Analysis")
         st.markdown("Identify items with inventory levels exceeding suggested par levels based on average weekly usage.")
-        
+
         st.markdown("---")
-        
-        # Week Range Slider
-        st.markdown("### 📊 Average Usage Calculation")
-        col1, col2 = st.columns([3, 1])
-        
+
+        # Settings
+        st.markdown("### ⚙️ Calculation Settings")
+        col1, col2 = st.columns(2)
+
         with col1:
-            weeks_for_average = st.slider(
-                "Select number of weeks to average for usage calculation:",
-                min_value=2,
-                max_value=12,
-                value=4,
-                step=1,
-                help="Choose how many recent weeks to include in the average usage calculation. More weeks = more stable average, fewer weeks = more responsive to recent changes."
+            # Average usage method selector
+            avg_method = st.selectbox(
+                "Average Usage Calculation:",
+                options=['4wk', '2wk', '10wk', 'ytd'],
+                index=0,
+                help="Select which averaging period to use for calculating weekly usage",
+                key="excess_avg_method"
             )
-        
+
+            # Map to features_df column names
+            avg_column_map = {
+                '2wk': 'avg_2wk',
+                '4wk': 'avg_4wk',
+                '10wk': 'avg_10wk',
+                'ytd': 'avg_ytd'
+            }
+            usage_column = avg_column_map[avg_method]
+
         with col2:
-            st.metric("Weeks Selected", f"{weeks_for_average} weeks", help="Number of recent weeks used to calculate average weekly usage")
-        
+            # Target weeks override slider
+            target_weeks_override = st.slider(
+                "Target Weeks (Par Level):",
+                min_value=1.0,
+                max_value=8.0,
+                value=0.0,
+                step=0.5,
+                help="Override default target weeks. Set to 0 to use category defaults (Draft Beer=2wk, Liquor=4wk, etc.)",
+                key="excess_target_weeks"
+            )
+
         st.markdown("---")
-        
+
         # Initialize policy targets
         targets = OrderTargets()
-        
+
         # Calculate excess inventory
         excess_items = []
-        
+
         for _, row in features_df.iterrows():
             item_id = row['item_id']
             item = dataset.get_item(item_id)
-            
+
             if not item:
                 continue
-            
-            # Get usage data from dataset records
-            item_records = dataset.records[dataset.records['item_id'] == item_id].copy()
-            
-            if item_records.empty:
+
+            # Get average usage from selected column
+            avg_weekly_usage = row.get(usage_column, 0)
+            if pd.isna(avg_weekly_usage) or avg_weekly_usage <= 0:
                 continue
-            
-            # Calculate average usage for selected week range
-            recent_records = item_records.tail(weeks_for_average)
-            avg_weekly_usage = recent_records['usage'].mean() if not recent_records.empty else 0
-            
-            # Skip items with no usage
-            if avg_weekly_usage <= 0:
-                continue
-            
+
             # Get current inventory
             on_hand = row['on_hand']
             unit_cost = item.unit_cost if item.unit_cost else 0
-            
-            # Get target weeks for this item
-            target_weeks = targets.get_target_weeks(item_id, item.category)
-            
+
+            # Get target weeks - use override if set, otherwise use category default
+            if target_weeks_override > 0:
+                target_weeks = target_weeks_override
+            else:
+                target_weeks = targets.get_target_weeks(item_id, item.category)
+
             # Calculate suggested par level
             suggested_par = target_weeks * avg_weekly_usage
-            
+
             # Calculate excess
             excess_units = max(0, on_hand - suggested_par)
             excess_value = excess_units * unit_cost
-            
+
             # Only include items with significant excess (> 0.5 units or > $5)
             if excess_units > 0.5 or excess_value > 5:
                 starting_inv_value = on_hand * unit_cost
-                
+
                 excess_items.append({
                     'Product': item_id,
                     'Category': item.category,
@@ -1633,74 +1645,93 @@ if uploaded_files:
                     'Excess Inv Units': round(excess_units, 1),
                     'Excess Inv Value': round(excess_value, 2)
                 })
-        
+
         # Create DataFrame and sort by excess value (highest first)
         if excess_items:
             excess_df = pd.DataFrame(excess_items)
             excess_df = excess_df.sort_values('Excess Inv Value', ascending=False)
-            
-            # Summary metrics
-            st.markdown("### 📈 Summary")
+
+            # Filters - positioned BEFORE summary so summary updates with filters
+            st.markdown("### 🔍 Filters")
+            col1, col2 = st.columns(2)
+
+            with col1:
+                all_categories = ['All'] + sorted(excess_df['Category'].unique().tolist())
+                selected_category = st.selectbox(
+                    "Category:",
+                    options=all_categories,
+                    key="excess_category_filter"
+                )
+
+            with col2:
+                all_vendors = ['All'] + sorted(excess_df['Vendor'].unique().tolist())
+                selected_vendor = st.selectbox(
+                    "Vendor:",
+                    options=all_vendors,
+                    key="excess_vendor_filter"
+                )
+
+            # Filter dataframe by category and vendor
+            filtered_df = excess_df.copy()
+
+            if selected_category != 'All':
+                filtered_df = filtered_df[filtered_df['Category'] == selected_category]
+
+            if selected_vendor != 'All':
+                filtered_df = filtered_df[filtered_df['Vendor'] == selected_vendor]
+
+            st.markdown("---")
+
+            # Calculate totals AFTER filtering - so summary updates with filters
+            total_items_with_excess = len(filtered_df)
+            total_excess_value = filtered_df['Excess Inv Value'].sum()
+            total_inventory_value = filtered_df['Starting Inv Value'].sum()
+            excess_percentage = (total_excess_value / total_inventory_value * 100) if total_inventory_value > 0 else 0
+
+            # Prominent Total Excess Value Display (updates with filters)
+            st.markdown("### 💰 Total Excess Inventory Value")
             col1, col2, col3, col4 = st.columns(4)
-            
+
             with col1:
                 st.metric(
                     "Items with Excess",
-                    f"{len(excess_df):,}",
-                    help="Number of items with inventory above suggested par level"
+                    f"{total_items_with_excess:,}",
+                    help="Number of items with inventory above suggested par level (filtered)"
                 )
-            
+
             with col2:
-                total_excess_value = excess_df['Excess Inv Value'].sum()
                 st.metric(
-                    "Total Excess Value",
+                    "🔴 Total Excess Value",
                     f"${total_excess_value:,.2f}",
-                    help="Total dollar value of excess inventory sitting on shelves"
+                    help="Total dollar value of excess inventory (filtered)"
                 )
-            
+
             with col3:
-                total_inventory_value = excess_df['Starting Inv Value'].sum()
                 st.metric(
                     "Total Inventory Value",
                     f"${total_inventory_value:,.2f}",
-                    help="Total value of all items shown in this report"
+                    help="Total value of all items shown (filtered)"
                 )
-            
+
             with col4:
-                excess_percentage = (total_excess_value / total_inventory_value * 100) if total_inventory_value > 0 else 0
                 st.metric(
                     "Excess %",
                     f"{excess_percentage:.1f}%",
-                    help="Percentage of inventory that is excess"
+                    help="Percentage of inventory that is excess (filtered)"
                 )
-            
+
             st.markdown("---")
-            
-            # Category filter
-            st.markdown("### 🔍 Filter by Category")
-            all_categories = ['All'] + sorted(excess_df['Category'].unique().tolist())
-            selected_category = st.selectbox(
-                "Category:",
-                options=all_categories,
-                key="excess_category_filter"
-            )
-            
-            # Filter dataframe
-            if selected_category != 'All':
-                filtered_df = excess_df[excess_df['Category'] == selected_category].copy()
-            else:
-                filtered_df = excess_df.copy()
-            
+
             # Display settings
             col1, col2 = st.columns([2, 1])
             with col1:
                 st.markdown(f"### 📦 Top Items with Excess Inventory ({len(filtered_df)} items)")
             with col2:
                 show_all = st.checkbox("Show all items", value=False, key="show_all_excess")
-            
+
             # Limit to top 20 unless show_all is checked
             display_df = filtered_df if show_all else filtered_df.head(20)
-            
+
             # Format and display table
             st.dataframe(
                 display_df.style.format({
@@ -1717,33 +1748,41 @@ if uploaded_files:
                 hide_index=True,
                 height=600
             )
-            
+
             # Export to CSV
             st.markdown("---")
+            target_label = f"{target_weeks_override:.1f}wk" if target_weeks_override > 0 else "default"
             csv_export = filtered_df.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Download Excess Inventory Report as CSV",
                 data=csv_export,
-                file_name=f"excess_inventory_{weeks_for_average}wk_avg.csv",
+                file_name=f"excess_inventory_{avg_method}_target_{target_label}.csv",
                 mime="text/csv"
             )
-            
+
             # Recommendations
             st.markdown("---")
             st.markdown("### 💡 Recommendations")
+            target_desc = f"**{target_weeks_override:.1f} weeks**" if target_weeks_override > 0 else "**category defaults**"
             st.info(f"""
+            **Current Settings:**
+            - Average Usage: **{avg_method}**
+            - Target Weeks: {target_desc}
+
             **Action Items:**
             1. **Reduce Orders**: Consider reducing or skipping orders for items with high excess inventory
             2. **Run Promotions**: Feature high-excess items in specials or happy hour to move inventory
-            3. **Adjust Par Levels**: Review if target weeks should be lowered for consistently overstocked items
+            3. **Adjust Par Levels**: Use the Target Weeks slider to see how different par levels affect excess
             4. **Check for Changes**: Items may have had a recent drop in sales - investigate why
-            
-            **Using the {weeks_for_average}-week average:**
-            - Adjust the slider above to see how excess changes with different averaging periods
-            - Shorter periods (2-4 weeks) are more responsive to recent sales changes
-            - Longer periods (8-12 weeks) provide more stable recommendations
+            5. **Vendor Analysis**: Filter by vendor to identify which suppliers contribute most to excess inventory
+
+            **Tips:**
+            - Try different averaging methods (2wk, 4wk, 10wk) to see how responsive vs stable averages affect excess calculations
+            - Adjust Target Weeks slider to simulate tighter (lower) or looser (higher) par levels
+            - Filter by vendor to focus on specific supplier relationships
+            - Export filtered data to share with purchasing team
             """)
             
         else:
             st.success("✅ No excess inventory detected! All items are at or below suggested par levels.")
-            st.info(f"Try adjusting the week range slider to see if different averaging periods identify any excess inventory.")
+            st.info(f"Try adjusting the averaging method or Target Weeks slider to see how different settings affect excess inventory calculations.")
