@@ -21,6 +21,7 @@ from cogs import (
     get_cogs_summary,
     calculate_item_profitability
 )
+import cache_manager
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
@@ -236,12 +237,27 @@ def load_cogs_data(uploaded_files):
 
 
 # --- Main App UI ---
-uploaded_files = st.file_uploader(
+
+# Initialize session_state for uploaded files
+if 'bevweekly_files' not in st.session_state:
+    st.session_state.bevweekly_files = None
+if 'sales_mix_file' not in st.session_state:
+    st.session_state.sales_mix_file = None
+
+# File uploader returns new files on change, None if unchanged
+uploaded_files_widget = st.file_uploader(
     "Upload your BEVWEEKLY Excel Files (you can select multiple years)",
     type="xlsx",
     accept_multiple_files=True,
     help="Hold Ctrl/Cmd to select multiple files, or drag & drop multiple files. Upload multiple years (e.g., 2026, 2025, 2024) to see historical trends."
 )
+
+# Update session_state if new files uploaded
+if uploaded_files_widget is not None:
+    st.session_state.bevweekly_files = uploaded_files_widget
+
+# Work with session_state version
+uploaded_files = st.session_state.bevweekly_files
 
 if uploaded_files:
     # Show file summary
@@ -262,11 +278,71 @@ if uploaded_files:
         smoothing_level = st.slider("Smoothing Level (α)", 0.1, 0.9, 0.3, 0.05)
         trend_threshold = st.slider("Trend Threshold", 0.05, 0.30, 0.10, 0.05)
 
-    try:
-        summary_df, vendor_map, category_map, full_df = load_and_process_data(uploaded_files, smoothing_level, trend_threshold)
+    # Sales Mix upload (shared across Sales Mix Analysis and Pour Cost tabs)
+    st.markdown("---")
+    st.subheader("📊 Sales Mix Data (Optional)")
+    st.markdown("Upload your Sales Mix CSV for Pour Cost & Variance Analysis. This data will be available in both the Sales Mix Analysis and Pour Cost tabs.")
 
-        # Load COGS data using new models
-        dataset, features_df = load_cogs_data(uploaded_files)
+    sales_mix_widget = st.file_uploader(
+        "Upload Sales Mix CSV",
+        type="csv",
+        key="sales_mix_upload_main",
+        help="Upload your GEMpos Sales Mix CSV file to calculate theoretical usage and pour costs."
+    )
+
+    if sales_mix_widget is not None:
+        st.session_state.sales_mix_file = sales_mix_widget
+        st.success(f"✅ Sales Mix file uploaded: {sales_mix_widget.name}")
+
+    # Check for cached data
+    st.markdown("---")
+    file_hash = cache_manager.get_file_hash(uploaded_files)
+    use_cache = False
+    cached_data = None
+
+    if cache_manager.is_cached(file_hash, 'bevweekly'):
+        cache_info = cache_manager.get_cache_info()
+        use_cache = st.checkbox(
+            "📦 Found cached data from a previous session. Load from cache?",
+            value=True,
+            help=f"Skip parsing and load pre-processed data (faster). Cache directory: {cache_info['cache_dir']}"
+        )
+
+        if use_cache:
+            with st.spinner("Loading from cache..."):
+                cached_data = cache_manager.load_from_cache(file_hash, 'bevweekly')
+
+            if cached_data:
+                st.success(f"✅ Loaded from cache! (Cached at: {cached_data.get('cached_at', 'unknown')})")
+            else:
+                st.warning("⚠️ Cache load failed. Processing fresh data...")
+                use_cache = False
+
+    try:
+        # Use cached data if available, otherwise process fresh
+        if use_cache and cached_data:
+            summary_df = cached_data['summary_df']
+            full_df = cached_data['full_df']
+            features_df = cached_data['features_df']
+            dataset = cached_data['dataset']
+            vendor_map = cached_data['vendor_map']
+            category_map = cached_data['category_map']
+        else:
+            # Process data fresh
+            summary_df, vendor_map, category_map, full_df = load_and_process_data(uploaded_files, smoothing_level, trend_threshold)
+
+            # Load COGS data using new models
+            dataset, features_df = load_cogs_data(uploaded_files)
+
+            # Save to cache for next time
+            cache_manager.save_to_cache(file_hash, {
+                'summary_df': summary_df,
+                'full_df': full_df,
+                'features_df': features_df,
+                'dataset': dataset,
+                'vendor_map': vendor_map,
+                'category_map': category_map
+            }, 'bevweekly')
 
         # Show combined data summary
         if not full_df.empty and 'Date' in full_df.columns:
@@ -444,12 +520,16 @@ if uploaded_files:
     with tab_sales_mix:
         st.subheader("📈 Sales Mix Analysis: Theoretical vs Actual Usage")
         st.markdown("""
-        Upload your Sales Mix CSV from GEMpos to calculate theoretical usage based on what was sold.
-        Compare against your actual inventory usage to identify variances (waste, over-pouring, theft, etc.)
+        Compare your actual inventory usage against theoretical usage based on sales data.
+        Identify variances that may indicate waste, over-pouring, theft, or other issues.
         """)
-        
-        sales_mix_file = st.file_uploader("Upload Sales Mix CSV", type="csv", key="sales_mix_upload")
-        
+
+        # Get sales_mix_file from session_state (uploaded at top level)
+        sales_mix_file = st.session_state.sales_mix_file
+
+        if sales_mix_file is None:
+            st.info("⬆️ Please upload a Sales Mix CSV file at the top of the page to use this feature.")
+
         if sales_mix_file:
             try:
                 sales_df = parse_sales_mix_csv(sales_mix_file)
@@ -956,14 +1036,11 @@ if uploaded_files:
         st.subheader("📊 Pour Cost & Profitability Analysis")
         st.markdown("Analyze pour cost percentages, shrinkage, and variance between theoretical and actual usage.")
 
-        # Check if both BEVWEEKLY and Sales Mix are uploaded
-        st.info("📤 Upload a Sales Mix CSV file to calculate pour cost and variance analysis.")
+        # Get sales_mix_file from session_state (uploaded at top level)
+        sales_mix_file = st.session_state.sales_mix_file
 
-        sales_mix_file = st.file_uploader(
-            "Upload Sales Mix CSV",
-            type="csv",
-            key="pour_cost_sales_mix_upload"
-        )
+        if sales_mix_file is None:
+            st.info("⬆️ Please upload a Sales Mix CSV file at the top of the page to calculate pour cost and variance analysis.")
 
         if sales_mix_file is not None:
             try:
