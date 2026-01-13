@@ -592,8 +592,10 @@ def aggregate_all_usage(sales_df):
     all_results = {}
     all_unmatched = []
 
-    # Calculate total revenue from Net_Amount column
-    total_revenue = sales_df['Net_Amount'].sum() if 'Net_Amount' in sales_df.columns else 0.0
+    # Calculate total revenue from Net_Amount column - ONLY beverage categories (exclude Food)
+    beverage_categories = ['Draft', 'Bottle', 'Liquor', 'Wine']
+    beverage_sales = sales_df[sales_df['Category'].isin(beverage_categories)]
+    total_revenue = beverage_sales['Net_Amount'].sum() if 'Net_Amount' in sales_df.columns else 0.0
 
     # Draft beer
     draft_results, draft_unmatched = calculate_draft_beer_usage(sales_df)
