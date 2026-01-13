@@ -154,16 +154,20 @@ def run_agent(
     )
 
     # Step 6: Identify items needing recount with detailed information
+    # Create lookup dict for efficient access to features
+    features_lookup = features_df.set_index('item_id')['last_week_usage'].to_dict()
+    
     items_needing_recount = []
     for _, row in recommendations_df.iterrows():
         reason_codes = row['reason_codes']
         if any(code.startswith('DATA_ISSUE') for code in reason_codes):
+            item_id = row['item_id']
             # Build detailed recount info
             recount_info = {
-                'item_id': row['item_id'],
+                'item_id': item_id,
                 'on_hand': row['on_hand'],
                 'avg_usage': row['avg_usage'],
-                'last_week_usage': features_df[features_df['item_id'] == row['item_id']]['last_week_usage'].values[0] if row['item_id'] in features_df['item_id'].values else None,
+                'last_week_usage': features_lookup.get(item_id),
                 'reason_codes': [code for code in reason_codes if code.startswith('DATA_ISSUE')],
                 'notes': row['notes'],
                 'expected_on_hand': None,  # Will be calculated based on issue type

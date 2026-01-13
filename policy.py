@@ -11,6 +11,11 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass, field
 from models import InventoryDataset
 
+# Constants for keg adjustment scoring
+MAX_WEEKS_SCORE = 10  # Maximum weeks on hand for scoring purposes
+ALREADY_ORDERING_BONUS = 5  # Bonus score for items already being ordered
+TRENDING_UP_BONUS = 3  # Bonus score for items trending upward
+
 
 @dataclass
 class OrderTargets:
@@ -390,10 +395,10 @@ def get_keg_adjustment_suggestions(
     # Lower weeks_on_hand = higher priority
     # Items already being ordered get bonus
     vendor_items['_score'] = (
-        (10 - vendor_items['weeks_on_hand'].clip(upper=10)) +  # Lower weeks = higher score
-        (vendor_items['recommended_qty'] > 0).astype(int) * 5 +  # Bonus for already ordering
+        (MAX_WEEKS_SCORE - vendor_items['weeks_on_hand'].clip(upper=MAX_WEEKS_SCORE)) +  # Lower weeks = higher score
+        (vendor_items['recommended_qty'] > 0).astype(int) * ALREADY_ORDERING_BONUS +  # Bonus for already ordering
         vendor_items['reason_codes'].apply(
-            lambda x: 3 if 'TRENDING_UP' in x else 0
+            lambda x: TRENDING_UP_BONUS if 'TRENDING_UP' in x else 0
         )
     )
 
