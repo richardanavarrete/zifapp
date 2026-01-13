@@ -13,6 +13,24 @@ from typing import Dict, Tuple, Optional
 from models import InventoryDataset
 
 
+# Category mapping - maps item-level categories to spreadsheet-level categories
+CATEGORY_CONSOLIDATION = {
+    "Whiskey": "Liquor",
+    "Vodka": "Liquor",
+    "Gin": "Liquor",
+    "Tequila": "Liquor",
+    "Rum": "Liquor",
+    "Scotch": "Liquor",
+    "Well": "Liquor",
+    "Liqueur": "Liquor",
+    "Cordials": "Liquor",
+    "Wine": "Wine",
+    "Draft Beer": "Draft Beer",
+    "Bottled Beer": "Bottle Beer",
+    "Juice": "Juice",
+    "Bar Consumables": "Juice",  # Consolidate with Juice for reporting
+}
+
 # Pour cost targets by category (industry standards adjusted for Zipps)
 POUR_COST_TARGETS = {
     "Whiskey": {"target": 13, "warning": 15, "critical": 20},
@@ -30,13 +48,14 @@ POUR_COST_TARGETS = {
 }
 
 
-def calculate_cogs_by_category(dataset: InventoryDataset, features_df: pd.DataFrame) -> pd.DataFrame:
+def calculate_cogs_by_category(dataset: InventoryDataset, features_df: pd.DataFrame, consolidate: bool = True) -> pd.DataFrame:
     """
     Calculate COGS summary by category.
 
     Args:
         dataset: InventoryDataset with items
         features_df: Features dataframe with cost metrics
+        consolidate: If True, consolidate categories (Whiskey/Vodka/etc. -> Liquor)
 
     Returns:
         DataFrame with columns: category, weekly_cogs, inventory_value, cogs_ytd
@@ -46,6 +65,12 @@ def calculate_cogs_by_category(dataset: InventoryDataset, features_df: pd.DataFr
     features_with_cat['category'] = features_with_cat['item_id'].apply(
         lambda x: dataset.get_item(x).category if dataset.get_item(x) else "Unknown"
     )
+
+    # Apply consolidation mapping if requested
+    if consolidate:
+        features_with_cat['category'] = features_with_cat['category'].apply(
+            lambda x: CATEGORY_CONSOLIDATION.get(x, x)
+        )
 
     # Group by category
     cogs_by_cat = features_with_cat.groupby('category').agg({
@@ -65,13 +90,14 @@ def calculate_cogs_by_category(dataset: InventoryDataset, features_df: pd.DataFr
     return cogs_by_cat
 
 
-def calculate_cogs_by_vendor(dataset: InventoryDataset, features_df: pd.DataFrame) -> pd.DataFrame:
+def calculate_cogs_by_vendor(dataset: InventoryDataset, features_df: pd.DataFrame, include_unknown: bool = False) -> pd.DataFrame:
     """
     Calculate COGS summary by vendor.
 
     Args:
         dataset: InventoryDataset with items
         features_df: Features dataframe with cost metrics
+        include_unknown: If True, include items with "Unknown" vendor
 
     Returns:
         DataFrame with columns: vendor, weekly_cogs, inventory_value, cogs_ytd
@@ -81,6 +107,10 @@ def calculate_cogs_by_vendor(dataset: InventoryDataset, features_df: pd.DataFram
     features_with_vendor['vendor'] = features_with_vendor['item_id'].apply(
         lambda x: dataset.get_item(x).vendor if dataset.get_item(x) else "Unknown"
     )
+
+    # Filter out Unknown vendors if requested
+    if not include_unknown:
+        features_with_vendor = features_with_vendor[features_with_vendor['vendor'] != "Unknown"]
 
     # Group by vendor
     cogs_by_vendor = features_with_vendor.groupby('vendor').agg({
@@ -306,6 +336,73 @@ def generate_shrinkage_report(
         shrinkage = shrinkage.head(top_n)
 
     return shrinkage
+
+
+def calculate_item_profitability(
+    usage_results: dict,
+    theoretical_cogs: Dict[str, float],
+    dataset: InventoryDataset
+) -> pd.DataFrame:
+    """
+    Calculate profitability metrics per item.
+
+    Args:
+        usage_results: Dict from aggregate_all_usage with revenue per item
+        theoretical_cogs: Dict from calculate_theoretical_cogs
+        dataset: InventoryDataset with item metadata
+
+    Returns:
+        DataFrame with columns:
+        - item_id, category, vendor, revenue, cogs, profit, profit_margin_pct, status
+    """
+    profitability_data = []
+    theoretical_cogs_by_item = theoretical_cogs.get('theoretical_cogs_by_item', {})
+
+    for item_id, usage_data in usage_results.items():
+        revenue = usage_data.get('revenue', 0)
+        cogs = theoretical_cogs_by_item.get(item_id, 0)
+
+        # Skip items with no revenue or COGS
+        if revenue == 0 and cogs == 0:
+            continue
+
+        # Calculate profit and margin
+        profit = revenue - cogs
+        profit_margin_pct = (profit / revenue * 100) if revenue > 0 else 0
+
+        # Get item metadata
+        item = dataset.get_item(item_id)
+        category = item.category if item else "Unknown"
+        vendor = item.vendor if item else "Unknown"
+
+        # Determine status based on profit margin
+        if profit_margin_pct >= 75:
+            status = 'excellent'
+        elif profit_margin_pct >= 70:
+            status = 'good'
+        elif profit_margin_pct >= 65:
+            status = 'fair'
+        else:
+            status = 'poor'
+
+        profitability_data.append({
+            'item_id': item_id,
+            'category': category,
+            'vendor': vendor,
+            'revenue': round(revenue, 2),
+            'cogs': round(cogs, 2),
+            'profit': round(profit, 2),
+            'profit_margin_pct': round(profit_margin_pct, 1),
+            'status': status
+        })
+
+    profit_df = pd.DataFrame(profitability_data)
+
+    # Sort by profit descending (highest profit items first)
+    if not profit_df.empty:
+        profit_df = profit_df.sort_values('profit', ascending=False)
+
+    return profit_df
 
 
 def get_cogs_summary(features_df: pd.DataFrame, dataset: InventoryDataset = None, week_name: str = None) -> Dict:
