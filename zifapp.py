@@ -14,6 +14,7 @@ from cogs import (
     calculate_cogs_by_vendor,
     calculate_theoretical_cogs,
     calculate_pour_cost,
+    calculate_pour_cost_actual,
     calculate_variance_analysis,
     generate_shrinkage_report,
     get_cogs_summary,
@@ -968,14 +969,23 @@ if uploaded_files:
                 # Calculate theoretical usage and revenue
                 usage_results, unmatched, total_revenue = aggregate_all_usage(sales_df)
 
-                # Calculate theoretical COGS
-                theoretical_cogs = calculate_theoretical_cogs(usage_results, dataset)
+                # Calculate pour cost using ACTUAL COGS from bevweekly sheet
+                pour_cost_results = calculate_pour_cost_actual(dataset, total_revenue, usage_results)
 
-                # Calculate pour cost
-                pour_cost_results = calculate_pour_cost(theoretical_cogs, total_revenue)
+                # Check if actual COGS data is available
+                if 'error' in pour_cost_results:
+                    st.warning(f"⚠️ {pour_cost_results['error']}. Please ensure the bevweekly sheet has complete COGS data with ending inventory filled in.")
+                    st.stop()
+
+                # Also calculate theoretical COGS for variance analysis
+                theoretical_cogs = calculate_theoretical_cogs(usage_results, dataset)
 
                 # Section 1: Overall Pour Cost
                 st.markdown("### 🎯 Overall Pour Cost")
+
+                # Display info about which week's data is being used
+                if 'week_name' in pour_cost_results:
+                    st.info(f"📊 Using actual COGS from bevweekly sheet: {pour_cost_results['week_name']} ({pour_cost_results['week_date'].strftime('%Y-%m-%d')})")
 
                 col1, col2, col3, col4 = st.columns(4)
 
@@ -1000,7 +1010,7 @@ if uploaded_files:
                     st.metric(
                         "Total COGS",
                         f"${pour_cost_results['total_cogs']:,.2f}",
-                        help="Total cost of goods sold"
+                        help="Actual COGS from bevweekly sheet (BEG INV $ + PURCH $ - END INV $)"
                     )
 
                 with col4:

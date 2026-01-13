@@ -240,6 +240,126 @@ def calculate_pour_cost(
     }
 
 
+def calculate_pour_cost_actual(
+    dataset: InventoryDataset,
+    total_revenue: float,
+    usage_results: dict,
+    week_name: str = None
+) -> Dict:
+    """
+    Calculate pour cost percentage using ACTUAL COGS from the bevweekly sheet.
+
+    This replaces the theoretical COGS calculation with actual COGS from the
+    spreadsheet's "Weekly COGS" section, which uses the formula:
+    COGS = Beginning Inventory $ + Purchases $ - Ending Inventory $
+
+    Args:
+        dataset: InventoryDataset with weekly_cogs_summaries
+        total_revenue: Total revenue from sales
+        usage_results: Dict from aggregate_all_usage with revenue per item
+        week_name: Optional specific week name (e.g., 'Q1 WK2'). If None, uses latest complete week.
+
+    Returns:
+        Dict with:
+        - overall_pour_cost_pct: float
+        - total_cogs: float (from bevweekly sheet)
+        - total_revenue: float
+        - gross_profit: float
+        - pour_cost_by_category: Dict[str, dict] with pct, status, target
+    """
+    # Get the COGS summary from the spreadsheet
+    if week_name:
+        cogs_summary = dataset.get_cogs_summary_by_name(week_name)
+    else:
+        cogs_summary = dataset.get_latest_complete_cogs_summary()
+
+    if not cogs_summary or not cogs_summary.is_complete:
+        # Fallback to theoretical COGS if actual COGS not available
+        return {
+            'overall_pour_cost_pct': 0.0,
+            'total_cogs': 0.0,
+            'total_revenue': round(total_revenue, 2),
+            'gross_profit': round(total_revenue, 2),
+            'pour_cost_by_category': {},
+            'error': 'Actual COGS data not available from bevweekly sheet'
+        }
+
+    # Use actual COGS from the spreadsheet
+    actual_cogs = cogs_summary.total_cogs or 0
+
+    # Calculate overall pour cost
+    overall_pour_cost_pct = (actual_cogs / total_revenue * 100) if total_revenue > 0 else 0.0
+
+    # Calculate revenue by category from usage_results
+    revenue_by_category = {}
+    for item_id, usage_data in usage_results.items():
+        item = dataset.get_item(item_id)
+        if not item:
+            continue
+
+        # Map item category to consolidated category
+        item_category = item.category
+        consolidated_category = CATEGORY_CONSOLIDATION.get(item_category, item_category)
+
+        if consolidated_category not in revenue_by_category:
+            revenue_by_category[consolidated_category] = 0
+
+        revenue_by_category[consolidated_category] += usage_data.get('revenue', 0)
+
+    # Build pour cost by category using actual COGS from spreadsheet
+    pour_cost_by_category = {}
+
+    # Map spreadsheet COGS to categories
+    category_cogs_map = {
+        'Liquor': cogs_summary.liquor_cogs or 0,
+        'Wine': cogs_summary.wine_cogs or 0,
+        'Draft Beer': cogs_summary.draft_beer_cogs or 0,
+        'Bottle Beer': cogs_summary.bottle_beer_cogs or 0,
+        'Juice': cogs_summary.juice_cogs or 0
+    }
+
+    for category, cogs in category_cogs_map.items():
+        revenue = revenue_by_category.get(category, 0)
+
+        if revenue > 0 and cogs > 0:
+            pct = (cogs / revenue) * 100
+
+            # Get target thresholds - map to correct target category
+            target_category = category
+            if category == 'Bottle Beer':
+                target_category = 'Bottle Beer'
+
+            targets = POUR_COST_TARGETS.get(target_category, POUR_COST_TARGETS.get("Liquor"))
+
+            # Determine status
+            if pct <= targets['target']:
+                status = 'on_target'
+            elif pct <= targets['warning']:
+                status = 'warning'
+            else:
+                status = 'critical'
+
+            pour_cost_by_category[category] = {
+                'pour_cost_pct': round(pct, 2),
+                'cogs': round(cogs, 2),
+                'revenue': round(revenue, 2),
+                'status': status,
+                'target': targets['target'],
+                'warning': targets['warning'],
+                'critical': targets['critical']
+            }
+
+    return {
+        'overall_pour_cost_pct': round(overall_pour_cost_pct, 2),
+        'total_cogs': round(actual_cogs, 2),
+        'total_revenue': round(total_revenue, 2),
+        'gross_profit': round(total_revenue - actual_cogs, 2),
+        'pour_cost_by_category': pour_cost_by_category,
+        'week_name': cogs_summary.week_name,
+        'week_date': cogs_summary.week_date
+    }
+
+
 def calculate_variance_analysis(
     theoretical_usage: dict,
     actual_usage: pd.DataFrame,
