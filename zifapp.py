@@ -363,7 +363,7 @@ if uploaded_files:
         st.error(f"An error occurred during data processing: {e}")
         st.stop()
 
-    tab_agent, tab_summary, tab_ordering_worksheet, tab_sales_mix, tab_trends, tab_cogs, tab_pour_cost, tab_excess_inventory = st.tabs([
+    tab_agent, tab_summary, tab_ordering_worksheet, tab_sales_mix, tab_trends, tab_cogs, tab_pour_cost, tab_excess_inventory, tab_discount_finder = st.tabs([
         "🤖 Agent",
         "📊 Summary",
         "🧪 Ordering Worksheet",
