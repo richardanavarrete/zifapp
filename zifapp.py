@@ -9,11 +9,13 @@ import plotly.express as px
 import plotly.graph_objects as go
 from models import create_dataset_from_excel
 from features import compute_features
+from mappings import enrich_dataset
 from cogs import (
     calculate_cogs_by_category,
     calculate_cogs_by_vendor,
     calculate_theoretical_cogs,
     calculate_pour_cost,
+    calculate_pour_cost_actual,
     calculate_variance_analysis,
     generate_shrinkage_report,
     get_cogs_summary,
@@ -223,6 +225,9 @@ def load_cogs_data(uploaded_files):
     """
     # Create dataset using new models module (extracts cost data)
     dataset = create_dataset_from_excel(uploaded_files)
+
+    # Enrich dataset with vendor and category mappings
+    dataset = enrich_dataset(dataset)
 
     # Compute features including COGS metrics
     features_df = compute_features(dataset)
@@ -968,14 +973,23 @@ if uploaded_files:
                 # Calculate theoretical usage and revenue
                 usage_results, unmatched, total_revenue = aggregate_all_usage(sales_df)
 
-                # Calculate theoretical COGS
-                theoretical_cogs = calculate_theoretical_cogs(usage_results, dataset)
+                # Calculate pour cost using ACTUAL COGS from bevweekly sheet
+                pour_cost_results = calculate_pour_cost_actual(dataset, total_revenue, usage_results)
 
-                # Calculate pour cost
-                pour_cost_results = calculate_pour_cost(theoretical_cogs, total_revenue)
+                # Check if actual COGS data is available
+                if 'error' in pour_cost_results:
+                    st.warning(f"⚠️ {pour_cost_results['error']}. Please ensure the bevweekly sheet has complete COGS data with ending inventory filled in.")
+                    st.stop()
+
+                # Also calculate theoretical COGS for variance analysis
+                theoretical_cogs = calculate_theoretical_cogs(usage_results, dataset)
 
                 # Section 1: Overall Pour Cost
                 st.markdown("### 🎯 Overall Pour Cost")
+
+                # Display info about which week's data is being used
+                if 'week_name' in pour_cost_results:
+                    st.info(f"📊 Using actual COGS from bevweekly sheet: {pour_cost_results['week_name']} ({pour_cost_results['week_date'].strftime('%Y-%m-%d')})")
 
                 col1, col2, col3, col4 = st.columns(4)
 
@@ -1000,7 +1014,7 @@ if uploaded_files:
                     st.metric(
                         "Total COGS",
                         f"${pour_cost_results['total_cogs']:,.2f}",
-                        help="Total cost of goods sold"
+                        help="Actual COGS from bevweekly sheet (BEG INV $ + PURCH $ - END INV $)"
                     )
 
                 with col4:
@@ -1116,7 +1130,7 @@ if uploaded_files:
                 profitability_df = calculate_item_profitability(usage_results, theoretical_cogs, dataset)
 
                 if not profitability_df.empty:
-                    # Summary metrics
+                    # Summary metrics with theoretical vs actual comparison
                     col1, col2, col3, col4 = st.columns(4)
 
                     with col1:
@@ -1124,32 +1138,36 @@ if uploaded_files:
                         st.metric(
                             "Top Profit Item",
                             top_item['item_id'][:20] + "..." if len(top_item['item_id']) > 20 else top_item['item_id'],
-                            f"${top_item['profit']:,.2f}",
-                            help="Item contributing the most profit"
+                            f"${top_item['actual_profit']:,.2f}",
+                            help="Item contributing the most actual profit"
                         )
 
                     with col2:
-                        avg_margin = profitability_df['profit_margin_pct'].mean()
+                        avg_margin = profitability_df['actual_margin_pct'].mean()
                         st.metric(
                             "Avg Profit Margin",
                             f"{avg_margin:.1f}%",
-                            help="Average profit margin across all items"
+                            help="Average actual profit margin across all items"
                         )
 
                     with col3:
-                        total_profit = profitability_df['profit'].sum()
+                        theoretical_total = profitability_df['theoretical_profit'].sum()
+                        actual_total = profitability_df['actual_profit'].sum()
+                        variance = theoretical_total - actual_total
                         st.metric(
                             "Total Profit",
-                            f"${total_profit:,.2f}",
-                            help="Total profit from all items"
+                            f"${actual_total:,.2f}",
+                            delta=f"-${variance:,.2f}" if variance > 0 else f"+${abs(variance):,.2f}",
+                            delta_color="inverse",
+                            help=f"Actual profit vs theoretical ${theoretical_total:,.2f}. Variance shows profit loss due to waste/overpouring."
                         )
 
                     with col4:
-                        poor_items = len(profitability_df[profitability_df['profit_margin_pct'] < 65])
+                        poor_items = len(profitability_df[profitability_df['actual_margin_pct'] < 65])
                         st.metric(
                             "Low Margin Items",
                             poor_items,
-                            help="Items with profit margin < 65%"
+                            help="Items with actual profit margin < 65%"
                         )
 
                     # Show top/bottom items
@@ -1165,7 +1183,7 @@ if uploaded_files:
                             'poor': '🔴 Poor'
                         })
 
-                        display_cols = ['item_id', 'revenue', 'cogs', 'profit', 'profit_margin_pct', 'Status']
+                        display_cols = ['item_id', 'revenue', 'actual_cogs', 'actual_profit', 'actual_margin_pct', 'Status']
                         top_10_display = top_10[display_cols].copy()
                         top_10_display.columns = ['Item', 'Revenue', 'COGS', 'Profit', 'Margin %', 'Status']
 
@@ -1216,16 +1234,23 @@ if uploaded_files:
                             'poor': '🔴 Poor'
                         })
 
-                        full_display_cols = ['item_id', 'category', 'vendor', 'revenue', 'cogs', 'profit', 'profit_margin_pct', 'Status']
+                        # Show comprehensive view with theoretical vs actual comparison
+                        full_display_cols = ['item_id', 'category', 'vendor', 'revenue', 'actual_cogs',
+                                           'actual_profit', 'actual_margin_pct', 'theoretical_profit',
+                                           'profit_variance', 'Status']
                         full_display = full_display[full_display_cols].copy()
-                        full_display.columns = ['Item', 'Category', 'Vendor', 'Revenue', 'COGS', 'Profit', 'Margin %', 'Status']
+                        full_display.columns = ['Item', 'Category', 'Vendor', 'Revenue', 'COGS',
+                                               'Profit', 'Margin %', 'Theoretical Profit',
+                                               'Variance', 'Status']
 
                         st.dataframe(
                             full_display.style.format({
                                 'Revenue': '${:,.2f}',
                                 'COGS': '${:,.2f}',
                                 'Profit': '${:,.2f}',
-                                'Margin %': '{:.1f}%'
+                                'Margin %': '{:.1f}%',
+                                'Theoretical Profit': '${:,.2f}',
+                                'Variance': '${:,.2f}'
                             }),
                             use_container_width=True,
                             hide_index=True
