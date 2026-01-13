@@ -297,6 +297,43 @@ if uploaded_files:
     # --- TAB 1: SUMMARY ---
     with tab_summary:
         st.subheader("Usage Summary")
+
+        # Week selector
+        st.markdown("### 📅 Select Week to View")
+        all_weeks = dataset.get_all_cogs_summaries() if dataset else []
+
+        # Add "All Weeks" option for aggregate view
+        week_options = {"All Weeks (Aggregate)": None}
+
+        if all_weeks:
+            for summary in all_weeks:
+                week_label = f"{summary.week_name} ({summary.week_date.strftime('%Y-%m-%d')})"
+                if summary.is_complete:
+                    week_label += " ✅"
+                else:
+                    week_label += " ⚠️ Incomplete"
+                week_options[week_label] = summary.week_name
+
+        selected_week_label = st.selectbox(
+            "Select Week",
+            options=list(week_options.keys()),
+            index=0,  # Default to "All Weeks"
+            help="Choose 'All Weeks' for aggregate metrics across all weeks, or select a specific week to see that week's data.",
+            key="summary_week_selector"
+        )
+
+        selected_week = week_options[selected_week_label]
+
+        # Filter summary_df to selected week if specific week chosen
+        if selected_week:
+            # Filter dataset.records to selected week and recalculate summary
+            week_records = dataset.records[dataset.records['week_name'] == selected_week]
+            st.info(f"Showing data for: {selected_week_label}")
+        else:
+            st.info("Showing aggregate data across all weeks")
+
+        st.markdown("---")
+
         filter_type = st.radio("Filter By:", ["Vendor", "Category"], horizontal=True, key="summary_filter_type")
         display_df = summary_df
         download_filename = "beverage_summary_full.csv"
@@ -334,6 +371,40 @@ if uploaded_files:
     # --- TAB 2: ORDERING WORKSHEET ---
     with tab_ordering_worksheet:
         st.subheader("🧪 Ordering Worksheet: Inventory Planning")
+
+        # Week selector for planning basis
+        st.markdown("### 📅 Select Week for Planning")
+        all_weeks = dataset.get_all_cogs_summaries() if dataset else []
+
+        # Add "All Weeks" option for aggregate planning
+        week_options = {"All Weeks (Aggregate)": None}
+
+        if all_weeks:
+            for summary in all_weeks:
+                week_label = f"{summary.week_name} ({summary.week_date.strftime('%Y-%m-%d')})"
+                if summary.is_complete:
+                    week_label += " ✅"
+                else:
+                    week_label += " ⚠️ Incomplete"
+                week_options[week_label] = summary.week_name
+
+        selected_week_label = st.selectbox(
+            "Select Week",
+            options=list(week_options.keys()),
+            index=0,  # Default to "All Weeks"
+            help="Choose 'All Weeks' to plan based on aggregate usage averages, or select a specific week to base planning on that week's patterns.",
+            key="ordering_week_selector"
+        )
+
+        selected_week = week_options[selected_week_label]
+
+        if selected_week:
+            st.info(f"Planning based on: {selected_week_label}")
+        else:
+            st.info("Planning based on aggregate usage across all weeks")
+
+        st.markdown("---")
+
         mode = st.selectbox("Select View Mode:", ["By Vendor", "By Category"])
         
         usage_option = st.selectbox(
@@ -447,9 +518,44 @@ if uploaded_files:
         Upload your Sales Mix CSV from GEMpos to calculate theoretical usage based on what was sold.
         Compare against your actual inventory usage to identify variances (waste, over-pouring, theft, etc.)
         """)
-        
+
+        # Week selector for variance comparison
+        st.markdown("### 📅 Select Week to Compare")
+        all_weeks = dataset.get_all_cogs_summaries() if dataset else []
+
+        if all_weeks:
+            week_options = {}
+            for summary in all_weeks:
+                week_label = f"{summary.week_name} ({summary.week_date.strftime('%Y-%m-%d')})"
+                if summary.is_complete:
+                    week_label += " ✅"
+                else:
+                    week_label += " ⚠️ Incomplete"
+                week_options[week_label] = summary.week_name
+
+            # Default to latest complete week
+            latest_complete = dataset.get_latest_complete_cogs_summary()
+            default_week_name = latest_complete.week_name if latest_complete else all_weeks[0].week_name
+            default_label = next((label for label, name in week_options.items() if name == default_week_name), list(week_options.keys())[0])
+
+            selected_week_label = st.selectbox(
+                "Select Week",
+                options=list(week_options.keys()),
+                index=list(week_options.keys()).index(default_label),
+                help="Choose which week's actual usage data to compare against theoretical usage.",
+                key="sales_mix_week_selector"
+            )
+
+            selected_week = week_options[selected_week_label]
+            st.info(f"Comparing theoretical usage against actual usage from: {selected_week_label}")
+        else:
+            selected_week = None
+            st.info("Using most recent week's actual usage data")
+
+        st.markdown("---")
+
         sales_mix_file = st.file_uploader("Upload Sales Mix CSV", type="csv", key="sales_mix_upload")
-        
+
         if sales_mix_file:
             try:
                 sales_df = parse_sales_mix_csv(sales_mix_file)
@@ -592,6 +698,39 @@ if uploaded_files:
     with tab_trends:
         st.subheader("📈 Item Trends Visualization")
         st.markdown("Select an item to view its historical usage trends over time.")
+
+        # Week selector for specific week analysis
+        st.markdown("### 📅 Select Week to Highlight")
+        all_weeks = dataset.get_all_cogs_summaries() if dataset else []
+
+        # Add "All Weeks" option to show full trend
+        week_options = {"All Weeks (Full Trend)": None}
+
+        if all_weeks:
+            for summary in all_weeks:
+                week_label = f"{summary.week_name} ({summary.week_date.strftime('%Y-%m-%d')})"
+                if summary.is_complete:
+                    week_label += " ✅"
+                else:
+                    week_label += " ⚠️ Incomplete"
+                week_options[week_label] = summary.week_name
+
+        selected_week_label = st.selectbox(
+            "Select Week",
+            options=list(week_options.keys()),
+            index=0,  # Default to "All Weeks"
+            help="Choose 'All Weeks' to see full trend line, or select a specific week to highlight that week's data point.",
+            key="trends_week_selector"
+        )
+
+        selected_week = week_options[selected_week_label]
+
+        if selected_week:
+            st.info(f"Highlighting week: {selected_week_label}")
+        else:
+            st.info("Showing full trend across all weeks")
+
+        st.markdown("---")
 
         # Item selector and date range in columns
         col1, col2 = st.columns([2, 1])
@@ -763,22 +902,29 @@ if uploaded_files:
             # Week selection dropdown
             all_weeks = dataset.get_all_cogs_summaries() if dataset else []
             if all_weeks:
-                week_options = [f"{w.week_name}" for w in all_weeks]
-                # Default to most recent complete week
-                latest_complete = dataset.get_latest_complete_cogs_summary()
-                default_index = 0
-                if latest_complete:
-                    try:
-                        default_index = week_options.index(latest_complete.week_name)
-                    except ValueError:
-                        default_index = 0
+                # Create week options with dates and status indicators
+                week_options = {}
+                for summary in all_weeks:
+                    week_label = f"{summary.week_name} ({summary.week_date.strftime('%Y-%m-%d')})"
+                    if summary.is_complete:
+                        week_label += " ✅"
+                    else:
+                        week_label += " ⚠️ Incomplete"
+                    week_options[week_label] = summary.week_name
 
-                selected_week = st.selectbox(
+                # Default to latest complete week
+                latest_complete = dataset.get_latest_complete_cogs_summary()
+                default_week_name = latest_complete.week_name if latest_complete else all_weeks[0].week_name
+                default_label = next((label for label, name in week_options.items() if name == default_week_name), list(week_options.keys())[0])
+
+                selected_week_label = st.selectbox(
                     "Select Week to View",
-                    options=week_options,
-                    index=default_index,
-                    help="Choose which week's COGS data to display"
+                    options=list(week_options.keys()),
+                    index=list(week_options.keys()).index(default_label),
+                    help="Choose which week's COGS data to display. ✅ indicates complete data (ending inventory filled in)."
                 )
+
+                selected_week = week_options[selected_week_label]
             else:
                 selected_week = None
 
