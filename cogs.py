@@ -44,6 +44,7 @@ POUR_COST_TARGETS = {
     "Draft Beer": {"target": 20, "warning": 27, "critical": 30},
     "Bottle Beer": {"target": 19, "warning": 25, "critical": 30},  # Updated from 24
     "Wine": {"target": 22, "warning": 25, "critical": 30},  # Updated from 28
+    "Juice": {"target": 2, "warning": 3, "critical": 4},
     "Bar Other": {"target": 13, "warning": 15, "critical": 20},
 }
 
