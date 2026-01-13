@@ -194,6 +194,10 @@ def run_agent(
                 recount_info['issue_type'] = 'Negative Usage'
                 recount_info['issue_description'] = 'Usage calculation resulted in negative value, indicating inventory count may be incorrect.'
                 
+                # For negative usage: the calculated usage = (prev_on_hand + purchases - current_on_hand) was negative
+                # This usually means current_on_hand was counted too high relative to last week.
+                # Expected on_hand = current_on_hand + expected_usage shows what it SHOULD have been at start of week
+                # (i.e., if we used X bottles, we should have started with current + X)
                 # Use sales mix data if available, otherwise fall back to avg usage
                 if sales_mix_expected is not None:
                     recount_info['expected_on_hand'] = round(row['on_hand'] + sales_mix_expected, 2)
