@@ -23,6 +23,7 @@ from cogs import (
 )
 import cache_manager
 from policy import OrderTargets
+from agent import run_agent
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
@@ -362,7 +363,8 @@ if uploaded_files:
         st.error(f"An error occurred during data processing: {e}")
         st.stop()
 
-    tab_summary, tab_ordering_worksheet, tab_sales_mix, tab_trends, tab_cogs, tab_pour_cost, tab_excess_inventory = st.tabs([
+    tab_agent, tab_summary, tab_ordering_worksheet, tab_sales_mix, tab_trends, tab_cogs, tab_pour_cost, tab_excess_inventory = st.tabs([
+        "🤖 Agent",
         "📊 Summary",
         "🧪 Ordering Worksheet",
         "Sales Mix Analysis",
@@ -371,6 +373,94 @@ if uploaded_files:
         "📊 Pour Cost",
         "📦 Excess Inventory"
     ])
+
+    # --- TAB 0: AGENT ---
+    with tab_agent:
+        st.subheader("🤖 Weekly Order Agent")
+        st.markdown("""
+        The agent analyzes your inventory and generates a draft order based on:
+        - Target weeks of supply by category
+        - Current stock levels and usage trends
+        - Data quality checks (flags items needing recount)
+        """)
+
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            usage_option_agent = st.selectbox(
+                "Select usage average:",
+                options=['avg_4wk', 'avg_10wk', 'avg_2wk', 'avg_ytd'],
+                format_func=lambda x: {
+                    'avg_4wk': '4-Week Average',
+                    'avg_10wk': '10-Week Average',
+                    'avg_2wk': '2-Week Average',
+                    'avg_ytd': 'Year-to-Date Average'
+                }[x],
+                index=0,
+                key="agent_usage_option"
+            )
+
+        with col2:
+            st.write("")
+            st.write("")
+            run_agent_btn = st.button("🚀 Run Agent", type="primary", use_container_width=True)
+
+        if run_agent_btn:
+            with st.spinner("Running agent..."):
+                agent_result = run_agent(
+                    dataset,
+                    usage_column=usage_option_agent,
+                    smoothing_level=smoothing_level,
+                    trend_threshold=trend_threshold
+                )
+
+            st.success(f"✅ Agent run complete! Run ID: `{agent_result['run_id']}`")
+            st.info(agent_result['summary'])
+
+            # Items needing recount
+            if agent_result['items_needing_recount']:
+                with st.expander(f"⚠️ Items Needing Recount ({len(agent_result['items_needing_recount'])})", expanded=True):
+                    for item in agent_result['items_needing_recount']:
+                        st.warning(f"• {item}")
+
+            # Display recommendations
+            st.markdown("### 📋 Order Recommendations")
+            
+            recs = agent_result['recommendations']
+            if not recs.empty:
+                # Filter to items with recommended qty > 0
+                orders_to_place = recs[recs['recommended_qty'] > 0]
+                
+                if not orders_to_place.empty:
+                    # Group by vendor
+                    for vendor in orders_to_place['vendor'].unique():
+                        vendor_recs = orders_to_place[orders_to_place['vendor'] == vendor]
+                        with st.expander(f"📦 {vendor} ({len(vendor_recs)} items)", expanded=True):
+                            display_cols = ['item_id', 'category', 'on_hand', 'avg_usage', 
+                                           'weeks_on_hand', 'target_weeks', 'recommended_qty', 
+                                           'confidence', 'notes']
+                            st.dataframe(
+                                vendor_recs[display_cols].style.format({
+                                    'on_hand': '{:.1f}',
+                                    'avg_usage': '{:.1f}',
+                                    'weeks_on_hand': '{:.1f}',
+                                    'target_weeks': '{:.1f}',
+                                }),
+                                use_container_width=True,
+                                hide_index=True
+                            )
+
+                    # Download button
+                    csv = orders_to_place.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        "📥 Download Draft Order CSV",
+                        data=csv,
+                        file_name=f"draft_order_{agent_result['run_id']}.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.info("No items need ordering at this time.")
+            else:
+                st.warning("No recommendations generated.")
 
     # --- TAB 1: SUMMARY ---
     with tab_summary:
