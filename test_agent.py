@@ -93,12 +93,31 @@ def main():
     else:
         print("   No recommendations generated")
 
-    # Display items needing recount
+    # Display items needing recount (now with detailed info)
     if result['items_needing_recount']:
         print("\n4. Items Needing Recount:")
         print("-" * 60)
-        for item in result['items_needing_recount']:
-            print(f"   ⚠️  {item}")
+        for item_info in result['items_needing_recount']:
+            print(f"\n   ⚠️  {item_info['item_id']}")
+            print(f"       Issue: {item_info.get('issue_type', 'Unknown')}")
+            print(f"       {item_info.get('issue_description', '')}")
+            if item_info.get('discrepancy'):
+                print(f"       Discrepancy: {item_info['discrepancy']}")
+            print(f"       On Hand: {item_info.get('on_hand', 'N/A')}")
+            print(f"       Avg Usage: {item_info.get('avg_usage', 'N/A')}")
+
+    # Display vendor keg info
+    if result.get('vendor_keg_info'):
+        print("\n4b. Vendor Keg Info (Crescent/Hensley):")
+        print("-" * 60)
+        for vendor, info in result['vendor_keg_info'].items():
+            if info['total_kegs'] > 0:
+                status = "✅ At discount" if info['at_discount_level'] else f"⚠️ Need {info['kegs_to_add']} more"
+                print(f"   {vendor}: {info['total_kegs']} kegs ({status})")
+                if not info['at_discount_level'] and info.get('adjustment_suggestions'):
+                    print("   Suggestions:")
+                    for sug in info['adjustment_suggestions']:
+                        print(f"      - {sug['item_id']}: Add {sug['suggested_add']} ({sug['reason']})")
 
     # Display summary stats
     print("\n5. Summary Statistics:")

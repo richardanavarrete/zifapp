@@ -11,6 +11,11 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass, field
 from models import InventoryDataset
 
+# Constants for keg adjustment scoring
+MAX_WEEKS_SCORE = 10  # Maximum weeks on hand for scoring purposes
+ALREADY_ORDERING_BONUS = 5  # Bonus score for items already being ordered
+TRENDING_UP_BONUS = 3  # Bonus score for items trending upward
+
 
 @dataclass
 class OrderTargets:
@@ -61,6 +66,18 @@ class OrderConstraints:
 
     # Minimum order quantity per item (skip items below this)
     min_order_qty: int = 1
+
+    # Vendor-specific keg increment requirements for max discounts
+    # Crescent and Hensley require 21-keg increments
+    vendor_keg_increments: Dict[str, int] = field(default_factory=dict)
+
+    def __post_init__(self):
+        # Set default keg increments if not provided
+        if not self.vendor_keg_increments:
+            self.vendor_keg_increments = {
+                "Crescent": 21,
+                "Hensley": 21,
+            }
 
 
 def recommend_order(
@@ -271,3 +288,151 @@ def generate_order_summary(recommendations_df: pd.DataFrame) -> dict:
     }
 
     return summary
+
+
+def calculate_vendor_keg_totals(
+    recommendations_df: pd.DataFrame,
+    constraints: OrderConstraints
+) -> Dict[str, dict]:
+    """
+    Calculate keg totals by vendor and check against increment requirements.
+
+    Args:
+        recommendations_df: DataFrame from recommend_order()
+        constraints: OrderConstraints with vendor_keg_increments
+
+    Returns:
+        Dictionary with vendor keg analysis:
+        {
+            'Crescent': {
+                'total_kegs': 18,
+                'required_increment': 21,
+                'kegs_to_add': 3,
+                'at_discount_level': False,
+                'next_discount_level': 21
+            },
+            ...
+        }
+    """
+    # Filter to draft beer items only (kegs)
+    keg_items = recommendations_df[
+        recommendations_df['category'].isin(['Draft Beer'])
+    ]
+
+    vendor_keg_info = {}
+
+    for vendor, increment in constraints.vendor_keg_increments.items():
+        vendor_kegs = keg_items[keg_items['vendor'] == vendor]
+        total_kegs = vendor_kegs['recommended_qty'].sum() if not vendor_kegs.empty else 0
+
+        # Calculate how many kegs needed to reach next discount level
+        if total_kegs == 0:
+            kegs_to_add = 0
+            at_discount_level = True
+            next_discount_level = 0
+        else:
+            remainder = total_kegs % increment
+            if remainder == 0:
+                kegs_to_add = 0
+                at_discount_level = True
+                next_discount_level = total_kegs
+            else:
+                kegs_to_add = increment - remainder
+                at_discount_level = False
+                next_discount_level = total_kegs + kegs_to_add
+
+        vendor_keg_info[vendor] = {
+            'total_kegs': int(total_kegs),
+            'required_increment': increment,
+            'kegs_to_add': int(kegs_to_add),
+            'at_discount_level': at_discount_level,
+            'next_discount_level': int(next_discount_level),
+            'items': vendor_kegs['item_id'].tolist() if not vendor_kegs.empty else []
+        }
+
+    return vendor_keg_info
+
+
+def get_keg_adjustment_suggestions(
+    recommendations_df: pd.DataFrame,
+    vendor: str,
+    kegs_to_add: int,
+    dataset: 'InventoryDataset'
+) -> List[dict]:
+    """
+    Suggest which kegs to add to reach discount increment.
+
+    Prioritizes items that:
+    1. Are already being ordered (just increase qty)
+    2. Have lower weeks on hand
+    3. Are trending up
+
+    Args:
+        recommendations_df: DataFrame from recommend_order()
+        vendor: Vendor name (Crescent or Hensley)
+        kegs_to_add: Number of additional kegs needed
+        dataset: InventoryDataset for item metadata
+
+    Returns:
+        List of suggestions with item_id, current_qty, suggested_add, reason
+    """
+    if kegs_to_add <= 0:
+        return []
+
+    suggestions = []
+    remaining_kegs = kegs_to_add
+
+    # Get all draft beer items from this vendor
+    vendor_items = recommendations_df[
+        (recommendations_df['vendor'] == vendor) &
+        (recommendations_df['category'] == 'Draft Beer')
+    ].copy()
+
+    if vendor_items.empty:
+        return []
+
+    # Score items for prioritization
+    # Lower weeks_on_hand = higher priority
+    # Items already being ordered get bonus
+    vendor_items['_score'] = (
+        (MAX_WEEKS_SCORE - vendor_items['weeks_on_hand'].clip(upper=MAX_WEEKS_SCORE)) +  # Lower weeks = higher score
+        (vendor_items['recommended_qty'] > 0).astype(int) * ALREADY_ORDERING_BONUS +  # Bonus for already ordering
+        vendor_items['reason_codes'].apply(
+            lambda x: TRENDING_UP_BONUS if 'TRENDING_UP' in x else 0
+        )
+    )
+
+    # Sort by score descending
+    vendor_items = vendor_items.sort_values('_score', ascending=False)
+
+    for _, row in vendor_items.iterrows():
+        if remaining_kegs <= 0:
+            break
+
+        item_id = row['item_id']
+        current_qty = row['recommended_qty']
+        weeks_on_hand = row['weeks_on_hand']
+
+        # Suggest adding 1 keg at a time
+        add_qty = min(1, remaining_kegs)
+
+        reason = ""
+        if current_qty > 0:
+            reason = f"Already ordering {current_qty}, add {add_qty} more"
+        elif weeks_on_hand < 2:
+            reason = f"Low stock ({weeks_on_hand:.1f} weeks), good candidate"
+        else:
+            reason = f"Has {weeks_on_hand:.1f} weeks, can add to reach discount"
+
+        suggestions.append({
+            'item_id': item_id,
+            'current_qty': int(current_qty),
+            'suggested_add': int(add_qty),
+            'new_total': int(current_qty + add_qty),
+            'weeks_on_hand': round(weeks_on_hand, 1),
+            'reason': reason
+        })
+
+        remaining_kegs -= add_qty
+
+    return suggestions

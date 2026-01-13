@@ -417,11 +417,103 @@ if uploaded_files:
             st.success(f"✅ Agent run complete! Run ID: `{agent_result['run_id']}`")
             st.info(agent_result['summary'])
 
-            # Items needing recount
+            # Items needing recount - now with detailed information
             if agent_result['items_needing_recount']:
                 with st.expander(f"⚠️ Items Needing Recount ({len(agent_result['items_needing_recount'])})", expanded=True):
-                    for item in agent_result['items_needing_recount']:
-                        st.warning(f"• {item}")
+                    st.markdown("""
+                    These items have data discrepancies that suggest an inventory count error.
+                    Review and recount these items for accurate ordering recommendations.
+                    
+                    💡 **Tip:** Upload a Sales Mix CSV and check the **Pour Cost** tab → **Calculation Breakdown** 
+                    section to verify the math (items sold × recipes) before recounting.
+                    """)
+                    
+                    for item_info in agent_result['items_needing_recount']:
+                        # Create a styled container for each item
+                        st.markdown(f"---")
+                        col1, col2 = st.columns([2, 3])
+                        
+                        with col1:
+                            st.markdown(f"**{item_info['item_id']}**")
+                            issue_type = item_info.get('issue_type', 'Data Issue')
+                            if issue_type == 'Negative Usage':
+                                st.error(f"🔴 **Issue:** {issue_type}")
+                            else:
+                                st.warning(f"🟡 **Issue:** {issue_type}")
+                        
+                        with col2:
+                            st.markdown(f"**{item_info.get('issue_description', '')}**")
+                            
+                            # Show the discrepancy details
+                            if item_info.get('discrepancy'):
+                                st.info(f"📊 {item_info['discrepancy']}")
+                            
+                            # Show current values with the math
+                            st.markdown("**Inventory Data:**")
+                            metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
+                            with metrics_col1:
+                                on_hand = item_info.get('on_hand')
+                                st.metric("On Hand (Counted)", f"{on_hand:.1f}" if on_hand is not None else "N/A")
+                            with metrics_col2:
+                                avg_usage = item_info.get('avg_usage')
+                                st.metric("Avg Usage/Week", f"{avg_usage:.1f}" if avg_usage is not None else "N/A")
+                            with metrics_col3:
+                                last_week = item_info.get('last_week_usage')
+                                st.metric("Last Week Usage", f"{last_week:.1f}" if last_week is not None else "N/A")
+                            
+                            # Show expected calculation if available
+                            if item_info.get('expected_on_hand'):
+                                st.caption(f"💡 If avg usage is correct, expected on hand ≈ {item_info['expected_on_hand']:.1f}")
+
+            # Vendor Keg Discount Info (Crescent/Hensley keg increments)
+            vendor_keg_info = agent_result.get('vendor_keg_info', {})
+            vendors_needing_adjustment = [v for v, info in vendor_keg_info.items() 
+                                         if info['total_kegs'] > 0 and not info['at_discount_level']]
+            
+            if vendors_needing_adjustment:
+                with st.expander(f"🍺 Keg Order Optimization ({len(vendors_needing_adjustment)} vendors)", expanded=True):
+                    # Build dynamic description based on vendor increments
+                    vendor_increments = {v: vendor_keg_info[v]['required_increment'] for v in vendors_needing_adjustment}
+                    increment_text = ", ".join([f"{v} ({inc} kegs)" for v, inc in vendor_increments.items()])
+                    st.markdown(f"""
+                    **Vendors offer maximum discounts on orders at specific keg increments:** {increment_text}
+                    Adjust your order to reach the discount threshold.
+                    """)
+                    
+                    for vendor in vendors_needing_adjustment:
+                        info = vendor_keg_info[vendor]
+                        st.markdown(f"---")
+                        st.markdown(f"### {vendor}")
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Current Order", f"{info['total_kegs']} kegs")
+                        with col2:
+                            st.metric("Kegs to Add", f"+{info['kegs_to_add']}", 
+                                     delta_color="normal")
+                        with col3:
+                            st.metric("Discount Level", f"{info['next_discount_level']} kegs")
+                        
+                        # Show adjustment suggestions
+                        suggestions = info.get('adjustment_suggestions', [])
+                        if suggestions:
+                            st.markdown("**💡 Suggested Additions:**")
+                            for sug in suggestions:
+                                # Format suggestion message based on current order status
+                                if sug['current_qty'] > 0:
+                                    detail = f"currently ordering {sug['current_qty']}"
+                                    st.success(f"• **{sug['item_id']}**: Add {sug['suggested_add']} ({detail}) - {sug['reason']}")
+                                else:
+                                    detail = f"{sug['weeks_on_hand']:.1f} weeks on hand"
+                                    st.info(f"• **{sug['item_id']}**: Add {sug['suggested_add']} ({detail}) - {sug['reason']}")
+            
+            # Show vendors at discount level
+            vendors_at_discount = [v for v, info in vendor_keg_info.items() 
+                                  if info['total_kegs'] > 0 and info['at_discount_level']]
+            if vendors_at_discount:
+                for vendor in vendors_at_discount:
+                    info = vendor_keg_info[vendor]
+                    st.success(f"✅ **{vendor}**: {info['total_kegs']} kegs - At {info['required_increment']}-keg discount level!")
 
             # Display recommendations
             st.markdown("### 📋 Order Recommendations")
@@ -435,7 +527,17 @@ if uploaded_files:
                     # Group by vendor
                     for vendor in orders_to_place['vendor'].unique():
                         vendor_recs = orders_to_place[orders_to_place['vendor'] == vendor]
-                        with st.expander(f"📦 {vendor} ({len(vendor_recs)} items)", expanded=True):
+                        
+                        # Add keg count info for Crescent/Hensley
+                        vendor_label = f"📦 {vendor} ({len(vendor_recs)} items)"
+                        if vendor in vendor_keg_info and vendor_keg_info[vendor]['total_kegs'] > 0:
+                            keg_info = vendor_keg_info[vendor]
+                            if keg_info['at_discount_level']:
+                                vendor_label += f" - 🍺 {keg_info['total_kegs']} kegs ✅"
+                            else:
+                                vendor_label += f" - 🍺 {keg_info['total_kegs']} kegs (need {keg_info['kegs_to_add']} more for discount)"
+                        
+                        with st.expander(vendor_label, expanded=True):
                             display_cols = ['item_id', 'category', 'on_hand', 'avg_usage', 
                                            'weeks_on_hand', 'target_weeks', 'recommended_qty', 
                                            'confidence', 'notes']
@@ -1669,6 +1771,102 @@ if uploaded_files:
                         use_container_width=True,
                         hide_index=True
                     )
+
+                    # NEW: Calculation Breakdown Section - Show the math for items with variance
+                    st.markdown("---")
+                    st.markdown("### 🧮 Calculation Breakdown (Verify the Math)")
+                    st.markdown("""
+                    Select an item to see exactly how the theoretical usage was calculated. 
+                    This shows all POS items sold and their recipe contributions.
+                    **Verify this math is correct before recounting inventory.**
+                    """)
+                    
+                    # Get items with significant variance for the dropdown
+                    items_with_variance = variance_df[variance_df['severity'].isin(['warning', 'critical'])]['item_id'].tolist()
+                    all_variance_items = variance_df['item_id'].tolist()
+                    
+                    # Dropdown to select item for breakdown
+                    breakdown_options = ["Select an item..."] + items_with_variance + ["--- All Items ---"] + [i for i in all_variance_items if i not in items_with_variance]
+                    selected_breakdown_item = st.selectbox(
+                        "Select item to see calculation breakdown:",
+                        options=breakdown_options,
+                        key="variance_breakdown_select"
+                    )
+                    
+                    if selected_breakdown_item and selected_breakdown_item != "Select an item..." and selected_breakdown_item != "--- All Items ---":
+                        # Get the details for this item from usage_results
+                        if selected_breakdown_item in usage_results:
+                            item_data = usage_results[selected_breakdown_item]
+                            details = item_data.get('details', [])
+                            theoretical = item_data.get('theoretical_usage', 0)
+                            unit = item_data.get('unit', 'units')
+                            
+                            # Get actual usage for this item
+                            actual_row = variance_df[variance_df['item_id'] == selected_breakdown_item]
+                            actual_usage = actual_row['actual'].values[0] if not actual_row.empty else 0
+                            variance_units = actual_row['variance_units'].values[0] if not actual_row.empty else 0
+                            
+                            st.markdown(f"#### 📦 {selected_breakdown_item}")
+                            
+                            # Summary metrics
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                st.metric("Theoretical Usage", f"{theoretical:.2f} {unit}")
+                            with col2:
+                                st.metric("Actual Usage", f"{actual_usage:.2f} {unit}")
+                            with col3:
+                                delta_color = "inverse" if variance_units > 0 else "normal"
+                                st.metric("Variance", f"{variance_units:+.2f} {unit}", 
+                                         delta="Over" if variance_units > 0 else "Under",
+                                         delta_color=delta_color)
+                            with col4:
+                                if theoretical > 0:
+                                    var_pct = (variance_units / theoretical) * 100
+                                    st.metric("Variance %", f"{var_pct:+.1f}%")
+                                else:
+                                    st.metric("Variance %", "N/A")
+                            
+                            st.markdown("---")
+                            st.markdown("**📋 Items Sold → Theoretical Usage Calculation:**")
+                            
+                            if details:
+                                # Parse and display details in a structured way
+                                breakdown_data = []
+                                for detail in details:
+                                    breakdown_data.append({"Calculation": detail})
+                                
+                                breakdown_df = pd.DataFrame(breakdown_data)
+                                st.dataframe(breakdown_df, use_container_width=True, hide_index=True)
+                                
+                                # Show totals
+                                st.markdown(f"**Total Theoretical:** {theoretical:.2f} {unit}")
+                                
+                                # Explain what variance means
+                                if variance_units > 0:
+                                    st.warning(f"""
+                                    ⚠️ **You used {variance_units:.2f} MORE {unit} than expected.**
+                                    
+                                    Possible reasons:
+                                    - 🔢 **Counting error**: Recount this item
+                                    - 🍸 **Over-pouring**: Staff may be pouring heavy
+                                    - 🗑️ **Waste/spillage**: Drinks made but not sold
+                                    - 📝 **Recipe error**: Check if mappings above are correct
+                                    """)
+                                elif variance_units < 0:
+                                    st.info(f"""
+                                    ℹ️ **You used {abs(variance_units):.2f} LESS {unit} than expected.**
+                                    
+                                    Possible reasons:
+                                    - 🔢 **Counting error**: Recount this item
+                                    - 📝 **Recipe error**: Check if mappings above are correct
+                                    - 🚫 **Missing sales**: Some sales not in POS data
+                                    """)
+                                else:
+                                    st.success("✅ Theoretical matches actual - no variance!")
+                            else:
+                                st.warning("No calculation details available for this item.")
+                        else:
+                            st.info(f"No sales mix data available for {selected_breakdown_item}. This item may not have been sold this period.")
 
                     # Shrinkage report
                     st.markdown("---")
