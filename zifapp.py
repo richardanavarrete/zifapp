@@ -970,11 +970,49 @@ if uploaded_files:
                 # Parse sales mix
                 sales_df = parse_sales_mix_csv(sales_mix_file)
 
+                # Week selector for COGS data
+                st.markdown("---")
+                st.markdown("### 📅 Select Week for COGS Analysis")
+
+                # Get all available weeks
+                all_weeks = dataset.get_all_cogs_summaries()
+
+                if not all_weeks:
+                    st.error("No COGS data available from bevweekly sheet. Please ensure the spreadsheet has the 'Weekly COGS' section filled in.")
+                    st.stop()
+
+                # Create week options for selectbox
+                week_options = {}
+                for summary in all_weeks:
+                    week_label = f"{summary.week_name} ({summary.week_date.strftime('%Y-%m-%d')})"
+                    if summary.is_complete:
+                        week_label += " ✅"
+                    else:
+                        week_label += " ⚠️ Incomplete"
+                    week_options[week_label] = summary.week_name
+
+                # Default to latest complete week
+                latest_complete = dataset.get_latest_complete_cogs_summary()
+                default_week_name = latest_complete.week_name if latest_complete else all_weeks[0].week_name
+                default_label = next((label for label, name in week_options.items() if name == default_week_name), list(week_options.keys())[0])
+
+                # Week selector
+                selected_week_label = st.selectbox(
+                    "Select Week",
+                    options=list(week_options.keys()),
+                    index=list(week_options.keys()).index(default_label),
+                    help="Choose which week's COGS data to use for analysis. ✅ indicates complete data (ending inventory filled in)."
+                )
+
+                selected_week_name = week_options[selected_week_label]
+
+                st.markdown("---")
+
                 # Calculate theoretical usage and revenue
                 usage_results, unmatched, total_revenue = aggregate_all_usage(sales_df)
 
-                # Calculate pour cost using ACTUAL COGS from bevweekly sheet
-                pour_cost_results = calculate_pour_cost_actual(dataset, total_revenue, usage_results)
+                # Calculate pour cost using ACTUAL COGS from bevweekly sheet for selected week
+                pour_cost_results = calculate_pour_cost_actual(dataset, total_revenue, usage_results, week_name=selected_week_name)
 
                 # Check if actual COGS data is available
                 if 'error' in pour_cost_results:
@@ -986,10 +1024,6 @@ if uploaded_files:
 
                 # Section 1: Overall Pour Cost
                 st.markdown("### 🎯 Overall Pour Cost")
-
-                # Display info about which week's data is being used
-                if 'week_name' in pour_cost_results:
-                    st.info(f"📊 Using actual COGS from bevweekly sheet: {pour_cost_results['week_name']} ({pour_cost_results['week_date'].strftime('%Y-%m-%d')})")
 
                 col1, col2, col3, col4 = st.columns(4)
 
@@ -1126,8 +1160,8 @@ if uploaded_files:
                 # Section 2.6: Individual Item Profitability
                 st.markdown("### 💎 Individual Item Profitability")
 
-                # Calculate item profitability
-                profitability_df = calculate_item_profitability(usage_results, theoretical_cogs, dataset)
+                # Calculate item profitability using selected week's COGS
+                profitability_df = calculate_item_profitability(usage_results, theoretical_cogs, dataset, week_name=selected_week_name)
 
                 if not profitability_df.empty:
                     # Summary metrics with theoretical vs actual comparison

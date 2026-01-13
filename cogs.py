@@ -319,7 +319,14 @@ def calculate_pour_cost_actual(
     }
 
     for category, cogs in category_cogs_map.items():
-        revenue = revenue_by_category.get(category, 0)
+        # Special case: Juice uses total beverage revenue (all categories except Juice)
+        if category == 'Juice':
+            revenue = (revenue_by_category.get('Liquor', 0) +
+                      revenue_by_category.get('Wine', 0) +
+                      revenue_by_category.get('Draft Beer', 0) +
+                      revenue_by_category.get('Bottle Beer', 0))
+        else:
+            revenue = revenue_by_category.get(category, 0)
 
         if revenue > 0 and cogs > 0:
             pct = (cogs / revenue) * 100
