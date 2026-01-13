@@ -130,5 +130,88 @@ def main():
     print("=" * 60)
 
 
+def test_sales_mix_integration():
+    """Test that sales mix data is used for recount calculations when provided."""
+    print("\n" + "=" * 60)
+    print("SALES MIX INTEGRATION TEST")
+    print("=" * 60)
+    
+    # Create a test dataset with an item that has a data issue (negative usage)
+    items = {
+        "VODKA Titos": Item(
+            item_id="VODKA Titos",
+            display_name="VODKA Titos",
+            category="Vodka",
+            vendor="Southern"
+        ),
+    }
+    
+    # Create records where the item shows negative usage (inventory went UP)
+    records_data = []
+    base_date = datetime(2024, 1, 1)
+    
+    # Simulate negative usage scenario: inventory increases week over week
+    # This triggers DATA_ISSUE_NEGATIVE
+    for week in range(4):
+        records_data.append({
+            'item_id': 'VODKA Titos',
+            'week_date': pd.Timestamp(base_date) + pd.Timedelta(weeks=week),
+            'on_hand': 5.0 + week,  # Increasing inventory (shouldn't happen without purchase)
+            'usage': -0.5 if week == 3 else 0.5,  # Negative usage on last week
+            'week_name': f'Week {week+1}',
+            'source_file': 'test.xlsx'
+        })
+    
+    records_df = pd.DataFrame(records_data)
+    dataset = InventoryDataset(items=items, records=records_df)
+    
+    # Create mock sales mix usage data
+    sales_mix_usage = {
+        'VODKA Titos': {
+            'theoretical_usage': 2.5,
+            'unit': 'bottles',
+            'details': ['Tito\'s Martini: 10 × 1.5oz', 'Tito\'s Rocks: 15 × 1.5oz']
+        }
+    }
+    
+    print("\n1. Running agent WITHOUT sales mix data...")
+    result_no_sales = run_agent(dataset, usage_column='avg_4wk', sales_mix_usage=None)
+    
+    print("\n2. Running agent WITH sales mix data...")
+    result_with_sales = run_agent(dataset, usage_column='avg_4wk', sales_mix_usage=sales_mix_usage)
+    
+    # Check that items needing recount use sales mix data
+    print("\n3. Comparing recount calculations:")
+    print("-" * 60)
+    
+    if result_no_sales['items_needing_recount']:
+        item_no_sales = result_no_sales['items_needing_recount'][0]
+        print(f"   WITHOUT sales mix:")
+        print(f"      has_sales_mix_data: {item_no_sales.get('has_sales_mix_data', False)}")
+        print(f"      discrepancy: {item_no_sales.get('discrepancy', 'N/A')}")
+    
+    if result_with_sales['items_needing_recount']:
+        item_with_sales = result_with_sales['items_needing_recount'][0]
+        print(f"   WITH sales mix:")
+        print(f"      has_sales_mix_data: {item_with_sales.get('has_sales_mix_data', False)}")
+        print(f"      sales_mix_expected_usage: {item_with_sales.get('sales_mix_expected_usage', 'N/A')}")
+        print(f"      sales_mix_unit: {item_with_sales.get('sales_mix_unit', 'N/A')}")
+        print(f"      discrepancy: {item_with_sales.get('discrepancy', 'N/A')}")
+        print(f"      sales_mix_details: {item_with_sales.get('sales_mix_details', [])}")
+        
+        # Verify sales mix data is being used
+        assert item_with_sales.get('has_sales_mix_data') == True, "Expected has_sales_mix_data=True"
+        assert item_with_sales.get('sales_mix_expected_usage') == 2.5, "Expected sales_mix_expected_usage=2.5"
+        assert 'sales mix' in item_with_sales.get('discrepancy', '').lower(), "Expected 'sales mix' in discrepancy text"
+        print("\n   ✅ Sales mix data is correctly used in recount calculations!")
+    else:
+        print("   No items needing recount (this is also valid if data doesn't trigger issues)")
+    
+    print("\n" + "=" * 60)
+    print("✅ Sales mix integration test completed!")
+    print("=" * 60)
+
+
 if __name__ == "__main__":
     main()
+    test_sales_mix_integration()

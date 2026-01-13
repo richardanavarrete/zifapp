@@ -407,11 +407,22 @@ if uploaded_files:
 
         if run_agent_btn:
             with st.spinner("Running agent..."):
+                # Check if sales mix data is available and parse it
+                sales_mix_usage = None
+                if st.session_state.sales_mix_file is not None:
+                    try:
+                        sales_df = parse_sales_mix_csv(st.session_state.sales_mix_file)
+                        if sales_df is not None and not sales_df.empty:
+                            sales_mix_usage, _, _ = aggregate_all_usage(sales_df)
+                    except Exception as e:
+                        st.warning(f"⚠️ Could not parse sales mix file: {e}")
+                
                 agent_result = run_agent(
                     dataset,
                     usage_column=usage_option_agent,
                     smoothing_level=smoothing_level,
-                    trend_threshold=trend_threshold
+                    trend_threshold=trend_threshold,
+                    sales_mix_usage=sales_mix_usage
                 )
 
             st.success(f"✅ Agent run complete! Run ID: `{agent_result['run_id']}`")
@@ -420,13 +431,21 @@ if uploaded_files:
             # Items needing recount - now with detailed information
             if agent_result['items_needing_recount']:
                 with st.expander(f"⚠️ Items Needing Recount ({len(agent_result['items_needing_recount'])})", expanded=True):
-                    st.markdown("""
-                    These items have data discrepancies that suggest an inventory count error.
-                    Review and recount these items for accurate ordering recommendations.
-                    
-                    💡 **Tip:** Upload a Sales Mix CSV and check the **Pour Cost** tab → **Calculation Breakdown** 
-                    section to verify the math (items sold × recipes) before recounting.
-                    """)
+                    # Update tip based on whether sales mix data is available
+                    if sales_mix_usage:
+                        st.markdown("""
+                        These items have data discrepancies that suggest an inventory count error.
+                        Review and recount these items for accurate ordering recommendations.
+                        
+                        ✅ **Sales Mix data loaded!** Expected usage is now calculated from actual sales (items sold × recipes).
+                        """)
+                    else:
+                        st.markdown("""
+                        These items have data discrepancies that suggest an inventory count error.
+                        Review and recount these items for accurate ordering recommendations.
+                        
+                        💡 **Tip:** Upload a Sales Mix CSV to see expected usage based on actual sales instead of historical averages.
+                        """)
                     
                     for item_info in agent_result['items_needing_recount']:
                         # Create a styled container for each item
@@ -440,6 +459,10 @@ if uploaded_files:
                                 st.error(f"🔴 **Issue:** {issue_type}")
                             else:
                                 st.warning(f"🟡 **Issue:** {issue_type}")
+                            
+                            # Indicate if sales mix data is being used
+                            if item_info.get('has_sales_mix_data'):
+                                st.success("📊 Using Sales Mix data")
                         
                         with col2:
                             st.markdown(f"**{item_info.get('issue_description', '')}**")
@@ -450,20 +473,52 @@ if uploaded_files:
                             
                             # Show current values with the math
                             st.markdown("**Inventory Data:**")
-                            metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
-                            with metrics_col1:
-                                on_hand = item_info.get('on_hand')
-                                st.metric("On Hand (Counted)", f"{on_hand:.1f}" if on_hand is not None else "N/A")
-                            with metrics_col2:
-                                avg_usage = item_info.get('avg_usage')
-                                st.metric("Avg Usage/Week", f"{avg_usage:.1f}" if avg_usage is not None else "N/A")
-                            with metrics_col3:
-                                last_week = item_info.get('last_week_usage')
-                                st.metric("Last Week Usage", f"{last_week:.1f}" if last_week is not None else "N/A")
+                            
+                            # Show sales mix expected usage if available
+                            if item_info.get('has_sales_mix_data'):
+                                metrics_col1, metrics_col2, metrics_col3, metrics_col4 = st.columns(4)
+                                with metrics_col1:
+                                    on_hand = item_info.get('on_hand')
+                                    st.metric("On Hand (Counted)", f"{on_hand:.1f}" if on_hand is not None else "N/A")
+                                with metrics_col2:
+                                    sales_mix_expected = item_info.get('sales_mix_expected_usage')
+                                    sales_mix_unit = item_info.get('sales_mix_unit', 'units')
+                                    st.metric("Sales Mix Expected", f"{sales_mix_expected:.1f}" if sales_mix_expected is not None else "N/A",
+                                             help=f"Theoretical usage calculated from sales ({sales_mix_unit})")
+                                with metrics_col3:
+                                    avg_usage = item_info.get('avg_usage')
+                                    st.metric("Avg Usage/Week", f"{avg_usage:.1f}" if avg_usage is not None else "N/A",
+                                             help="Historical average usage")
+                                with metrics_col4:
+                                    last_week = item_info.get('last_week_usage')
+                                    st.metric("Last Week Usage", f"{last_week:.1f}" if last_week is not None else "N/A")
+                                
+                                # Show sales mix calculation details
+                                sales_mix_details = item_info.get('sales_mix_details', [])
+                                if sales_mix_details:
+                                    with st.expander("🧮 Sales Mix Calculation Breakdown", expanded=False):
+                                        for detail in sales_mix_details[:10]:  # Limit to first 10
+                                            st.text(f"• {detail}")
+                                        if len(sales_mix_details) > 10:
+                                            st.text(f"... and {len(sales_mix_details) - 10} more items")
+                            else:
+                                metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
+                                with metrics_col1:
+                                    on_hand = item_info.get('on_hand')
+                                    st.metric("On Hand (Counted)", f"{on_hand:.1f}" if on_hand is not None else "N/A")
+                                with metrics_col2:
+                                    avg_usage = item_info.get('avg_usage')
+                                    st.metric("Avg Usage/Week", f"{avg_usage:.1f}" if avg_usage is not None else "N/A")
+                                with metrics_col3:
+                                    last_week = item_info.get('last_week_usage')
+                                    st.metric("Last Week Usage", f"{last_week:.1f}" if last_week is not None else "N/A")
                             
                             # Show expected calculation if available
                             if item_info.get('expected_on_hand'):
-                                st.caption(f"💡 If avg usage is correct, expected on hand ≈ {item_info['expected_on_hand']:.1f}")
+                                if item_info.get('has_sales_mix_data'):
+                                    st.caption(f"💡 Based on sales mix, expected on hand ≈ {item_info['expected_on_hand']:.1f}")
+                                else:
+                                    st.caption(f"💡 If avg usage is correct, expected on hand ≈ {item_info['expected_on_hand']:.1f}")
 
             # Vendor Keg Discount Info (Crescent/Hensley keg increments)
             vendor_keg_info = agent_result.get('vendor_keg_info', {})
