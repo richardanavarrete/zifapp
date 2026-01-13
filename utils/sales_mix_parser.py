@@ -28,7 +28,7 @@ from config.liquor_map import LIQUOR_MAP
 from config.wine_map import WINE_MAP
 from config.mixed_drinks import MIXED_DRINK_RECIPES
 from config.margarita_flavors import MARGARITA_FLAVOR_ADDITIONS, PREMIUM_TEQUILA_FLAVORS
-from config.bar_consumables import BAR_CONSUMABLES_MAP
+from config.bar_consumables import BAR_CONSUMABLES_MAP, BAR_CONS_BOTTLE_SIZES
 
 
 def find_marker_position(row):
@@ -739,14 +739,25 @@ def aggregate_all_usage(sales_df):
                 all_results[inv_item]['theoretical_usage'] += data.get('qty', 0)
                 all_results[inv_item]['details'].extend(data['items'])
         elif 'JUICE' in inv_item or 'BAR CONS' in inv_item:
+            # Convert oz to bottles/cans if we have a bottle size for this item
+            oz_value = data['oz']
+            if inv_item in BAR_CONS_BOTTLE_SIZES:
+                bottle_size_oz = BAR_CONS_BOTTLE_SIZES[inv_item]
+                theoretical_usage = round(oz_value / bottle_size_oz, 2)
+                unit = 'bottles' if 'BAR CONS' in inv_item else 'cans'
+            else:
+                # Default to oz if no bottle size defined
+                theoretical_usage = round(oz_value, 1)
+                unit = 'oz'
+
             if inv_item not in all_results:
                 all_results[inv_item] = {
-                    'theoretical_usage': round(data['oz'], 1),
-                    'unit': 'oz',
+                    'theoretical_usage': theoretical_usage,
+                    'unit': unit,
                     'details': data['items']
                 }
             else:
-                all_results[inv_item]['theoretical_usage'] += round(data['oz'], 1)
+                all_results[inv_item]['theoretical_usage'] += theoretical_usage
                 all_results[inv_item]['details'].extend(data['items'])
         else:
             if inv_item not in all_results:
