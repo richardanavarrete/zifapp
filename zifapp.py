@@ -1157,12 +1157,16 @@ if uploaded_files:
                 # Calculate theoretical usage and revenue
                 usage_results, unmatched, total_revenue = aggregate_all_usage(sales_df)
 
-                # Calculate pour cost using ACTUAL COGS from bevweekly sheet for selected week
-                pour_cost_results = calculate_pour_cost_actual(dataset, total_revenue, usage_results, week_name=selected_week_name)
+                # Calculate pour cost using ACTUAL COGS and SALES from bevweekly sheet for selected week
+                pour_cost_results = calculate_pour_cost_actual(dataset, usage_results, week_name=selected_week_name)
 
-                # Check if actual COGS data is available
+                # Check if actual COGS and sales data are available
                 if 'error' in pour_cost_results:
-                    st.warning(f"⚠️ {pour_cost_results['error']}. Please ensure the bevweekly sheet has complete COGS data with ending inventory filled in.")
+                    error_msg = pour_cost_results['error']
+                    if 'Sales data not available' in error_msg:
+                        st.warning(f"⚠️ {error_msg}")
+                    else:
+                        st.warning(f"⚠️ {error_msg}")
                     st.stop()
 
                 # Also calculate theoretical COGS for variance analysis
@@ -1186,8 +1190,8 @@ if uploaded_files:
                 with col2:
                     st.metric(
                         "Total Revenue",
-                        f"${total_revenue:,.2f}",
-                        help="Net revenue from sales"
+                        f"${pour_cost_results['total_revenue']:,.2f}",
+                        help="Total sales from bevweekly sheet (column B - manager-entered)"
                     )
 
                 with col3:
