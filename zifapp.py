@@ -417,11 +417,89 @@ if uploaded_files:
             st.success(f"✅ Agent run complete! Run ID: `{agent_result['run_id']}`")
             st.info(agent_result['summary'])
 
-            # Items needing recount
+            # Items needing recount - now with detailed information
             if agent_result['items_needing_recount']:
                 with st.expander(f"⚠️ Items Needing Recount ({len(agent_result['items_needing_recount'])})", expanded=True):
-                    for item in agent_result['items_needing_recount']:
-                        st.warning(f"• {item}")
+                    st.markdown("""
+                    These items have data discrepancies that suggest an inventory count error.
+                    Review and recount these items for accurate ordering recommendations.
+                    """)
+                    
+                    for item_info in agent_result['items_needing_recount']:
+                        # Create a styled container for each item
+                        st.markdown(f"---")
+                        col1, col2 = st.columns([2, 3])
+                        
+                        with col1:
+                            st.markdown(f"**{item_info['item_id']}**")
+                            issue_type = item_info.get('issue_type', 'Data Issue')
+                            if issue_type == 'Negative Usage':
+                                st.error(f"🔴 **Issue:** {issue_type}")
+                            else:
+                                st.warning(f"🟡 **Issue:** {issue_type}")
+                        
+                        with col2:
+                            st.markdown(f"**{item_info.get('issue_description', '')}**")
+                            
+                            # Show the discrepancy details
+                            if item_info.get('discrepancy'):
+                                st.info(f"📊 {item_info['discrepancy']}")
+                            
+                            # Show current values
+                            metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
+                            with metrics_col1:
+                                on_hand = item_info.get('on_hand')
+                                st.metric("On Hand", f"{on_hand:.1f}" if on_hand is not None else "N/A")
+                            with metrics_col2:
+                                avg_usage = item_info.get('avg_usage')
+                                st.metric("Avg Usage", f"{avg_usage:.1f}/wk" if avg_usage is not None else "N/A")
+                            with metrics_col3:
+                                last_week = item_info.get('last_week_usage')
+                                st.metric("Last Week", f"{last_week:.1f}" if last_week is not None else "N/A")
+
+            # Vendor Keg Discount Info (Crescent/Hensley 21-keg increments)
+            vendor_keg_info = agent_result.get('vendor_keg_info', {})
+            vendors_needing_adjustment = [v for v, info in vendor_keg_info.items() 
+                                         if info['total_kegs'] > 0 and not info['at_discount_level']]
+            
+            if vendors_needing_adjustment:
+                with st.expander(f"🍺 Keg Order Optimization ({len(vendors_needing_adjustment)} vendors)", expanded=True):
+                    st.markdown("""
+                    **Crescent and Hensley offer maximum discounts on orders of 21 kegs.**
+                    Adjust your order to reach the discount threshold.
+                    """)
+                    
+                    for vendor in vendors_needing_adjustment:
+                        info = vendor_keg_info[vendor]
+                        st.markdown(f"---")
+                        st.markdown(f"### {vendor}")
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Current Order", f"{info['total_kegs']} kegs")
+                        with col2:
+                            st.metric("Kegs to Add", f"+{info['kegs_to_add']}", 
+                                     delta_color="normal")
+                        with col3:
+                            st.metric("Discount Level", f"{info['next_discount_level']} kegs")
+                        
+                        # Show adjustment suggestions
+                        suggestions = info.get('adjustment_suggestions', [])
+                        if suggestions:
+                            st.markdown("**💡 Suggested Additions:**")
+                            for sug in suggestions:
+                                if sug['current_qty'] > 0:
+                                    st.success(f"• **{sug['item_id']}**: Add {sug['suggested_add']} (currently ordering {sug['current_qty']}) - {sug['reason']}")
+                                else:
+                                    st.info(f"• **{sug['item_id']}**: Add {sug['suggested_add']} ({sug['weeks_on_hand']:.1f} weeks on hand) - {sug['reason']}")
+            
+            # Show vendors at discount level
+            vendors_at_discount = [v for v, info in vendor_keg_info.items() 
+                                  if info['total_kegs'] > 0 and info['at_discount_level']]
+            if vendors_at_discount:
+                for vendor in vendors_at_discount:
+                    info = vendor_keg_info[vendor]
+                    st.success(f"✅ **{vendor}**: {info['total_kegs']} kegs - At {info['required_increment']}-keg discount level!")
 
             # Display recommendations
             st.markdown("### 📋 Order Recommendations")
@@ -435,7 +513,17 @@ if uploaded_files:
                     # Group by vendor
                     for vendor in orders_to_place['vendor'].unique():
                         vendor_recs = orders_to_place[orders_to_place['vendor'] == vendor]
-                        with st.expander(f"📦 {vendor} ({len(vendor_recs)} items)", expanded=True):
+                        
+                        # Add keg count info for Crescent/Hensley
+                        vendor_label = f"📦 {vendor} ({len(vendor_recs)} items)"
+                        if vendor in vendor_keg_info and vendor_keg_info[vendor]['total_kegs'] > 0:
+                            keg_info = vendor_keg_info[vendor]
+                            if keg_info['at_discount_level']:
+                                vendor_label += f" - 🍺 {keg_info['total_kegs']} kegs ✅"
+                            else:
+                                vendor_label += f" - 🍺 {keg_info['total_kegs']} kegs (need {keg_info['kegs_to_add']} more for discount)"
+                        
+                        with st.expander(vendor_label, expanded=True):
                             display_cols = ['item_id', 'category', 'on_hand', 'avg_usage', 
                                            'weeks_on_hand', 'target_weeks', 'recommended_qty', 
                                            'confidence', 'notes']
