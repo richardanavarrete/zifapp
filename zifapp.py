@@ -362,14 +362,15 @@ if uploaded_files:
         st.error(f"An error occurred during data processing: {e}")
         st.stop()
 
-    tab_summary, tab_ordering_worksheet, tab_sales_mix, tab_trends, tab_cogs, tab_pour_cost, tab_excess_inventory = st.tabs([
+    tab_summary, tab_ordering_worksheet, tab_sales_mix, tab_trends, tab_cogs, tab_pour_cost, tab_excess_inventory, tab_discount_finder = st.tabs([
         "📊 Summary",
         "🧪 Ordering Worksheet",
         "Sales Mix Analysis",
         "📈 Item Trends",
         "💰 COGS Analysis",
         "📊 Pour Cost",
-        "📦 Excess Inventory"
+        "📦 Excess Inventory",
+        "💵 Discount Finder"
     ])
 
     # --- TAB 1: SUMMARY ---
@@ -1870,3 +1871,179 @@ if uploaded_files:
         else:
             st.success("✅ No excess inventory detected! All items are at or below suggested par levels.")
             st.info(f"Try adjusting the averaging method or Target Weeks slider to see how different settings affect excess inventory calculations.")
+
+    # --- TAB 8: DISCOUNT FINDER (SALES MIX) ---
+    with tab_discount_finder:
+        st.subheader("💵 EOM Discount Finder")
+        st.markdown("""
+        Upload your **SalesMixByPrice.csv** file to quickly find your EOM (End-of-Month) discounts.
+        This tool processes sales data and maps items to discount categories based on price points.
+        """)
+
+        # API Configuration
+        api_url = st.text_input(
+            "Sales Mix API URL",
+            value="http://localhost:8001",
+            help="The URL where the Sales Mix API is running. Default: http://localhost:8001"
+        )
+
+        # File uploader
+        uploaded_sales_mix = st.file_uploader(
+            "Upload SalesMixByPrice.csv",
+            type=["csv"],
+            key="sales_mix_discount_finder",
+            help="Upload your sales mix CSV file (expects header at row 4)"
+        )
+
+        if uploaded_sales_mix is not None:
+            try:
+                import requests
+
+                st.info("📤 Processing your file through the Sales Mix API...")
+
+                # Prepare the file for upload to the API
+                files = {"file": (uploaded_sales_mix.name, uploaded_sales_mix.getvalue(), "text/csv")}
+
+                # Call the API
+                response = requests.post(f"{api_url}/process", files=files, timeout=30)
+
+                if response.status_code == 200:
+                    result = response.json()
+
+                    if result["status"] == "success":
+                        st.success("✅ File processed successfully!")
+
+                        # Display the processed data
+                        display_data = pd.DataFrame(result["data"]["display"])
+                        ordered_data = pd.DataFrame(result["data"]["ordered"])
+
+                        # Show data with visual breaks
+                        st.header("Processed Discount Sheet")
+                        st.info("This table includes blank rows for readability, matching the standard discount sheet format.")
+
+                        # Style the dataframe
+                        st.dataframe(
+                            display_data,
+                            hide_index=True,
+                            use_container_width=True,
+                            height=600
+                        )
+
+                        # Download buttons
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            # Download as CSV (without blank rows)
+                            csv_data = ordered_data.to_csv(index=False).encode('utf-8')
+                            st.download_button(
+                                label="📥 Download as CSV",
+                                data=csv_data,
+                                file_name='processed_sales_mix_data.csv',
+                                mime='text/csv',
+                                help="Download the processed data without blank rows for further analysis"
+                            )
+
+                        with col2:
+                            # Download display version (with blank rows)
+                            display_csv = display_data.to_csv(index=False).encode('utf-8')
+                            st.download_button(
+                                label="📥 Download Display Version",
+                                data=display_csv,
+                                file_name='sales_mix_display.csv',
+                                mime='text/csv',
+                                help="Download the formatted version with blank rows for presentation"
+                            )
+
+                        # Show summary statistics
+                        st.header("Summary Statistics")
+                        total_items = ordered_data['Items Sold'].sum()
+                        num_categories = len(ordered_data)
+
+                        metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
+                        with metrics_col1:
+                            st.metric("Total Items Sold", f"{total_items:,.0f}")
+                        with metrics_col2:
+                            st.metric("Discount Categories", num_categories)
+                        with metrics_col3:
+                            avg_per_category = total_items / num_categories if num_categories > 0 else 0
+                            st.metric("Avg per Category", f"{avg_per_category:,.1f}")
+
+                        # Top categories chart
+                        st.header("Top Discount Categories")
+                        top_categories = ordered_data.nlargest(10, 'Items Sold')
+
+                        fig = px.bar(
+                            top_categories,
+                            x='Items Sold',
+                            y='DiscountSheetLabel',
+                            orientation='h',
+                            title='Top 10 Categories by Items Sold',
+                            labels={'Items Sold': 'Number of Items Sold', 'DiscountSheetLabel': 'Category'},
+                            color='Items Sold',
+                            color_continuous_scale='Viridis'
+                        )
+                        fig.update_layout(height=500, showlegend=False)
+                        st.plotly_chart(fig, use_container_width=True)
+
+                    else:
+                        st.error(f"❌ API returned an error: {result.get('detail', 'Unknown error')}")
+                else:
+                    st.error(f"❌ API request failed with status code {response.status_code}: {response.text}")
+
+            except requests.exceptions.ConnectionError:
+                st.error(f"""
+                ❌ **Could not connect to Sales Mix API**
+
+                The API is not running at `{api_url}`. Please ensure the Sales Mix API is running.
+
+                **To start the API:**
+                ```bash
+                cd sales-mix-api
+                pip install -r requirements.txt
+                python main.py
+                ```
+
+                Or use the provided run script:
+                ```bash
+                ./run_services.sh
+                ```
+                """)
+            except requests.exceptions.Timeout:
+                st.error("❌ Request to API timed out. Please try again.")
+            except Exception as e:
+                st.error(f"❌ An error occurred: {str(e)}")
+                st.exception(e)
+
+        else:
+            # Show instructions when no file is uploaded
+            st.info("""
+            ### 📋 Instructions
+
+            1. **Start the Sales Mix API** (if not already running):
+               ```bash
+               cd sales-mix-api
+               python main.py
+               ```
+
+            2. **Upload your SalesMixByPrice.csv file** using the uploader above
+
+            3. The tool will automatically:
+               - Process your sales data
+               - Map items to discount categories
+               - Generate an organized discount sheet
+               - Provide downloadable outputs
+
+            ### 📊 Expected File Format
+
+            Your CSV file should have:
+            - Header starting at row 4
+            - Columns: Item name, Price, Items Sold
+            - Standard POS export format
+
+            ### 🎯 What You'll Get
+
+            - **Organized discount sheet** with proper categorization
+            - **CSV downloads** for further analysis
+            - **Visual charts** showing top categories
+            - **Summary statistics** of your sales mix
+            """)
