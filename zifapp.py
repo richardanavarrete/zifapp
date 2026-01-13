@@ -669,8 +669,8 @@ if uploaded_files:
                             actual_usage = actual_row['Last Week Usage'].values[0]
                             row['Actual Usage (Last Week)'] = actual_usage if pd.notna(actual_usage) else None
                             if pd.notna(actual_usage) and actual_usage > 0:
-                                variance = data['theoretical_usage'] - actual_usage
-                                variance_pct = (variance / actual_usage) * 100
+                                variance = actual_usage - data['theoretical_usage']
+                                variance_pct = (variance / data['theoretical_usage']) * 100
                                 row['Variance'] = round(variance, 2)
                                 row['Variance %'] = round(variance_pct, 1)
                             else:
@@ -683,7 +683,7 @@ if uploaded_files:
                         usage_data.append(row)
                     
                     usage_df = pd.DataFrame(usage_data)
-                    
+
                     st.markdown("---")
                     col1, col2 = st.columns(2)
                     with col1:
@@ -694,9 +694,9 @@ if uploaded_files:
                         )
                     with col2:
                         show_variance_only = st.checkbox("Show only items with variance data", value=False)
-                    
+
                     display_usage_df = usage_df.copy()
-                    
+
                     if category_filter != "All":
                         if category_filter == "Draft Beer":
                             display_usage_df = display_usage_df[display_usage_df['Inventory Item'].str.contains('BEER DFT')]
@@ -712,38 +712,45 @@ if uploaded_files:
                             display_usage_df = display_usage_df[
                                 display_usage_df['Inventory Item'].str.contains('BAR CONS|JUICE', regex=True)
                             ]
-                    
+
                     if show_variance_only:
                         display_usage_df = display_usage_df[display_usage_df['Variance'].notna()]
-                    
-                    def highlight_variance(val):
+
+                    # Add colored dot indicator based on variance %
+                    def get_variance_indicator(val):
                         if pd.isna(val):
                             return ''
                         if val > 10:
-                            return 'background-color: #ffcccb'
+                            return '🔴'
                         elif val < -10:
-                            return 'background-color: #90EE90'
-                        return ''
-                    
+                            return '🟢'
+                        return '⚪'
+
+                    display_usage_df['Status'] = display_usage_df['Variance %'].apply(get_variance_indicator)
+
+                    # Reorder columns to put Status first
+                    cols = display_usage_df.columns.tolist()
+                    cols = ['Status'] + [col for col in cols if col != 'Status']
+                    display_usage_df = display_usage_df[cols]
+
                     st.markdown("### Theoretical Usage Results")
                     st.markdown("""
                     **Variance Interpretation:**
-                    - 🔴 **Positive variance (red):** Theoretical > Actual — You should have used more than you did. 
-                      Possible: theft, waste, spillage, or inventory count error.
-                    - 🟢 **Negative variance (green):** Theoretical < Actual — You used more than sales suggest. 
-                      Possible: over-ringing, comps not tracked, or heavy pours.
+                    - 🔴 **Positive variance (red dot):** Actual > Theoretical — You used more than expected.
+                      Possible: over-pouring, waste, spillage, or heavy pours.
+                    - 🟢 **Negative variance (green dot):** Actual < Theoretical — You used less than expected.
+                      Possible: theft, miscount, or inventory tracking error.
+                    - ⚪ **Minor variance (white dot):** Within acceptable range (±10%).
                     """)
-                    
+
                     if not display_usage_df.empty:
-                        styled_usage = display_usage_df.style.applymap(
-                            highlight_variance, subset=['Variance %']
-                        ).format({
+                        styled_usage = display_usage_df.style.format({
                             'Theoretical Usage': '{:.2f}',
                             'Actual Usage (Last Week)': '{:.2f}',
                             'Variance': '{:.2f}',
                             'Variance %': '{:.1f}%'
                         }, na_rep="-")
-                        
+
                         st.dataframe(styled_usage, use_container_width=True, hide_index=True)
                         
                         csv_usage = display_usage_df.to_csv(index=False).encode('utf-8')
