@@ -44,6 +44,7 @@ POUR_COST_TARGETS = {
     "Draft Beer": {"target": 20, "warning": 27, "critical": 30},
     "Bottle Beer": {"target": 19, "warning": 25, "critical": 30},  # Updated from 24
     "Wine": {"target": 22, "warning": 25, "critical": 30},  # Updated from 28
+    "Juice": {"target": 2, "warning": 3, "critical": 4},
     "Bar Other": {"target": 13, "warning": 15, "critical": 20},
 }
 
@@ -242,28 +243,28 @@ def calculate_pour_cost(
 
 def calculate_pour_cost_actual(
     dataset: InventoryDataset,
-    total_revenue: float,
     usage_results: dict,
     week_name: str = None
 ) -> Dict:
     """
-    Calculate pour cost percentage using ACTUAL COGS from the bevweekly sheet.
+    Calculate pour cost percentage using ACTUAL COGS and SALES from the bevweekly sheet.
 
     This replaces the theoretical COGS calculation with actual COGS from the
     spreadsheet's "Weekly COGS" section, which uses the formula:
     COGS = Beginning Inventory $ + Purchases $ - Ending Inventory $
 
+    Sales data is also taken from the bevweekly sheet (column B - manager-entered).
+
     Args:
         dataset: InventoryDataset with weekly_cogs_summaries
-        total_revenue: Total revenue from sales
-        usage_results: Dict from aggregate_all_usage with revenue per item
+        usage_results: Dict from aggregate_all_usage (used for item-level analysis)
         week_name: Optional specific week name (e.g., 'Q1 WK2'). If None, uses latest complete week.
 
     Returns:
         Dict with:
         - overall_pour_cost_pct: float
         - total_cogs: float (from bevweekly sheet)
-        - total_revenue: float
+        - total_revenue: float (from bevweekly sheet)
         - gross_profit: float
         - pour_cost_by_category: Dict[str, dict] with pct, status, target
     """
@@ -274,37 +275,44 @@ def calculate_pour_cost_actual(
         cogs_summary = dataset.get_latest_complete_cogs_summary()
 
     if not cogs_summary or not cogs_summary.is_complete:
-        # Fallback to theoretical COGS if actual COGS not available
+        # Fallback if actual COGS not available
         return {
             'overall_pour_cost_pct': 0.0,
             'total_cogs': 0.0,
-            'total_revenue': round(total_revenue, 2),
-            'gross_profit': round(total_revenue, 2),
+            'total_revenue': 0.0,
+            'gross_profit': 0.0,
             'pour_cost_by_category': {},
-            'error': 'Actual COGS data not available from bevweekly sheet'
+            'error': 'Actual COGS data not available from bevweekly sheet. Please ensure ending inventory is filled in.'
         }
 
     # Use actual COGS from the spreadsheet
     actual_cogs = cogs_summary.total_cogs or 0
 
+    # Get sales data from bevweekly sheet (column B - manager-entered)
+    total_sales = cogs_summary.total_sales or 0
+
+    # Validate sales data
+    if total_sales <= 0:
+        return {
+            'overall_pour_cost_pct': 0.0,
+            'total_cogs': round(actual_cogs, 2),
+            'total_revenue': 0.0,
+            'gross_profit': -round(actual_cogs, 2),
+            'pour_cost_by_category': {},
+            'error': 'Sales data not available from bevweekly sheet. Please ensure SALES column (column B) is filled in.'
+        }
+
     # Calculate overall pour cost
-    overall_pour_cost_pct = (actual_cogs / total_revenue * 100) if total_revenue > 0 else 0.0
+    overall_pour_cost_pct = (actual_cogs / total_sales * 100)
 
-    # Calculate revenue by category from usage_results
-    revenue_by_category = {}
-    for item_id, usage_data in usage_results.items():
-        item = dataset.get_item(item_id)
-        if not item:
-            continue
-
-        # Map item category to consolidated category
-        item_category = item.category
-        consolidated_category = CATEGORY_CONSOLIDATION.get(item_category, item_category)
-
-        if consolidated_category not in revenue_by_category:
-            revenue_by_category[consolidated_category] = 0
-
-        revenue_by_category[consolidated_category] += usage_data.get('revenue', 0)
+    # Get category-level sales from bevweekly sheet
+    category_sales_map = {
+        'Liquor': cogs_summary.liquor_sales or 0,
+        'Wine': cogs_summary.wine_sales or 0,
+        'Draft Beer': cogs_summary.draft_beer_sales or 0,
+        'Bottle Beer': cogs_summary.bottle_beer_sales or 0,
+        'Juice': 0  # Juice doesn't have direct sales, uses total beverage sales
+    }
 
     # Build pour cost by category using actual COGS from spreadsheet
     pour_cost_by_category = {}
@@ -321,12 +329,12 @@ def calculate_pour_cost_actual(
     for category, cogs in category_cogs_map.items():
         # Special case: Juice uses total beverage revenue (all categories except Juice)
         if category == 'Juice':
-            revenue = (revenue_by_category.get('Liquor', 0) +
-                      revenue_by_category.get('Wine', 0) +
-                      revenue_by_category.get('Draft Beer', 0) +
-                      revenue_by_category.get('Bottle Beer', 0))
+            revenue = (category_sales_map['Liquor'] +
+                      category_sales_map['Wine'] +
+                      category_sales_map['Draft Beer'] +
+                      category_sales_map['Bottle Beer'])
         else:
-            revenue = revenue_by_category.get(category, 0)
+            revenue = category_sales_map[category]
 
         if revenue > 0 and cogs > 0:
             pct = (cogs / revenue) * 100
@@ -359,8 +367,8 @@ def calculate_pour_cost_actual(
     return {
         'overall_pour_cost_pct': round(overall_pour_cost_pct, 2),
         'total_cogs': round(actual_cogs, 2),
-        'total_revenue': round(total_revenue, 2),
-        'gross_profit': round(total_revenue - actual_cogs, 2),
+        'total_revenue': round(total_sales, 2),
+        'gross_profit': round(total_sales - actual_cogs, 2),
         'pour_cost_by_category': pour_cost_by_category,
         'week_name': cogs_summary.week_name,
         'week_date': cogs_summary.week_date

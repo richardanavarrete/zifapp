@@ -22,6 +22,7 @@ from cogs import (
     calculate_item_profitability
 )
 import cache_manager
+from policy import OrderTargets
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
@@ -361,18 +362,56 @@ if uploaded_files:
         st.error(f"An error occurred during data processing: {e}")
         st.stop()
 
-    tab_summary, tab_ordering_worksheet, tab_sales_mix, tab_trends, tab_cogs, tab_pour_cost = st.tabs([
+    tab_summary, tab_ordering_worksheet, tab_sales_mix, tab_trends, tab_cogs, tab_pour_cost, tab_excess_inventory = st.tabs([
         "📊 Summary",
         "🧪 Ordering Worksheet",
         "Sales Mix Analysis",
         "📈 Item Trends",
         "💰 COGS Analysis",
-        "📊 Pour Cost"
+        "📊 Pour Cost",
+        "📦 Excess Inventory"
     ])
 
     # --- TAB 1: SUMMARY ---
     with tab_summary:
         st.subheader("Usage Summary")
+
+        # Week selector
+        st.markdown("### 📅 Select Week to View")
+        all_weeks = dataset.get_all_cogs_summaries() if dataset else []
+
+        # Add "All Weeks" option for aggregate view
+        week_options = {"All Weeks (Aggregate)": None}
+
+        if all_weeks:
+            for summary in all_weeks:
+                week_label = f"{summary.week_name} ({summary.week_date.strftime('%Y-%m-%d')})"
+                if summary.is_complete:
+                    week_label += " ✅"
+                else:
+                    week_label += " ⚠️ Incomplete"
+                week_options[week_label] = summary.week_name
+
+        selected_week_label = st.selectbox(
+            "Select Week",
+            options=list(week_options.keys()),
+            index=0,  # Default to "All Weeks"
+            help="Choose 'All Weeks' for aggregate metrics across all weeks, or select a specific week to see that week's data.",
+            key="summary_week_selector"
+        )
+
+        selected_week = week_options[selected_week_label]
+
+        # Filter summary_df to selected week if specific week chosen
+        if selected_week:
+            # Filter dataset.records to selected week and recalculate summary
+            week_records = dataset.records[dataset.records['week_name'] == selected_week]
+            st.info(f"Showing data for: {selected_week_label}")
+        else:
+            st.info("Showing aggregate data across all weeks")
+
+        st.markdown("---")
+
         filter_type = st.radio("Filter By:", ["Vendor", "Category"], horizontal=True, key="summary_filter_type")
         display_df = summary_df
         download_filename = "beverage_summary_full.csv"
@@ -410,6 +449,40 @@ if uploaded_files:
     # --- TAB 2: ORDERING WORKSHEET ---
     with tab_ordering_worksheet:
         st.subheader("🧪 Ordering Worksheet: Inventory Planning")
+
+        # Week selector for planning basis
+        st.markdown("### 📅 Select Week for Planning")
+        all_weeks = dataset.get_all_cogs_summaries() if dataset else []
+
+        # Add "All Weeks" option for aggregate planning
+        week_options = {"All Weeks (Aggregate)": None}
+
+        if all_weeks:
+            for summary in all_weeks:
+                week_label = f"{summary.week_name} ({summary.week_date.strftime('%Y-%m-%d')})"
+                if summary.is_complete:
+                    week_label += " ✅"
+                else:
+                    week_label += " ⚠️ Incomplete"
+                week_options[week_label] = summary.week_name
+
+        selected_week_label = st.selectbox(
+            "Select Week",
+            options=list(week_options.keys()),
+            index=0,  # Default to "All Weeks"
+            help="Choose 'All Weeks' to plan based on aggregate usage averages, or select a specific week to base planning on that week's patterns.",
+            key="ordering_week_selector"
+        )
+
+        selected_week = week_options[selected_week_label]
+
+        if selected_week:
+            st.info(f"Planning based on: {selected_week_label}")
+        else:
+            st.info("Planning based on aggregate usage across all weeks")
+
+        st.markdown("---")
+
         mode = st.selectbox("Select View Mode:", ["By Vendor", "By Category"])
         
         usage_option = st.selectbox(
@@ -523,6 +596,41 @@ if uploaded_files:
         Compare your actual inventory usage against theoretical usage based on sales data.
         Identify variances that may indicate waste, over-pouring, theft, or other issues.
         """)
+
+        # Week selector for variance comparison
+        st.markdown("### 📅 Select Week to Compare")
+        all_weeks = dataset.get_all_cogs_summaries() if dataset else []
+
+        if all_weeks:
+            week_options = {}
+            for summary in all_weeks:
+                week_label = f"{summary.week_name} ({summary.week_date.strftime('%Y-%m-%d')})"
+                if summary.is_complete:
+                    week_label += " ✅"
+                else:
+                    week_label += " ⚠️ Incomplete"
+                week_options[week_label] = summary.week_name
+
+            # Default to latest complete week
+            latest_complete = dataset.get_latest_complete_cogs_summary()
+            default_week_name = latest_complete.week_name if latest_complete else all_weeks[0].week_name
+            default_label = next((label for label, name in week_options.items() if name == default_week_name), list(week_options.keys())[0])
+
+            selected_week_label = st.selectbox(
+                "Select Week",
+                options=list(week_options.keys()),
+                index=list(week_options.keys()).index(default_label),
+                help="Choose which week's actual usage data to compare against theoretical usage.",
+                key="sales_mix_week_selector"
+            )
+
+            selected_week = week_options[selected_week_label]
+            st.info(f"Comparing theoretical usage against actual usage from: {selected_week_label}")
+        else:
+            selected_week = None
+            st.info("Using most recent week's actual usage data")
+
+        st.markdown("---")
 
         # Get sales_mix_file from session_state (uploaded at top level)
         sales_mix_file = st.session_state.sales_mix_file
@@ -672,6 +780,39 @@ if uploaded_files:
     with tab_trends:
         st.subheader("📈 Item Trends Visualization")
         st.markdown("Select an item to view its historical usage trends over time.")
+
+        # Week selector for specific week analysis
+        st.markdown("### 📅 Select Week to Highlight")
+        all_weeks = dataset.get_all_cogs_summaries() if dataset else []
+
+        # Add "All Weeks" option to show full trend
+        week_options = {"All Weeks (Full Trend)": None}
+
+        if all_weeks:
+            for summary in all_weeks:
+                week_label = f"{summary.week_name} ({summary.week_date.strftime('%Y-%m-%d')})"
+                if summary.is_complete:
+                    week_label += " ✅"
+                else:
+                    week_label += " ⚠️ Incomplete"
+                week_options[week_label] = summary.week_name
+
+        selected_week_label = st.selectbox(
+            "Select Week",
+            options=list(week_options.keys()),
+            index=0,  # Default to "All Weeks"
+            help="Choose 'All Weeks' to see full trend line, or select a specific week to highlight that week's data point.",
+            key="trends_week_selector"
+        )
+
+        selected_week = week_options[selected_week_label]
+
+        if selected_week:
+            st.info(f"Highlighting week: {selected_week_label}")
+        else:
+            st.info("Showing full trend across all weeks")
+
+        st.markdown("---")
 
         # Item selector and date range in columns
         col1, col2 = st.columns([2, 1])
@@ -843,22 +984,29 @@ if uploaded_files:
             # Week selection dropdown
             all_weeks = dataset.get_all_cogs_summaries() if dataset else []
             if all_weeks:
-                week_options = [f"{w.week_name}" for w in all_weeks]
-                # Default to most recent complete week
-                latest_complete = dataset.get_latest_complete_cogs_summary()
-                default_index = 0
-                if latest_complete:
-                    try:
-                        default_index = week_options.index(latest_complete.week_name)
-                    except ValueError:
-                        default_index = 0
+                # Create week options with dates and status indicators
+                week_options = {}
+                for summary in all_weeks:
+                    week_label = f"{summary.week_name} ({summary.week_date.strftime('%Y-%m-%d')})"
+                    if summary.is_complete:
+                        week_label += " ✅"
+                    else:
+                        week_label += " ⚠️ Incomplete"
+                    week_options[week_label] = summary.week_name
 
-                selected_week = st.selectbox(
+                # Default to latest complete week
+                latest_complete = dataset.get_latest_complete_cogs_summary()
+                default_week_name = latest_complete.week_name if latest_complete else all_weeks[0].week_name
+                default_label = next((label for label, name in week_options.items() if name == default_week_name), list(week_options.keys())[0])
+
+                selected_week_label = st.selectbox(
                     "Select Week to View",
-                    options=week_options,
-                    index=default_index,
-                    help="Choose which week's COGS data to display"
+                    options=list(week_options.keys()),
+                    index=list(week_options.keys()).index(default_label),
+                    help="Choose which week's COGS data to display. ✅ indicates complete data (ending inventory filled in)."
                 )
+
+                selected_week = week_options[selected_week_label]
             else:
                 selected_week = None
 
@@ -1088,12 +1236,16 @@ if uploaded_files:
                 # Calculate theoretical usage and revenue
                 usage_results, unmatched, total_revenue = aggregate_all_usage(sales_df)
 
-                # Calculate pour cost using ACTUAL COGS from bevweekly sheet for selected week
-                pour_cost_results = calculate_pour_cost_actual(dataset, total_revenue, usage_results, week_name=selected_week_name)
+                # Calculate pour cost using ACTUAL COGS and SALES from bevweekly sheet for selected week
+                pour_cost_results = calculate_pour_cost_actual(dataset, usage_results, week_name=selected_week_name)
 
-                # Check if actual COGS data is available
+                # Check if actual COGS and sales data are available
                 if 'error' in pour_cost_results:
-                    st.warning(f"⚠️ {pour_cost_results['error']}. Please ensure the bevweekly sheet has complete COGS data with ending inventory filled in.")
+                    error_msg = pour_cost_results['error']
+                    if 'Sales data not available' in error_msg:
+                        st.warning(f"⚠️ {error_msg}")
+                    else:
+                        st.warning(f"⚠️ {error_msg}")
                     st.stop()
 
                 # Also calculate theoretical COGS for variance analysis
@@ -1117,8 +1269,8 @@ if uploaded_files:
                 with col2:
                     st.metric(
                         "Total Revenue",
-                        f"${total_revenue:,.2f}",
-                        help="Net revenue from sales"
+                        f"${pour_cost_results['total_revenue']:,.2f}",
+                        help="Total sales from bevweekly sheet (column B - manager-entered)"
                     )
 
                 with col3:
@@ -1473,3 +1625,241 @@ if uploaded_files:
                 st.code(traceback.format_exc())
         else:
             st.info("👆 Upload a Sales Mix CSV file to see pour cost analysis and variance reports.")
+
+    # --- TAB 7: EXCESS INVENTORY ---
+    with tab_excess_inventory:
+        st.subheader("📦 Excess Inventory Analysis")
+        st.markdown("Identify items with inventory levels exceeding suggested par levels based on average weekly usage.")
+
+        st.markdown("---")
+
+        # Settings
+        st.markdown("### ⚙️ Calculation Settings")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            # Average usage method selector
+            avg_method = st.selectbox(
+                "Average Usage Calculation:",
+                options=['4wk', '2wk', '10wk', 'ytd'],
+                index=0,
+                help="Select which averaging period to use for calculating weekly usage",
+                key="excess_avg_method"
+            )
+
+            # Map to features_df column names
+            avg_column_map = {
+                '2wk': 'avg_2wk',
+                '4wk': 'avg_4wk',
+                '10wk': 'avg_10wk',
+                'ytd': 'avg_ytd'
+            }
+            usage_column = avg_column_map[avg_method]
+
+        with col2:
+            # Target weeks override slider
+            target_weeks_override = st.slider(
+                "Target Weeks (Par Level):",
+                min_value=1.0,
+                max_value=8.0,
+                value=0.0,
+                step=0.5,
+                help="Override default target weeks. Set to 0 to use category defaults (Draft Beer=2wk, Liquor=4wk, etc.)",
+                key="excess_target_weeks"
+            )
+
+        st.markdown("---")
+
+        # Initialize policy targets
+        targets = OrderTargets()
+
+        # Calculate excess inventory
+        excess_items = []
+
+        for _, row in features_df.iterrows():
+            item_id = row['item_id']
+            item = dataset.get_item(item_id)
+
+            if not item:
+                continue
+
+            # Get average usage from selected column
+            avg_weekly_usage = row.get(usage_column, 0)
+            if pd.isna(avg_weekly_usage) or avg_weekly_usage <= 0:
+                continue
+
+            # Get current inventory
+            on_hand = row['on_hand']
+            unit_cost = item.unit_cost if item.unit_cost else 0
+
+            # Get target weeks - use override if set, otherwise use category default
+            if target_weeks_override > 0:
+                target_weeks = target_weeks_override
+            else:
+                target_weeks = targets.get_target_weeks(item_id, item.category)
+
+            # Calculate suggested par level
+            suggested_par = target_weeks * avg_weekly_usage
+
+            # Calculate excess
+            excess_units = max(0, on_hand - suggested_par)
+            excess_value = excess_units * unit_cost
+
+            # Only include items with significant excess (> 0.5 units or > $5)
+            if excess_units > 0.5 or excess_value > 5:
+                starting_inv_value = on_hand * unit_cost
+
+                excess_items.append({
+                    'Product': item_id,
+                    'Category': item.category,
+                    'Vendor': item.vendor if item.vendor else 'Unknown',
+                    'Price': unit_cost,
+                    'Starting Inv Units': round(on_hand, 1),
+                    'Starting Inv Value': round(starting_inv_value, 2),
+                    'Avg Weekly': round(avg_weekly_usage, 1),
+                    'Target Weeks': target_weeks,
+                    'Suggested': round(suggested_par, 1),
+                    'Excess Inv Units': round(excess_units, 1),
+                    'Excess Inv Value': round(excess_value, 2)
+                })
+
+        # Create DataFrame and sort by excess value (highest first)
+        if excess_items:
+            excess_df = pd.DataFrame(excess_items)
+            excess_df = excess_df.sort_values('Excess Inv Value', ascending=False)
+
+            # Filters - positioned BEFORE summary so summary updates with filters
+            st.markdown("### 🔍 Filters")
+            col1, col2 = st.columns(2)
+
+            with col1:
+                all_categories = ['All'] + sorted(excess_df['Category'].unique().tolist())
+                selected_category = st.selectbox(
+                    "Category:",
+                    options=all_categories,
+                    key="excess_category_filter"
+                )
+
+            with col2:
+                all_vendors = ['All'] + sorted(excess_df['Vendor'].unique().tolist())
+                selected_vendor = st.selectbox(
+                    "Vendor:",
+                    options=all_vendors,
+                    key="excess_vendor_filter"
+                )
+
+            # Filter dataframe by category and vendor
+            filtered_df = excess_df.copy()
+
+            if selected_category != 'All':
+                filtered_df = filtered_df[filtered_df['Category'] == selected_category]
+
+            if selected_vendor != 'All':
+                filtered_df = filtered_df[filtered_df['Vendor'] == selected_vendor]
+
+            st.markdown("---")
+
+            # Calculate totals AFTER filtering - so summary updates with filters
+            total_items_with_excess = len(filtered_df)
+            total_excess_value = filtered_df['Excess Inv Value'].sum()
+            total_inventory_value = filtered_df['Starting Inv Value'].sum()
+            excess_percentage = (total_excess_value / total_inventory_value * 100) if total_inventory_value > 0 else 0
+
+            # Prominent Total Excess Value Display (updates with filters)
+            st.markdown("### 💰 Total Excess Inventory Value")
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                st.metric(
+                    "Items with Excess",
+                    f"{total_items_with_excess:,}",
+                    help="Number of items with inventory above suggested par level (filtered)"
+                )
+
+            with col2:
+                st.metric(
+                    "🔴 Total Excess Value",
+                    f"${total_excess_value:,.2f}",
+                    help="Total dollar value of excess inventory (filtered)"
+                )
+
+            with col3:
+                st.metric(
+                    "Total Inventory Value",
+                    f"${total_inventory_value:,.2f}",
+                    help="Total value of all items shown (filtered)"
+                )
+
+            with col4:
+                st.metric(
+                    "Excess %",
+                    f"{excess_percentage:.1f}%",
+                    help="Percentage of inventory that is excess (filtered)"
+                )
+
+            st.markdown("---")
+
+            # Display settings
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.markdown(f"### 📦 Top Items with Excess Inventory ({len(filtered_df)} items)")
+            with col2:
+                show_all = st.checkbox("Show all items", value=False, key="show_all_excess")
+
+            # Limit to top 20 unless show_all is checked
+            display_df = filtered_df if show_all else filtered_df.head(20)
+
+            # Format and display table
+            st.dataframe(
+                display_df.style.format({
+                    'Price': '${:.2f}',
+                    'Starting Inv Units': '{:.1f}',
+                    'Starting Inv Value': '${:.2f}',
+                    'Avg Weekly': '{:.1f}',
+                    'Target Weeks': '{:.1f}',
+                    'Suggested': '{:.1f}',
+                    'Excess Inv Units': '{:.1f}',
+                    'Excess Inv Value': '${:.2f}'
+                }),
+                use_container_width=True,
+                hide_index=True,
+                height=600
+            )
+
+            # Export to CSV
+            st.markdown("---")
+            target_label = f"{target_weeks_override:.1f}wk" if target_weeks_override > 0 else "default"
+            csv_export = filtered_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Excess Inventory Report as CSV",
+                data=csv_export,
+                file_name=f"excess_inventory_{avg_method}_target_{target_label}.csv",
+                mime="text/csv"
+            )
+
+            # Recommendations
+            st.markdown("---")
+            st.markdown("### 💡 Recommendations")
+            target_desc = f"**{target_weeks_override:.1f} weeks**" if target_weeks_override > 0 else "**category defaults**"
+            st.info(f"""
+            **Current Settings:**
+            - Average Usage: **{avg_method}**
+            - Target Weeks: {target_desc}
+
+            **Action Items:**
+            1. **Reduce Orders**: Consider reducing or skipping orders for items with high excess inventory
+            2. **Run Promotions**: Feature high-excess items in specials or happy hour to move inventory
+            3. **Adjust Par Levels**: Use the Target Weeks slider to see how different par levels affect excess
+            4. **Check for Changes**: Items may have had a recent drop in sales - investigate why
+            5. **Vendor Analysis**: Filter by vendor to identify which suppliers contribute most to excess inventory
+
+            **Tips:**
+            - Try different averaging methods (2wk, 4wk, 10wk) to see how responsive vs stable averages affect excess calculations
+            - Adjust Target Weeks slider to simulate tighter (lower) or looser (higher) par levels
+            - Filter by vendor to focus on specific supplier relationships
+            - Export filtered data to share with purchasing team
+            """)
+            
+        else:
+            st.success("✅ No excess inventory detected! All items are at or below suggested par levels.")
+            st.info(f"Try adjusting the averaging method or Target Weeks slider to see how different settings affect excess inventory calculations.")
