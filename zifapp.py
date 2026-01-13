@@ -1712,7 +1712,7 @@ if uploaded_files:
                     'Suggested': '{:.1f}',
                     'Excess Inv Units': '{:.1f}',
                     'Excess Inv Value': '${:.2f}'
-                }).background_gradient(subset=['Excess Inv Value'], cmap='Reds'),
+                }),
                 use_container_width=True,
                 hide_index=True,
                 height=600
