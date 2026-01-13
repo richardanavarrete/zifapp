@@ -461,46 +461,101 @@ def generate_shrinkage_report(
 def calculate_item_profitability(
     usage_results: dict,
     theoretical_cogs: Dict[str, float],
-    dataset: InventoryDataset
+    dataset: InventoryDataset,
+    week_name: str = None
 ) -> pd.DataFrame:
     """
-    Calculate profitability metrics per item.
+    Calculate profitability metrics per item using ACTUAL COGS from bevweekly sheet.
+
+    This function allocates actual COGS from the bevweekly sheet to individual items
+    proportionally based on their theoretical usage, and compares to theoretical profit
+    to show variance.
 
     Args:
         usage_results: Dict from aggregate_all_usage with revenue per item
         theoretical_cogs: Dict from calculate_theoretical_cogs
-        dataset: InventoryDataset with item metadata
+        dataset: InventoryDataset with item metadata and weekly_cogs_summaries
+        week_name: Optional specific week name. If None, uses latest complete week.
 
     Returns:
         DataFrame with columns:
-        - item_id, category, vendor, revenue, cogs, profit, profit_margin_pct, status
+        - item_id, category, vendor, revenue, theoretical_cogs, actual_cogs,
+          theoretical_profit, actual_profit, theoretical_margin_pct, actual_margin_pct,
+          profit_variance, status
     """
+    # Get the COGS summary from the spreadsheet
+    if week_name:
+        cogs_summary = dataset.get_cogs_summary_by_name(week_name)
+    else:
+        cogs_summary = dataset.get_latest_complete_cogs_summary()
+
+    # If no actual COGS available, fall back to theoretical only
+    use_actual_cogs = cogs_summary and cogs_summary.is_complete
+
     profitability_data = []
     theoretical_cogs_by_item = theoretical_cogs.get('theoretical_cogs_by_item', {})
+    theoretical_cogs_by_category = theoretical_cogs.get('theoretical_cogs_by_category', {})
+
+    # If we have actual COGS, calculate the scaling factors for each category
+    # Actual COGS might be higher than theoretical (waste, overpouring, etc.)
+    cogs_scaling_factors = {}
+    if use_actual_cogs:
+        category_actual_cogs_map = {
+            'Liquor': cogs_summary.liquor_cogs or 0,
+            'Wine': cogs_summary.wine_cogs or 0,
+            'Draft Beer': cogs_summary.draft_beer_cogs or 0,
+            'Bottle Beer': cogs_summary.bottle_beer_cogs or 0,
+            'Juice': cogs_summary.juice_cogs or 0
+        }
+
+        # Calculate scaling factor for each category
+        for category, actual_cogs in category_actual_cogs_map.items():
+            theoretical_total = theoretical_cogs_by_category.get(category, 0)
+            if theoretical_total > 0:
+                cogs_scaling_factors[category] = actual_cogs / theoretical_total
+            else:
+                cogs_scaling_factors[category] = 1.0
 
     for item_id, usage_data in usage_results.items():
         revenue = usage_data.get('revenue', 0)
-        cogs = theoretical_cogs_by_item.get(item_id, 0)
+        theoretical_item_cogs = theoretical_cogs_by_item.get(item_id, 0)
 
         # Skip items with no revenue or COGS
-        if revenue == 0 and cogs == 0:
+        if revenue == 0 and theoretical_item_cogs == 0:
             continue
-
-        # Calculate profit and margin
-        profit = revenue - cogs
-        profit_margin_pct = (profit / revenue * 100) if revenue > 0 else 0
 
         # Get item metadata
         item = dataset.get_item(item_id)
         category = item.category if item else "Unknown"
         vendor = item.vendor if item else "Unknown"
 
-        # Determine status based on profit margin
-        if profit_margin_pct >= 75:
+        # Map item category to consolidated category for COGS lookup
+        consolidated_category = CATEGORY_CONSOLIDATION.get(category, category)
+
+        # Calculate actual COGS by scaling theoretical COGS
+        if use_actual_cogs and consolidated_category in cogs_scaling_factors:
+            actual_item_cogs = theoretical_item_cogs * cogs_scaling_factors[consolidated_category]
+        else:
+            actual_item_cogs = theoretical_item_cogs
+
+        # Calculate theoretical profit (perfect scenario)
+        theoretical_profit = revenue - theoretical_item_cogs
+        theoretical_margin_pct = (theoretical_profit / revenue * 100) if revenue > 0 else 0
+
+        # Calculate actual profit (real scenario)
+        actual_profit = revenue - actual_item_cogs
+        actual_margin_pct = (actual_profit / revenue * 100) if revenue > 0 else 0
+
+        # Calculate variance (how much profit we're losing)
+        profit_variance = theoretical_profit - actual_profit
+        variance_pct = (profit_variance / theoretical_profit * 100) if theoretical_profit > 0 else 0
+
+        # Determine status based on ACTUAL profit margin
+        if actual_margin_pct >= 75:
             status = 'excellent'
-        elif profit_margin_pct >= 70:
+        elif actual_margin_pct >= 70:
             status = 'good'
-        elif profit_margin_pct >= 65:
+        elif actual_margin_pct >= 65:
             status = 'fair'
         else:
             status = 'poor'
@@ -510,17 +565,22 @@ def calculate_item_profitability(
             'category': category,
             'vendor': vendor,
             'revenue': round(revenue, 2),
-            'cogs': round(cogs, 2),
-            'profit': round(profit, 2),
-            'profit_margin_pct': round(profit_margin_pct, 1),
+            'theoretical_cogs': round(theoretical_item_cogs, 2),
+            'actual_cogs': round(actual_item_cogs, 2),
+            'theoretical_profit': round(theoretical_profit, 2),
+            'actual_profit': round(actual_profit, 2),
+            'theoretical_margin_pct': round(theoretical_margin_pct, 1),
+            'actual_margin_pct': round(actual_margin_pct, 1),
+            'profit_variance': round(profit_variance, 2),
+            'variance_pct': round(variance_pct, 1),
             'status': status
         })
 
     profit_df = pd.DataFrame(profitability_data)
 
-    # Sort by profit descending (highest profit items first)
+    # Sort by actual profit descending (highest profit items first)
     if not profit_df.empty:
-        profit_df = profit_df.sort_values('profit', ascending=False)
+        profit_df = profit_df.sort_values('actual_profit', ascending=False)
 
     return profit_df
 
