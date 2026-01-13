@@ -52,7 +52,8 @@ def run_agent(
     smoothing_level: float = 0.3,
     trend_threshold: float = 0.1,
     custom_targets: Optional[OrderTargets] = None,
-    custom_constraints: Optional[OrderConstraints] = None
+    custom_constraints: Optional[OrderConstraints] = None,
+    sales_mix_usage: Optional[Dict] = None
 ) -> Dict:
     """
     Execute a complete agent run.
@@ -78,6 +79,8 @@ def run_agent(
         trend_threshold: Trend detection threshold (0.05-0.30)
         custom_targets: Optional custom OrderTargets (overrides defaults)
         custom_constraints: Optional custom OrderConstraints
+        sales_mix_usage: Optional dict from aggregate_all_usage() with theoretical usage
+                         based on sales mix data. Format: {inv_item: {theoretical_usage, unit, details}}
 
     Returns:
         Dictionary with:
@@ -171,22 +174,48 @@ def run_agent(
                 'reason_codes': [code for code in reason_codes if code.startswith('DATA_ISSUE')],
                 'notes': row['notes'],
                 'expected_on_hand': None,  # Will be calculated based on issue type
-                'discrepancy': None
+                'discrepancy': None,
+                'has_sales_mix_data': False  # Flag to indicate if sales mix data is available
             }
+            
+            # Check if we have sales mix data for this item
+            sales_mix_expected = None
+            if sales_mix_usage and item_id in sales_mix_usage:
+                sales_mix_data = sales_mix_usage[item_id]
+                sales_mix_expected = sales_mix_data.get('theoretical_usage')
+                sales_mix_unit = sales_mix_data.get('unit', 'units')
+                recount_info['has_sales_mix_data'] = True
+                recount_info['sales_mix_expected_usage'] = sales_mix_expected
+                recount_info['sales_mix_unit'] = sales_mix_unit
+                recount_info['sales_mix_details'] = sales_mix_data.get('details', [])
             
             # Calculate expected values based on issue type
             if 'DATA_ISSUE_NEGATIVE' in reason_codes:
                 recount_info['issue_type'] = 'Negative Usage'
                 recount_info['issue_description'] = 'Usage calculation resulted in negative value, indicating inventory count may be incorrect.'
-                # Expected: previous on_hand - avg_usage should be current on_hand
-                if recount_info['avg_usage'] and recount_info['avg_usage'] > 0:
+                
+                # For negative usage: the calculated usage = (prev_on_hand + purchases - current_on_hand) was negative
+                # This usually means current_on_hand was counted too high relative to last week.
+                # Expected on_hand = current_on_hand + expected_usage shows what it SHOULD have been at start of week
+                # (i.e., if we used X bottles, we should have started with current + X)
+                # Use sales mix data if available, otherwise fall back to avg usage
+                if sales_mix_expected is not None:
+                    recount_info['expected_on_hand'] = round(row['on_hand'] + sales_mix_expected, 2)
+                    recount_info['discrepancy'] = f"Expected ~{recount_info['expected_on_hand']:.1f} based on sales mix ({sales_mix_expected:.1f} {sales_mix_unit}/week)"
+                elif recount_info['avg_usage'] and recount_info['avg_usage'] > 0:
                     recount_info['expected_on_hand'] = round(row['on_hand'] + recount_info['avg_usage'], 2)
                     recount_info['discrepancy'] = f"Expected ~{recount_info['expected_on_hand']:.1f} based on avg usage of {recount_info['avg_usage']:.1f}/week"
             
             elif 'DATA_ISSUE_JUMP' in reason_codes:
                 recount_info['issue_type'] = 'Usage Spike'
                 recount_info['issue_description'] = 'Last week usage was >5x the average, suggesting a counting error.'
-                if recount_info['avg_usage'] and recount_info['last_week_usage']:
+                
+                # Use sales mix data if available, otherwise fall back to avg usage
+                if sales_mix_expected is not None:
+                    recount_info['expected_usage'] = round(sales_mix_expected, 2)
+                    recount_info['actual_usage'] = round(recount_info['last_week_usage'], 2) if recount_info['last_week_usage'] else None
+                    recount_info['discrepancy'] = f"Used {recount_info['actual_usage']:.1f} last week vs sales mix expected of {recount_info['expected_usage']:.1f} {sales_mix_unit}"
+                elif recount_info['avg_usage'] and recount_info['last_week_usage']:
                     recount_info['expected_usage'] = round(recount_info['avg_usage'], 2)
                     recount_info['actual_usage'] = round(recount_info['last_week_usage'], 2)
                     recount_info['discrepancy'] = f"Used {recount_info['actual_usage']:.1f} last week vs avg of {recount_info['expected_usage']:.1f}/week"
