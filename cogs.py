@@ -15,18 +15,18 @@ from models import InventoryDataset
 
 # Pour cost targets by category (industry standards adjusted for Zipps)
 POUR_COST_TARGETS = {
-    "Whiskey": {"target": 20, "warning": 25, "critical": 30},
-    "Vodka": {"target": 18, "warning": 23, "critical": 28},
-    "Tequila": {"target": 20, "warning": 25, "critical": 30},
-    "Gin": {"target": 18, "warning": 23, "critical": 28},
-    "Rum": {"target": 18, "warning": 23, "critical": 28},
-    "Scotch": {"target": 20, "warning": 25, "critical": 30},
-    "Bourbon": {"target": 20, "warning": 25, "critical": 30},
-    "Liquor": {"target": 20, "warning": 25, "critical": 30},  # Generic liquor
-    "Draft Beer": {"target": 22, "warning": 27, "critical": 32},
-    "Bottle Beer": {"target": 22, "warning": 27, "critical": 32},  # Updated from 24
-    "Wine": {"target": 25, "warning": 30, "critical": 35},  # Updated from 28
-    "Bar Other": {"target": 20, "warning": 25, "critical": 30},
+    "Whiskey": {"target": 13, "warning": 15, "critical": 20},
+    "Vodka": {"target": 13, "warning": 15, "critical": 20},
+    "Tequila": {"target": 13, "warning": 15, "critical": 20},
+    "Gin": {"target": 13, "warning": 15, "critical": 20},
+    "Rum": {"target": 13, "warning": 15, "critical": 20},
+    "Scotch": {"target": 13, "warning": 15, "critical": 20},
+    "Bourbon": {"target": 13, "warning": 15, "critical": 20},
+    "Liquor": {"target": 13, "warning": 15, "critical": 20},  # Generic liquor
+    "Draft Beer": {"target": 20, "warning": 27, "critical": 30},
+    "Bottle Beer": {"target": 19, "warning": 25, "critical": 30},  # Updated from 24
+    "Wine": {"target": 22, "warning": 25, "critical": 30},  # Updated from 28
+    "Bar Other": {"target": 13, "warning": 15, "critical": 20},
 }
 
 
