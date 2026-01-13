@@ -16,7 +16,8 @@ from cogs import (
     calculate_pour_cost,
     calculate_variance_analysis,
     generate_shrinkage_report,
-    get_cogs_summary
+    get_cogs_summary,
+    calculate_item_profitability
 )
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
@@ -1043,6 +1044,203 @@ if uploaded_files:
                     )
                 else:
                     st.info("Pour cost by category data not available. Revenue breakdown by category is needed.")
+
+                st.markdown("---")
+
+                # Section 2.5: Pour Cost by Vendor
+                st.markdown("### 🏢 Pour Cost by Vendor")
+
+                # Calculate vendor breakdown
+                vendor_cogs = {}
+                vendor_revenue = {}
+
+                for item_id, usage_data in usage_results.items():
+                    item = dataset.get_item(item_id)
+                    if not item:
+                        continue
+
+                    vendor = item.vendor
+                    if vendor == "Unknown":
+                        continue
+
+                    # Get COGS for this item
+                    item_cogs = theoretical_cogs['theoretical_cogs_by_item'].get(item_id, 0)
+
+                    # Get revenue for this item
+                    item_revenue = usage_data.get('revenue', 0)
+
+                    # Aggregate by vendor
+                    if vendor not in vendor_cogs:
+                        vendor_cogs[vendor] = 0
+                        vendor_revenue[vendor] = 0
+
+                    vendor_cogs[vendor] += item_cogs
+                    vendor_revenue[vendor] += item_revenue
+
+                # Create vendor pour cost dataframe
+                vendor_pour_data = []
+                for vendor in vendor_cogs.keys():
+                    cogs = vendor_cogs[vendor]
+                    revenue = vendor_revenue[vendor]
+                    pour_cost_pct = (cogs / revenue * 100) if revenue > 0 else 0
+
+                    vendor_pour_data.append({
+                        'Vendor': vendor,
+                        'Revenue': revenue,
+                        'COGS': cogs,
+                        'Pour Cost %': pour_cost_pct
+                    })
+
+                if vendor_pour_data:
+                    vendor_pour_df = pd.DataFrame(vendor_pour_data)
+                    vendor_pour_df = vendor_pour_df.sort_values('Revenue', ascending=False)
+
+                    st.dataframe(
+                        vendor_pour_df.style.format({
+                            'Revenue': '${:,.2f}',
+                            'COGS': '${:,.2f}',
+                            'Pour Cost %': '{:.1f}%'
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.info("Vendor pour cost data not available.")
+
+                st.markdown("---")
+
+                # Section 2.6: Individual Item Profitability
+                st.markdown("### 💎 Individual Item Profitability")
+
+                # Calculate item profitability
+                profitability_df = calculate_item_profitability(usage_results, theoretical_cogs, dataset)
+
+                if not profitability_df.empty:
+                    # Summary metrics
+                    col1, col2, col3, col4 = st.columns(4)
+
+                    with col1:
+                        top_item = profitability_df.iloc[0]
+                        st.metric(
+                            "Top Profit Item",
+                            top_item['item_id'][:20] + "..." if len(top_item['item_id']) > 20 else top_item['item_id'],
+                            f"${top_item['profit']:,.2f}",
+                            help="Item contributing the most profit"
+                        )
+
+                    with col2:
+                        avg_margin = profitability_df['profit_margin_pct'].mean()
+                        st.metric(
+                            "Avg Profit Margin",
+                            f"{avg_margin:.1f}%",
+                            help="Average profit margin across all items"
+                        )
+
+                    with col3:
+                        total_profit = profitability_df['profit'].sum()
+                        st.metric(
+                            "Total Profit",
+                            f"${total_profit:,.2f}",
+                            help="Total profit from all items"
+                        )
+
+                    with col4:
+                        poor_items = len(profitability_df[profitability_df['profit_margin_pct'] < 65])
+                        st.metric(
+                            "Low Margin Items",
+                            poor_items,
+                            help="Items with profit margin < 65%"
+                        )
+
+                    # Show top/bottom items
+                    col_top, col_bottom = st.columns(2)
+
+                    with col_top:
+                        st.markdown("**Top 10 Most Profitable Items**")
+                        top_10 = profitability_df.head(10).copy()
+                        top_10['Status'] = top_10['status'].map({
+                            'excellent': '🟢 Excellent',
+                            'good': '🟡 Good',
+                            'fair': '🟠 Fair',
+                            'poor': '🔴 Poor'
+                        })
+
+                        display_cols = ['item_id', 'revenue', 'cogs', 'profit', 'profit_margin_pct', 'Status']
+                        top_10_display = top_10[display_cols].copy()
+                        top_10_display.columns = ['Item', 'Revenue', 'COGS', 'Profit', 'Margin %', 'Status']
+
+                        st.dataframe(
+                            top_10_display.style.format({
+                                'Revenue': '${:,.2f}',
+                                'COGS': '${:,.2f}',
+                                'Profit': '${:,.2f}',
+                                'Margin %': '{:.1f}%'
+                            }),
+                            use_container_width=True,
+                            hide_index=True,
+                            height=400
+                        )
+
+                    with col_bottom:
+                        st.markdown("**Bottom 10 Least Profitable Items**")
+                        bottom_10 = profitability_df.tail(10).copy()
+                        bottom_10['Status'] = bottom_10['status'].map({
+                            'excellent': '🟢 Excellent',
+                            'good': '🟡 Good',
+                            'fair': '🟠 Fair',
+                            'poor': '🔴 Poor'
+                        })
+
+                        bottom_10_display = bottom_10[display_cols].copy()
+                        bottom_10_display.columns = ['Item', 'Revenue', 'COGS', 'Profit', 'Margin %', 'Status']
+
+                        st.dataframe(
+                            bottom_10_display.style.format({
+                                'Revenue': '${:,.2f}',
+                                'COGS': '${:,.2f}',
+                                'Profit': '${:,.2f}',
+                                'Margin %': '{:.1f}%'
+                            }),
+                            use_container_width=True,
+                            hide_index=True,
+                            height=400
+                        )
+
+                    # Full profitability table in expander
+                    with st.expander("📋 Full Item Profitability Report", expanded=False):
+                        full_display = profitability_df.copy()
+                        full_display['Status'] = full_display['status'].map({
+                            'excellent': '🟢 Excellent',
+                            'good': '🟡 Good',
+                            'fair': '🟠 Fair',
+                            'poor': '🔴 Poor'
+                        })
+
+                        full_display_cols = ['item_id', 'category', 'vendor', 'revenue', 'cogs', 'profit', 'profit_margin_pct', 'Status']
+                        full_display = full_display[full_display_cols].copy()
+                        full_display.columns = ['Item', 'Category', 'Vendor', 'Revenue', 'COGS', 'Profit', 'Margin %', 'Status']
+
+                        st.dataframe(
+                            full_display.style.format({
+                                'Revenue': '${:,.2f}',
+                                'COGS': '${:,.2f}',
+                                'Profit': '${:,.2f}',
+                                'Margin %': '{:.1f}%'
+                            }),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+
+                    # Export profitability data
+                    csv_export_profit = profitability_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="Download Item Profitability as CSV",
+                        data=csv_export_profit,
+                        file_name="item_profitability.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.info("No profitability data available.")
 
                 st.markdown("---")
 

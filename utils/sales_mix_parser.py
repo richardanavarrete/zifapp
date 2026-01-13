@@ -580,6 +580,98 @@ def calculate_mixed_drink_usage(sales_df):
     return results, unmatched
 
 
+def attribute_revenue_to_items(sales_df, all_results):
+    """
+    Attribute revenue from sales_df to inventory items in all_results.
+
+    This matches sales items to inventory items using the same logic as usage calculations
+    and adds the Net_Amount revenue to each matched inventory item.
+    """
+    for _, row in sales_df.iterrows():
+        category = row['Category']
+        item_name = row['Item']
+        net_amount = row.get('Net_Amount', row.get('Amount', 0))
+
+        if net_amount <= 0:
+            continue
+
+        # Clean up item name
+        clean_name = re.sub(r'\s*\(FS\)\s*$', '', item_name).strip()
+
+        matched_items = []  # List of (inv_item, portion) tuples for splitting revenue
+
+        # Match based on category
+        if category == 'Draft':
+            # Match draft beer
+            if any(skip in item_name for skip in DRAFT_SKIP_ITEMS):
+                continue
+            for pattern, (inv_item, keg_size) in DRAFT_BEER_MAP.items():
+                if pattern.lower() in item_name.lower():
+                    matched_items.append((inv_item, 1.0))
+                    break
+
+        elif category == 'Bottle':
+            # Match bottle beer
+            for pattern, inv_item in BOTTLE_BEER_MAP.items():
+                if pattern.lower() in clean_name.lower():
+                    matched_items.append((inv_item, 1.0))
+                    break
+
+        elif category == 'Wine':
+            # Match wine
+            for pattern, inv_item in WINE_MAP.items():
+                if pattern.lower() in item_name.lower():
+                    matched_items.append((inv_item, 1.0))
+                    break
+
+        elif category == 'Liquor':
+            subcategory = row.get('Subcategory')
+
+            # Handle mixed drinks
+            if subcategory == 'Mixed Drinks':
+                # Check for frozen margaritas
+                if 'Zipparita' in clean_name or 'TO GO RITA' in item_name or 'Milagro Marg On Tap' in item_name:
+                    # Base frozen margs: split revenue between tequila and triple sec
+                    if 'Milagro Marg On Tap' in item_name:
+                        matched_items.append(('TEQUILA Milagro Silver', 0.7))
+                        matched_items.append(('LIQ Triple Sec', 0.3))
+                    else:
+                        matched_items.append(('TEQUILA Well', 0.7))
+                        matched_items.append(('LIQ Triple Sec', 0.3))
+                elif 'Flavor' in item_name:
+                    # Flavor additions - attribute to flavor ingredient
+                    flavor_clean = re.sub(r'\s*(16oz TO GO|24oz TO GO|BIG RITA)\s*$', '', clean_name).strip()
+                    for flavor_pattern, additions in MARGARITA_FLAVOR_ADDITIONS.items():
+                        if flavor_pattern.lower() in flavor_clean.lower():
+                            # Split revenue among flavor ingredients
+                            for add_inv_item in additions.keys():
+                                matched_items.append((add_inv_item, 1.0 / len(additions)))
+                            break
+                else:
+                    # Other mixed drinks
+                    for recipe_name, ingredients in MIXED_DRINK_RECIPES.items():
+                        if recipe_name.lower() in clean_name.lower():
+                            # Split revenue proportionally by ingredient cost/volume
+                            for inv_item in ingredients.keys():
+                                matched_items.append((inv_item, 1.0 / len(ingredients)))
+                            break
+            else:
+                # Straight liquor pours
+                is_bump = '(Bump)' in item_name
+                clean_name_nobump = re.sub(r'\s*\(Bump\)\s*$', '', clean_name).strip()
+                for pattern, inv_item in LIQUOR_MAP.items():
+                    if pattern.lower() in clean_name_nobump.lower():
+                        matched_items.append((inv_item, 1.0))
+                        break
+
+        # Add revenue to matched items
+        for inv_item, portion in matched_items:
+            if inv_item in all_results:
+                if 'revenue' not in all_results[inv_item]:
+                    all_results[inv_item]['revenue'] = 0
+                all_results[inv_item]['revenue'] += net_amount * portion
+
+
 def aggregate_all_usage(sales_df):
     """
     Aggregate usage calculations from all categories.
@@ -685,5 +777,8 @@ def aggregate_all_usage(sales_df):
             all_results[inv_item]['oz'] = all_results[inv_item].get('oz', 0) + data['oz']
             all_results[inv_item]['details'].extend(data['items'])
     all_unmatched.extend([f"[Wine] {item}" for item in wine_unmatched])
+
+    # Attribute revenue to inventory items
+    attribute_revenue_to_items(sales_df, all_results)
 
     return all_results, all_unmatched, total_revenue
