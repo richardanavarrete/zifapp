@@ -689,12 +689,20 @@ if uploaded_files:
                 st.info("**21-Keg Rule**: Maximum order size is 21 kegs. When draft items won't make it to next week, order 21 kegs to rebalance inventory levels.")
 
                 for vendor, info in results['vendor_keg_info'].items():
-                    if info['total_kegs'] > 0:
-                        if info['needs_rebalancing']:
+                    total_kegs = info.get('total_kegs', 0)
+                    if total_kegs > 0:
+                        # Use .get() for defensive programming in case of data structure changes
+                        needs_rebalancing = info.get('needs_rebalancing', False)
+                        stockout_items = info.get('stockout_items', 0)
+                        min_weeks = info.get('min_weeks_on_hand', 0.0)
+                        max_order = info.get('max_order_size', 21)
+                        kegs_to_add = info.get('kegs_to_add', 0)
+
+                        if needs_rebalancing:
                             st.warning(
-                                f"⚠️ **{vendor}**: {info['total_kegs']} kegs currently ordered | "
-                                f"{info['stockout_items']} items below threshold ({info['min_weeks_on_hand']:.1f} weeks min) | "
-                                f"**Recommend ordering {info['max_order_size']} kegs total** (add {info['kegs_to_add']})"
+                                f"⚠️ **{vendor}**: {total_kegs} kegs currently ordered | "
+                                f"{stockout_items} items below threshold ({min_weeks:.1f} weeks min) | "
+                                f"**Recommend ordering {max_order} kegs total** (add {kegs_to_add})"
                             )
 
                             # Show rebalancing suggestions if available
@@ -708,7 +716,7 @@ if uploaded_files:
                                         hide_index=True
                                     )
                         else:
-                            st.success(f"✅ **{vendor}**: {info['total_kegs']} kegs ordered (all items balanced, min {info['min_weeks_on_hand']:.1f} weeks)")
+                            st.success(f"✅ **{vendor}**: {total_kegs} kegs ordered (all items balanced, min {min_weeks:.1f} weeks)")
 
             # Items needing recount
             if results['items_needing_recount']:
