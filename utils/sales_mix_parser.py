@@ -474,7 +474,7 @@ def calculate_mixed_drink_usage(sales_df):
             frozen_size = 24
         elif 'Milagro Marg On Tap' in item_name:
             is_base_frozen_marg = True
-            frozen_size = 10
+            frozen_size = 5
             
             # Special case: uses Milagro Silver instead of well
             tequila_oz = qty * frozen_size * ZIPPARITA_TEQUILA_RATIO
