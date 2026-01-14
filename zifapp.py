@@ -662,7 +662,9 @@ if uploaded_files:
                     sales_mix_usage = None
                     if 'sales_mix_data' in st.session_state and st.session_state.sales_mix_data is not None:
                         try:
-                            sales_mix_usage = aggregate_all_usage(st.session_state.sales_mix_data)
+                            # aggregate_all_usage returns (all_usage_dict, unmatched_items, total_revenue)
+                            all_usage, _, _ = aggregate_all_usage(st.session_state.sales_mix_data)
+                            sales_mix_usage = all_usage
                         except:
                             pass
 
