@@ -31,6 +31,52 @@ from policy import distribute_kegs_to_target
 st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
 st.title("🍺 Bev Usage Analyzer")
 
+# --- Sidebar: Batch Converter Tool ---
+with st.sidebar:
+    st.header("🧪 Batch Converter")
+    st.markdown("""
+    Use this tool when counting inventory to convert remaining batch products back to ingredient bottles.
+
+    **Example:** If you have Milagro Marg On Tap batch remaining, count it and enter the volume below to see how many bottles of Milagro Silver and Triple Sec to add to your inventory count.
+    """)
+
+    with st.expander("Milagro Marg On Tap", expanded=False):
+        batch_volume_unit = st.radio(
+            "Batch Volume Unit",
+            options=["Liters", "Ounces"],
+            horizontal=True,
+            key="batch_unit"
+        )
+
+        batch_volume = st.number_input(
+            f"Remaining Batch Volume ({batch_volume_unit})",
+            min_value=0.0,
+            value=0.0,
+            step=0.1 if batch_volume_unit == "Liters" else 1.0,
+            key="batch_volume"
+        )
+
+        if batch_volume > 0:
+            # Convert to oz if needed
+            from config.batch_products import convert_batch_to_ingredients
+
+            if batch_volume_unit == "Liters":
+                batch_oz = batch_volume * 33.814
+            else:
+                batch_oz = batch_volume
+
+            # Convert to ingredient bottles
+            ingredients = convert_batch_to_ingredients('Milagro Marg On Tap', batch_oz)
+
+            st.success("**Add these to your inventory count:**")
+            for item, bottles in ingredients.items():
+                st.metric(label=item, value=f"{bottles:.2f} bottles")
+
+            st.info("📝 When counting inventory, count the physical bottles on the shelf, then ADD the bottles shown above to your counts.")
+
+    st.markdown("---")
+    st.markdown("**How to use:**\n1. Count your batch volume remaining\n2. Enter it above\n3. Add the calculated bottles to your physical inventory count")
+
 # --- Caching the data processing ---
 @st.cache_data
 def load_and_process_data(uploaded_files, smoothing_level=0.3, trend_threshold=0.1):
