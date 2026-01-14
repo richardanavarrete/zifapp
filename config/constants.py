@@ -37,12 +37,12 @@ REDBULL_CAN_OZ = 8.4
 REDBULL_MIXER_OZ = 4  # half can per mixer drink
 
 # Frozen Margarita batch calculations (12L total batch)
-# Recipe: 3 bottles tequila + 2 bottles triple sec + fill to 16L with mix
+# Recipe: 3 bottles tequila + 2 bottles triple sec + fill to 12L with mix
 ZIPPARITA_BATCH_TOTAL_OZ = 405.8  # 12L in oz
 ZIPPARITA_TEQUILA_OZ = 101.4  # 3 × 1L bottles
 ZIPPARITA_TRIPLE_SEC_OZ = 67.6  # 2 × 1L bottles
 ZIPPARITA_TEQUILA_RATIO = ZIPPARITA_TEQUILA_OZ / ZIPPARITA_BATCH_TOTAL_OZ  # ~25%
-ZIPPARITA_TRIPLE_SEC_RATIO = ZIPPARITA_TRIPLE_SEC_OZ / ZIPPARITA_BATCH_TOTAL_OZ  # ~9.4%
+ZIPPARITA_TRIPLE_SEC_RATIO = ZIPPARITA_TRIPLE_SEC_OZ / ZIPPARITA_BATCH_TOTAL_OZ  # ~16.7%
 
 # Frozen margarita serving sizes
 FROZEN_MARG_SIZES = {
