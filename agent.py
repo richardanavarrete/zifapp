@@ -92,10 +92,10 @@ def run_agent(
             - item_id, on_hand, avg_usage, last_week_usage
             - issue_type, issue_description, discrepancy
             - expected_on_hand or expected_usage (depending on issue type)
-        - vendor_keg_info: Dict with Crescent/Hensley keg totals and discount info:
-            - total_kegs, required_increment, kegs_to_add
-            - at_discount_level, next_discount_level
-            - adjustment_suggestions (if not at discount level)
+        - vendor_keg_info: Dict with Crescent/Hensley keg rebalancing analysis:
+            - total_kegs, max_order_size (21), kegs_to_add
+            - needs_rebalancing, stockout_items, min_weeks_on_hand
+            - rebalancing_suggestions (if rebalancing needed)
         - dataset: The enriched InventoryDataset
         - features: DataFrame with computed features
     """
@@ -224,14 +224,14 @@ def run_agent(
 
     # Step 7.5: Calculate vendor keg totals and suggestions for Crescent/Hensley
     vendor_keg_info = calculate_vendor_keg_totals(recommendations_df, constraints)
-    
-    # Add adjustment suggestions for vendors not at discount level
+
+    # Add rebalancing suggestions for vendors that need it
     for vendor, info in vendor_keg_info.items():
-        if not info['at_discount_level'] and info['kegs_to_add'] > 0:
+        if info['needs_rebalancing'] and info['kegs_to_add'] > 0:
             suggestions = get_keg_adjustment_suggestions(
                 recommendations_df, vendor, info['kegs_to_add'], dataset
             )
-            vendor_keg_info[vendor]['adjustment_suggestions'] = suggestions
+            vendor_keg_info[vendor]['rebalancing_suggestions'] = suggestions
 
     # Step 8: Generate summary
     summary_stats = generate_order_summary(recommendations_df)
@@ -244,11 +244,11 @@ def run_agent(
 
     if summary_stats['stockout_risks'] > 0:
         summary_text += f" | ⚠️ {summary_stats['stockout_risks']} stockout risks"
-    
-    # Add keg discount info to summary
+
+    # Add keg rebalancing info to summary
     for vendor, info in vendor_keg_info.items():
-        if info['total_kegs'] > 0 and not info['at_discount_level']:
-            summary_text += f" | 🍺 {vendor}: {info['total_kegs']} kegs (add {info['kegs_to_add']} for {info['required_increment']}-keg discount)"
+        if info['needs_rebalancing'] and info['kegs_to_add'] > 0:
+            summary_text += f" | 🍺 {vendor}: {info['stockout_items']} items need rebalancing (order 21 kegs)"
 
     # Step 9: Save run to storage
     run_id = generate_run_id(dataset)
