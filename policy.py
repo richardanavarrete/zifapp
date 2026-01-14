@@ -67,14 +67,18 @@ class OrderConstraints:
     # Minimum order quantity per item (skip items below this)
     min_order_qty: int = 1
 
-    # Vendor-specific keg increment requirements for max discounts
-    # Crescent and Hensley require 21-keg increments
-    vendor_keg_increments: Dict[str, int] = field(default_factory=dict)
+    # Vendor-specific keg order maximums
+    # Crescent and Hensley have 21-keg maximum order size
+    # When stockout risk exists, order exactly 21 kegs to rebalance inventory
+    vendor_keg_max_order: Dict[str, int] = field(default_factory=dict)
+
+    # Threshold for triggering 21-keg rebalancing order
+    keg_rebalance_threshold: float = 1.0  # weeks on hand
 
     def __post_init__(self):
-        # Set default keg increments if not provided
-        if not self.vendor_keg_increments:
-            self.vendor_keg_increments = {
+        # Set default keg maximums if not provided
+        if not self.vendor_keg_max_order:
+            self.vendor_keg_max_order = {
                 "Crescent": 21,
                 "Hensley": 21,
             }
@@ -295,21 +299,26 @@ def calculate_vendor_keg_totals(
     constraints: OrderConstraints
 ) -> Dict[str, dict]:
     """
-    Calculate keg totals by vendor and check against increment requirements.
+    Analyze keg inventory and determine if 21-keg rebalancing order is needed.
+
+    The 21-keg rule: When any draft beers won't make it to next week, place a
+    21-keg order (the maximum allowed) and distribute it to rebalance inventory
+    levels across all draft items.
 
     Args:
         recommendations_df: DataFrame from recommend_order()
-        constraints: OrderConstraints with vendor_keg_increments
+        constraints: OrderConstraints with vendor_keg_max_order and threshold
 
     Returns:
         Dictionary with vendor keg analysis:
         {
             'Crescent': {
                 'total_kegs': 18,
-                'required_increment': 21,
-                'kegs_to_add': 3,
-                'at_discount_level': False,
-                'next_discount_level': 21
+                'max_order_size': 21,
+                'needs_rebalancing': True,
+                'stockout_items': 3,
+                'min_weeks_on_hand': 0.5,
+                'items': ['BEER DFT ...', ...]
             },
             ...
         }
@@ -321,33 +330,35 @@ def calculate_vendor_keg_totals(
 
     vendor_keg_info = {}
 
-    for vendor, increment in constraints.vendor_keg_increments.items():
-        vendor_kegs = keg_items[keg_items['vendor'] == vendor]
-        total_kegs = vendor_kegs['recommended_qty'].sum() if not vendor_kegs.empty else 0
+    for vendor, max_order in constraints.vendor_keg_max_order.items():
+        vendor_kegs = keg_items[keg_items['vendor'] == vendor].copy()
 
-        # Calculate how many kegs needed to reach next discount level
-        if total_kegs == 0:
-            kegs_to_add = 0
-            at_discount_level = True
-            next_discount_level = 0
-        else:
-            remainder = total_kegs % increment
-            if remainder == 0:
-                kegs_to_add = 0
-                at_discount_level = True
-                next_discount_level = total_kegs
-            else:
-                kegs_to_add = increment - remainder
-                at_discount_level = False
-                next_discount_level = total_kegs + kegs_to_add
+        if vendor_kegs.empty:
+            continue
+
+        total_kegs = vendor_kegs['recommended_qty'].sum()
+        min_weeks = vendor_kegs['weeks_on_hand'].min()
+
+        # Check if any items are below rebalance threshold
+        stockout_items = vendor_kegs[
+            vendor_kegs['weeks_on_hand'] < constraints.keg_rebalance_threshold
+        ]
+        needs_rebalancing = len(stockout_items) > 0
+
+        # If rebalancing needed and current order is less than max, suggest 21-keg order
+        kegs_to_add = 0
+        if needs_rebalancing and total_kegs < max_order:
+            kegs_to_add = max_order - total_kegs
 
         vendor_keg_info[vendor] = {
             'total_kegs': int(total_kegs),
-            'required_increment': increment,
+            'max_order_size': max_order,
+            'needs_rebalancing': needs_rebalancing,
+            'stockout_items': len(stockout_items),
+            'min_weeks_on_hand': float(min_weeks),
             'kegs_to_add': int(kegs_to_add),
-            'at_discount_level': at_discount_level,
-            'next_discount_level': int(next_discount_level),
-            'items': vendor_kegs['item_id'].tolist() if not vendor_kegs.empty else []
+            'items': vendor_kegs['item_id'].tolist(),
+            'stockout_item_ids': stockout_items['item_id'].tolist() if needs_rebalancing else []
         }
 
     return vendor_keg_info
@@ -360,17 +371,20 @@ def get_keg_adjustment_suggestions(
     dataset: 'InventoryDataset'
 ) -> List[dict]:
     """
-    Suggest which kegs to add to reach discount increment.
+    Suggest how to distribute additional kegs to rebalance inventory levels.
 
-    Prioritizes items that:
-    1. Are already being ordered (just increase qty)
-    2. Have lower weeks on hand
-    3. Are trending up
+    The goal is to bring all draft items to a more balanced weeks_on_hand level
+    by prioritizing items with the lowest inventory.
+
+    Strategy:
+    1. Prioritize items with lowest weeks on hand (most urgent)
+    2. Distribute kegs to bring items closer to average level
+    3. Focus on preventing stockouts first
 
     Args:
         recommendations_df: DataFrame from recommend_order()
         vendor: Vendor name (Crescent or Hensley)
-        kegs_to_add: Number of additional kegs needed
+        kegs_to_add: Number of additional kegs to distribute (usually to reach 21)
         dataset: InventoryDataset for item metadata
 
     Returns:
@@ -391,45 +405,61 @@ def get_keg_adjustment_suggestions(
     if vendor_items.empty:
         return []
 
-    # Score items for prioritization
-    # Lower weeks_on_hand = higher priority
-    # Items already being ordered get bonus
-    vendor_items['_score'] = (
-        (MAX_WEEKS_SCORE - vendor_items['weeks_on_hand'].clip(upper=MAX_WEEKS_SCORE)) +  # Lower weeks = higher score
-        (vendor_items['recommended_qty'] > 0).astype(int) * ALREADY_ORDERING_BONUS +  # Bonus for already ordering
-        vendor_items['reason_codes'].apply(
-            lambda x: TRENDING_UP_BONUS if 'TRENDING_UP' in x else 0
-        )
-    )
+    # Calculate target weeks on hand for balancing
+    # Use median as target to avoid outliers
+    target_weeks = vendor_items['weeks_on_hand'].median()
 
-    # Sort by score descending
-    vendor_items = vendor_items.sort_values('_score', ascending=False)
+    # Calculate gap from target for each item
+    vendor_items['_gap'] = target_weeks - vendor_items['weeks_on_hand']
 
-    for _, row in vendor_items.iterrows():
+    # Only consider items below target (negative gap means above target)
+    items_below_target = vendor_items[vendor_items['_gap'] > 0].copy()
+
+    if items_below_target.empty:
+        # If all items are above target, distribute to lowest weeks items anyway
+        items_below_target = vendor_items.copy()
+
+    # Sort by weeks_on_hand ascending (lowest first - most urgent)
+    items_below_target = items_below_target.sort_values('weeks_on_hand', ascending=True)
+
+    # Distribute kegs starting with most urgent items
+    for _, row in items_below_target.iterrows():
         if remaining_kegs <= 0:
             break
 
         item_id = row['item_id']
         current_qty = row['recommended_qty']
         weeks_on_hand = row['weeks_on_hand']
+        avg_usage = row['avg_usage']
 
-        # Suggest adding 1 keg at a time
-        add_qty = min(1, remaining_kegs)
-
-        reason = ""
-        if current_qty > 0:
-            reason = f"Already ordering {current_qty}, add {add_qty} more"
-        elif weeks_on_hand < 2:
-            reason = f"Low stock ({weeks_on_hand:.1f} weeks), good candidate"
+        # Determine how many to add based on gap and urgency
+        if weeks_on_hand < 0.5:
+            # Critical - add multiple if needed
+            add_qty = min(2, remaining_kegs)
+            reason = f"CRITICAL: {weeks_on_hand:.1f} weeks remaining"
+        elif weeks_on_hand < 1.0:
+            # Urgent - add at least 1
+            add_qty = min(2, remaining_kegs)
+            reason = f"Urgent: {weeks_on_hand:.1f} weeks, rebalancing needed"
         else:
-            reason = f"Has {weeks_on_hand:.1f} weeks, can add to reach discount"
+            # Below target but not critical
+            add_qty = 1
+            reason = f"Rebalancing: {weeks_on_hand:.1f} weeks → target {target_weeks:.1f} weeks"
+
+        # Calculate new weeks on hand after adding
+        if avg_usage > 0:
+            new_on_hand = row['on_hand'] + (current_qty + add_qty)
+            new_weeks = new_on_hand / avg_usage
+        else:
+            new_weeks = weeks_on_hand
 
         suggestions.append({
             'item_id': item_id,
             'current_qty': int(current_qty),
             'suggested_add': int(add_qty),
             'new_total': int(current_qty + add_qty),
-            'weeks_on_hand': round(weeks_on_hand, 1),
+            'current_weeks': round(weeks_on_hand, 1),
+            'projected_weeks': round(new_weeks, 1),
             'reason': reason
         })
 

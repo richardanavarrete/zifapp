@@ -682,26 +682,33 @@ if uploaded_files:
             with col4:
                 st.metric("Stockout Risks", stats['stockout_risks'])
 
-            # Vendor keg discount info
+            # Vendor keg rebalancing analysis
             if results['vendor_keg_info']:
                 st.markdown("---")
-                st.markdown("### 🍺 Keg Discount Opportunities")
+                st.markdown("### 🍺 Keg Order Analysis (21-Keg Rule)")
+                st.info("**21-Keg Rule**: Maximum order size is 21 kegs. When draft items won't make it to next week, order 21 kegs to rebalance inventory levels.")
+
                 for vendor, info in results['vendor_keg_info'].items():
                     if info['total_kegs'] > 0:
-                        if info['at_discount_level']:
-                            st.success(f"✅ **{vendor}**: {info['total_kegs']} kegs (At {info['required_increment']}-keg discount level!)")
-                        else:
-                            st.warning(f"⚠️ **{vendor}**: {info['total_kegs']} kegs (Add {info['kegs_to_add']} more for {info['required_increment']}-keg discount)")
+                        if info['needs_rebalancing']:
+                            st.warning(
+                                f"⚠️ **{vendor}**: {info['total_kegs']} kegs currently ordered | "
+                                f"{info['stockout_items']} items below threshold ({info['min_weeks_on_hand']:.1f} weeks min) | "
+                                f"**Recommend ordering {info['max_order_size']} kegs total** (add {info['kegs_to_add']})"
+                            )
 
-                            # Show adjustment suggestions if available
-                            if 'adjustment_suggestions' in info and info['adjustment_suggestions']:
-                                with st.expander(f"💡 View suggested items to add for {vendor}"):
-                                    suggestions_df = pd.DataFrame(info['adjustment_suggestions'])
+                            # Show rebalancing suggestions if available
+                            if 'rebalancing_suggestions' in info and info['rebalancing_suggestions']:
+                                with st.expander(f"💡 View rebalancing plan for {vendor}"):
+                                    st.markdown("Distribute additional kegs to bring items to balanced levels:")
+                                    suggestions_df = pd.DataFrame(info['rebalancing_suggestions'])
                                     st.dataframe(
                                         suggestions_df,
                                         use_container_width=True,
                                         hide_index=True
                                     )
+                        else:
+                            st.success(f"✅ **{vendor}**: {info['total_kegs']} kegs ordered (all items balanced, min {info['min_weeks_on_hand']:.1f} weeks)")
 
             # Items needing recount
             if results['items_needing_recount']:
