@@ -24,7 +24,7 @@ from cogs import (
 import cache_manager
 from policy import OrderTargets
 from agent import run_agent, get_order_by_vendor
-from storage import init_db, save_user_action
+from storage import init_db, save_user_actions
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
@@ -826,16 +826,29 @@ if uploaded_files:
                         # Store approved orders in session state
                         st.session_state.agent_approved_orders[results['run_id']] = edited_df
 
-                        # Save user actions to database
-                        for _, row in edited_df[edited_df['recommended_qty'] > 0].iterrows():
-                            save_user_action(
-                                results['run_id'],
-                                row['item_id'],
-                                'approved',
-                                row['recommended_qty']
-                            )
+                        # Collect user actions for items to order
+                        actions = []
+                        approved_items = edited_df[edited_df['recommended_qty'] > 0]
 
-                        st.success(f"✅ Saved {len(edited_df[edited_df['recommended_qty'] > 0])} approved orders!")
+                        for _, row in approved_items.iterrows():
+                            # Get original recommendation from results
+                            original_rec = results['recommendations'][
+                                results['recommendations']['item_id'] == row['item_id']
+                            ]
+                            original_qty = original_rec['recommended_qty'].iloc[0] if not original_rec.empty else row['recommended_qty']
+
+                            actions.append({
+                                'item_id': row['item_id'],
+                                'recommended_qty': original_qty,
+                                'approved_qty': row['recommended_qty'],
+                                'user_override_reason': 'User edited quantity' if original_qty != row['recommended_qty'] else 'Approved as recommended'
+                            })
+
+                        # Save all actions to database
+                        if actions:
+                            save_user_actions(results['run_id'], actions)
+
+                        st.success(f"✅ Saved {len(approved_items)} approved orders!")
                     except Exception as e:
                         st.error(f"Error saving orders: {e}")
             else:
