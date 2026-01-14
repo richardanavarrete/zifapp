@@ -247,6 +247,8 @@ if 'bevweekly_files' not in st.session_state:
     st.session_state.bevweekly_files = None
 if 'sales_mix_file' not in st.session_state:
     st.session_state.sales_mix_file = None
+if 'sales_mix_data' not in st.session_state:
+    st.session_state.sales_mix_data = None
 
 # File uploader returns new files on change, None if unchanged
 uploaded_files_widget = st.file_uploader(
@@ -296,7 +298,24 @@ if uploaded_files:
 
     if sales_mix_widget is not None:
         st.session_state.sales_mix_file = sales_mix_widget
-        st.success(f"✅ Sales Mix file uploaded: {sales_mix_widget.name}")
+
+        # Parse and store sales mix data for agent analysis
+        try:
+            from utils.sales_mix_parser import parse_sales_mix_csv
+            sales_df = parse_sales_mix_csv(sales_mix_widget)
+            if sales_df is not None and not sales_df.empty:
+                st.session_state.sales_mix_data = sales_df
+                st.success(f"✅ Sales Mix file uploaded and parsed: {sales_mix_widget.name} ({len(sales_df)} items)")
+            else:
+                st.session_state.sales_mix_data = None
+                st.warning(f"⚠️ Sales Mix file uploaded but no data was parsed: {sales_mix_widget.name}")
+        except Exception as e:
+            st.session_state.sales_mix_data = None
+            st.error(f"Error parsing Sales Mix file: {e}")
+    else:
+        # Clear sales mix data if no file is uploaded
+        if 'sales_mix_data' in st.session_state:
+            st.session_state.sales_mix_data = None
 
     # Check for cached data
     st.markdown("---")
@@ -812,6 +831,135 @@ if uploaded_files:
                     hide_index=True,
                     height=min(300, len(recount_df) * 35 + 38)
                 )
+
+            # Usage Variance Analysis (Sales Mix vs Actual)
+            if results.get('usage_variance_analysis'):
+                variance_items = results['usage_variance_analysis']
+                st.markdown("---")
+                st.markdown("### 🔍 Inventory Count Validation (Sales Mix vs Actual)")
+
+                # Count by severity
+                high_count = sum(1 for item in variance_items if item['severity'] == 'high')
+                medium_count = sum(1 for item in variance_items if item['severity'] == 'medium')
+                low_count = sum(1 for item in variance_items if item['severity'] == 'low')
+
+                if high_count > 0:
+                    st.error(f"🚨 {len(variance_items)} items show significant variance between sales and inventory counts ({high_count} high priority)")
+                else:
+                    st.warning(f"⚠️ {len(variance_items)} items show variance between sales and inventory counts")
+
+                st.markdown("""
+                This analysis compares **theoretical usage** (calculated from your sales mix) against **actual usage** (from your inventory counts).
+                Large variances may indicate counting errors, theft, waste, or POS entry issues.
+                """)
+
+                # Severity filter
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    severity_filter = st.multiselect(
+                        "Filter by Severity",
+                        options=['high', 'medium', 'low'],
+                        default=['high', 'medium'],
+                        help="High: >50% variance, Medium: 25-50%, Low: 10-25%"
+                    )
+                with col2:
+                    st.metric("Total Alerts", len(variance_items))
+
+                # Filter items by severity
+                filtered_variance = [item for item in variance_items if item['severity'] in severity_filter] if severity_filter else variance_items
+
+                if filtered_variance:
+                    # Display variance summary table
+                    variance_data = []
+                    for item in filtered_variance:
+                        # Determine emoji based on variance direction
+                        if item['variance'] > 0:
+                            direction = "📉 Under"
+                        else:
+                            direction = "📈 Over"
+
+                        variance_data.append({
+                            'Item': item['item_id'],
+                            'Theoretical': f"{item['theoretical_usage']:.1f} {item['unit']}",
+                            'Actual': f"{item['actual_usage']:.1f} {item['unit']}",
+                            'Variance': f"{item['variance']:+.1f}",
+                            'Variance %': f"{item['variance_pct']:+.1f}%",
+                            'Direction': direction,
+                            'Severity': item['severity'].upper()
+                        })
+
+                    variance_df = pd.DataFrame(variance_data)
+
+                    # Style the dataframe
+                    def style_variance_row(row):
+                        if row['Severity'] == 'HIGH':
+                            return ['background-color: #ffcccc'] * len(row)
+                        elif row['Severity'] == 'MEDIUM':
+                            return ['background-color: #ffe6cc'] * len(row)
+                        else:
+                            return ['background-color: #ffffcc'] * len(row)
+
+                    styled_df = variance_df.style.apply(style_variance_row, axis=1)
+
+                    st.dataframe(
+                        styled_df,
+                        use_container_width=True,
+                        hide_index=True,
+                        height=min(400, len(variance_df) * 35 + 38)
+                    )
+
+                    # Detailed breakdown
+                    st.markdown("---")
+                    st.markdown("#### 📋 Detailed Analysis & Recommendations")
+
+                    for item in filtered_variance:
+                        with st.expander(f"**{item['item_id']}** - {item['variance_pct']:+.1f}% variance ({item['severity'].upper()})"):
+                            # Show interpretation
+                            st.markdown(f"**Analysis:** {item['interpretation']}")
+
+                            # Show the math
+                            st.markdown("**Calculation Details:**")
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Theoretical (Sales Mix)", f"{item['theoretical_usage']:.2f} {item['unit']}")
+                            with col2:
+                                st.metric("Actual (Inventory)", f"{item['actual_usage']:.2f} {item['unit']}")
+                            with col3:
+                                st.metric("Variance", f"{item['variance']:+.2f} {item['unit']}",
+                                         delta=f"{item['variance_pct']:+.1f}%")
+
+                            # Show breakdown of sales mix calculation
+                            if item['details']:
+                                st.markdown("**Sales Mix Breakdown:**")
+                                for detail in item['details']:
+                                    st.text(detail)
+
+                            # Action recommendations
+                            st.markdown("**Recommended Actions:**")
+                            if abs(item['variance_pct']) >= 50:
+                                st.markdown("- 🔴 **URGENT**: Recount this item immediately")
+                                st.markdown("- Check for recent large purchases or transfers not recorded")
+                                st.markdown("- Review POS entries for this item during the period")
+                            elif abs(item['variance_pct']) >= 25:
+                                st.markdown("- 🟡 **High Priority**: Verify count on next inventory")
+                                st.markdown("- Monitor this item closely for theft/waste")
+                            else:
+                                st.markdown("- 🟢 **Normal Priority**: Note variance for next count")
+                                st.markdown("- Consider portion control training if pattern continues")
+
+                    # Export option
+                    st.markdown("---")
+                    variance_export_df = pd.DataFrame(variance_data)
+                    csv_variance = variance_export_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Download Variance Analysis (CSV)",
+                        data=csv_variance,
+                        file_name=f"variance_analysis_{results['run_id']}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+                else:
+                    st.info("No items match the selected severity filters.")
 
             # Recommendations table
             st.markdown("---")
