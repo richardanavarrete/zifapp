@@ -99,15 +99,19 @@ def find_net_amount_column(df, header_row_idx):
 def parse_sales_mix_csv(uploaded_csv):
     """
     Parse any GEMpos Sales Mix CSV into a structured DataFrame.
-    
+
     Automatically detects:
     - Header row location
     - Category/subcategory markers at any nesting level
     - Item names in varying column positions
     - Qty and Amount column positions
-    
+
     Returns DataFrame with columns: Category, Subcategory, Item, Qty, Amount, Net_Amount
     """
+    # Reset file pointer to beginning (in case it was read before)
+    if hasattr(uploaded_csv, 'seek'):
+        uploaded_csv.seek(0)
+
     # Read the CSV
     df = pd.read_csv(uploaded_csv, header=None)
 

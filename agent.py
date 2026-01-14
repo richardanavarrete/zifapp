@@ -37,6 +37,10 @@ def analyze_usage_variance(
     Identifies items where counts might be off based on significant variance
     between what was sold (theoretical) vs what was used (actual).
 
+    Automatically accounts for batch products: if ingredients are in batched form
+    (e.g., Milagro Silver in Milagro Marg On Tap), converts batch inventory back
+    to ingredient bottles for accurate "true on-hand" variance calculation.
+
     Args:
         features_df: DataFrame with item features including last_week_usage
         sales_mix_usage: Dict from aggregate_all_usage() with theoretical usage
@@ -46,7 +50,7 @@ def analyze_usage_variance(
         List of dicts with variance analysis for items exceeding threshold:
         - item_id: Inventory item name
         - theoretical_usage: Expected usage from sales data
-        - actual_usage: Actual usage from inventory
+        - actual_usage: Actual usage from inventory (includes batch equivalents)
         - variance: Difference (theoretical - actual)
         - variance_pct: Percentage variance relative to actual
         - unit: Unit of measurement (kegs, bottles, oz, etc.)
@@ -54,10 +58,21 @@ def analyze_usage_variance(
         - interpretation: Human-readable explanation of what this variance means
         - severity: 'high', 'medium', or 'low' based on variance percentage
     """
+    from config.batch_products import BATCH_PRODUCTS, convert_batch_to_ingredients
+    from config.constants import LIQUOR_BOTTLE_OZ
+
     variance_items = []
 
     # Create lookup for features by item_id
     features_lookup = features_df.set_index('item_id').to_dict('index')
+
+    # Build reverse lookup: ingredient -> batch products that contain it
+    ingredient_to_batches = {}
+    for batch_name, batch_config in BATCH_PRODUCTS.items():
+        for ingredient_name in batch_config['ingredients'].keys():
+            if ingredient_name not in ingredient_to_batches:
+                ingredient_to_batches[ingredient_name] = []
+            ingredient_to_batches[ingredient_name].append(batch_name)
 
     for inv_item, data in sales_mix_usage.items():
         theoretical_usage = data.get('theoretical_usage', 0)
@@ -67,6 +82,27 @@ def analyze_usage_variance(
         # Get actual usage from features
         if inv_item in features_lookup:
             actual_usage = features_lookup[inv_item].get('last_week_usage')
+            batch_notes = []
+
+            # Add batch inventory equivalents if this ingredient is in batch products
+            if inv_item in ingredient_to_batches and actual_usage is not None:
+                for batch_name in ingredient_to_batches[inv_item]:
+                    # Check if we have inventory for this batch product
+                    if batch_name in features_lookup:
+                        batch_on_hand = features_lookup[batch_name].get('on_hand', 0)
+                        if batch_on_hand and batch_on_hand > 0:
+                            # Convert batch to oz (batch is tracked in liters in inventory)
+                            batch_oz = batch_on_hand * 33.814  # Convert liters to oz
+
+                            # Convert to ingredient bottles
+                            batch_ingredients = convert_batch_to_ingredients(batch_name, batch_oz)
+                            if inv_item in batch_ingredients:
+                                batch_equiv_bottles = batch_ingredients[inv_item]
+                                actual_usage += batch_equiv_bottles
+                                batch_notes.append(
+                                    f"  + {batch_equiv_bottles:.2f} bottles from {batch_name} "
+                                    f"({batch_on_hand:.1f}L on hand)"
+                                )
 
             # Only analyze if we have valid actual usage
             if actual_usage is not None and actual_usage > 0:
@@ -100,6 +136,13 @@ def analyze_usage_variance(
                             f"comps not tracked in POS, or heavy pours."
                         )
 
+                    # Append batch notes to details if any
+                    all_details = details.copy()
+                    if batch_notes:
+                        all_details.append("")  # Empty line separator
+                        all_details.append("Batch Inventory Included:")
+                        all_details.extend(batch_notes)
+
                     variance_items.append({
                         'item_id': inv_item,
                         'theoretical_usage': round(theoretical_usage, 2),
@@ -107,7 +150,7 @@ def analyze_usage_variance(
                         'variance': round(variance, 2),
                         'variance_pct': round(variance_pct, 1),
                         'unit': unit,
-                        'details': details,
+                        'details': all_details,
                         'interpretation': interpretation,
                         'severity': severity
                     })

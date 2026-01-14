@@ -16,24 +16,30 @@ When you make batched products like **Milagro Marg On Tap**, the ingredients are
 
 ## The Solution
 
-**Count batch products and convert them back to ingredient bottles when doing inventory.**
+**Track batch products as inventory items, and the system automatically converts them to ingredient equivalents.**
 
-The tequila in your Milagro Marg On Tap batch is still "in house"—it's just already mixed. By counting it and adding the equivalent bottles to your inventory count, the variance evens out.
+The system now automatically accounts for batch inventory:
+1. Track "Milagro Marg On Tap" as a regular inventory item in your BEVWEEKLY spreadsheet
+2. Count the remaining batch volume in liters during each inventory count
+3. The variance analysis automatically converts batch volume to ingredient bottles
+4. Your "true on-hand" inventory includes both physical bottles AND the ingredients in batches
 
 ### How It Works
 
-1. **During inventory count**, measure your remaining batch volume
-   - Example: 5 liters (169oz) of Milagro Marg On Tap remaining
+1. **Add "Milagro Marg On Tap" to your BEVWEEKLY spreadsheet** as a new inventory item
+   - Unit of Measure: Liters
+   - Category: Bar Consumables (or create new category)
 
-2. **Use the Batch Converter** (in the app sidebar) to convert to ingredient bottles:
-   - 5L batch = **1.25 bottles** of Milagro Silver + **0.83 bottles** of Triple Sec
+2. **During each inventory count**, measure remaining batch volume in liters
+   - Example: 5 liters of Milagro Marg On Tap remaining
+   - **Enter 5L in the "End Inventory" column** for Milagro Marg On Tap
 
-3. **Add these to your physical inventory**:
-   - Physical bottles on shelf: 2 bottles
-   - Batch equivalent: 1.25 bottles
-   - **Total inventory to record: 3.25 bottles**
+3. **The variance analysis automatically converts** batch to ingredients:
+   - Physical Milagro Silver: 2 bottles (from your inventory)
+   - Batch equivalent: 1.25 bottles (automatically calculated from 5L batch)
+   - **True on-hand displayed: 3.25 bottles** (no manual calculation needed!)
 
-4. **Enter the total** (3.25) in your inventory spreadsheet as the ending inventory
+4. **Variance is calculated** against the true on-hand amount
 
 ### Why This Works
 
@@ -45,34 +51,36 @@ The batch ingredients are calculated using your actual batch recipe:
 
 When you count the batch and convert it back, you're accounting for the tequila and triple sec that's already mixed but still in your possession.
 
-## Using the Batch Converter
+## Setting Up Batch Tracking
 
-### In the App
+### Step 1: Add to BEVWEEKLY Spreadsheet
 
-1. Open the Bev Usage Analyzer
-2. Look for **"🧪 Batch Converter"** in the left sidebar
-3. Expand **"Milagro Marg On Tap"**
-4. Choose your measurement unit (Liters or Ounces)
-5. Enter the remaining batch volume
-6. The app shows you exactly how many bottles to add
+Add a new row to your inventory spreadsheet:
+- **Item**: Milagro Marg On Tap
+- **Unit of Measure**: Liters
+- **Unit Cost**: (calculate based on ingredient costs, or use $0 for now)
+- **Beginning Inventory, Purchases, Ending Inventory**: Track in liters
 
-### Example Calculation
+### Step 2: Count During Inventory
 
-**Scenario**: You have 3.5L of Milagro Marg On Tap remaining
+When doing inventory counts:
+1. Measure remaining batch volume in liters (use consistent container/method)
+2. Enter the volume in the "End Inventory" column for Milagro Marg On Tap
+3. Count physical Milagro Silver and Triple Sec bottles normally
+4. The system handles the rest automatically!
 
-**Conversion**:
-- 3.5L = 118.3oz
-- Milagro Silver: 118.3oz × 25% = 29.6oz = **0.88 bottles**
-- Triple Sec: 118.3oz × 16.7% = 19.8oz = **0.59 bottles**
+### Example
 
-**Inventory Count**:
+**Week 1 Inventory:**
+- Milagro Marg On Tap: 3.5L remaining → Enter **3.5** in End Inventory
+- TEQUILA Milagro Silver: 2 bottles on shelf → Enter **2** in End Inventory
+- LIQ Triple Sec: 1 bottle on shelf → Enter **1** in End Inventory
+
+**Variance Analysis (automatic):**
 - Milagro Silver physical: 2 bottles
-- Milagro Silver batch: 0.88 bottles
-- **Total Milagro Silver: 2.88 bottles** ← Enter this in spreadsheet
-
-- Triple Sec physical: 1 bottle
-- Triple Sec batch: 0.59 bottles
-- **Total Triple Sec: 1.59 bottles** ← Enter this in spreadsheet
+- Milagro Silver in batch: 0.88 bottles (auto-calculated from 3.5L)
+- **True on-hand: 2.88 bottles** (shown in variance report)
+- Variance calculated against 2.88, not 2!
 
 ## Tips
 
