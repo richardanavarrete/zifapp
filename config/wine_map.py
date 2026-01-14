@@ -46,5 +46,5 @@ WINE_MAP = {
 }
 
 # Wine pour sizes
-WINE_GLASS_OZ = 6
+WINE_GLASS_OZ = 5
 WINE_BOTTLE_OZ = 25.36  # 750ml
