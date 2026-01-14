@@ -175,9 +175,15 @@ MIXED_DRINK_RECIPES = {
         "BAR CONS Simple Syrup": 0.25,
         "BAR CONS Bitters": 0.1,
     },
-    
+
     "Old Fashion Bulleit Rye": {
         "WHISKEY Bulleit Straight Rye": STANDARD_POUR_OZ,
+        "BAR CONS Simple Syrup": 0.25,
+        "BAR CONS Bitters": 0.1,
+    },
+
+    "Old Fashion Four Roses": {
+        "WHISKEY Four Roses": STANDARD_POUR_OZ,
         "BAR CONS Simple Syrup": 0.25,
         "BAR CONS Bitters": 0.1,
     },
