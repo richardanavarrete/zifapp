@@ -23,6 +23,8 @@ from cogs import (
 )
 import cache_manager
 from policy import OrderTargets
+from agent import run_agent, get_order_by_vendor
+from storage import init_db, save_user_action
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
@@ -362,9 +364,10 @@ if uploaded_files:
         st.error(f"An error occurred during data processing: {e}")
         st.stop()
 
-    tab_summary, tab_ordering_worksheet, tab_sales_mix, tab_trends, tab_cogs, tab_pour_cost, tab_excess_inventory = st.tabs([
+    tab_summary, tab_ordering_worksheet, tab_agent, tab_sales_mix, tab_trends, tab_cogs, tab_pour_cost, tab_excess_inventory = st.tabs([
         "📊 Summary",
         "🧪 Ordering Worksheet",
+        "🤖 Agent",
         "Sales Mix Analysis",
         "📈 Item Trends",
         "💰 COGS Analysis",
@@ -589,7 +592,256 @@ if uploaded_files:
                 with tab:
                     render_worksheet_table(category_map.get(category_keys[i], []), category_keys[i])
 
-    # --- TAB 3: SALES MIX ANALYSIS ---
+    # --- TAB 3: AGENT ---
+    with tab_agent:
+        st.subheader("🤖 Agent-Powered Ordering Recommendations")
+        st.markdown("""
+        Let the agent analyze your inventory and generate smart ordering recommendations based on:
+        - Current inventory levels
+        - Usage trends and patterns
+        - Data quality checks
+        - Configurable target weeks by category
+        """)
+
+        # Initialize session state for agent results
+        if 'agent_results' not in st.session_state:
+            st.session_state.agent_results = None
+        if 'agent_approved_orders' not in st.session_state:
+            st.session_state.agent_approved_orders = {}
+
+        # Configuration section
+        st.markdown("### ⚙️ Configuration")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            usage_method = st.selectbox(
+                "Usage Average Method",
+                options=['avg_4wk', 'avg_10wk', 'avg_2wk', 'avg_ytd'],
+                index=0,
+                help="Which usage average to use for ordering decisions"
+            )
+
+        with col2:
+            smoothing_level = st.slider(
+                "Smoothing Level",
+                min_value=0.1,
+                max_value=0.9,
+                value=0.3,
+                step=0.1,
+                help="Higher values give more weight to recent weeks"
+            )
+
+        # Run Agent button
+        if st.button("🚀 Run Agent", type="primary", use_container_width=True):
+            with st.spinner("Running agent analysis..."):
+                try:
+                    # Initialize database
+                    init_db()
+
+                    # Get sales mix data if available
+                    sales_mix_usage = None
+                    if 'sales_mix_data' in st.session_state and st.session_state.sales_mix_data is not None:
+                        try:
+                            sales_mix_usage = aggregate_all_usage(st.session_state.sales_mix_data)
+                        except:
+                            pass
+
+                    # Run the agent
+                    results = run_agent(
+                        dataset,
+                        usage_column=usage_method,
+                        smoothing_level=smoothing_level,
+                        sales_mix_usage=sales_mix_usage
+                    )
+
+                    st.session_state.agent_results = results
+                    st.success("✅ Agent analysis complete!")
+                except Exception as e:
+                    st.error(f"Error running agent: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
+        # Display results if available
+        if st.session_state.agent_results:
+            results = st.session_state.agent_results
+
+            # Summary section
+            st.markdown("---")
+            st.markdown("### 📊 Summary")
+            st.info(results['summary'])
+
+            # Display summary stats in columns
+            stats = results['summary_stats']
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Items", stats['total_items'])
+            with col2:
+                st.metric("Items to Order", stats['items_to_order'])
+            with col3:
+                st.metric("Total Quantity", stats['total_qty'])
+            with col4:
+                st.metric("Stockout Risks", stats['stockout_risks'])
+
+            # Vendor keg discount info
+            if results['vendor_keg_info']:
+                st.markdown("---")
+                st.markdown("### 🍺 Keg Discount Opportunities")
+                for vendor, info in results['vendor_keg_info'].items():
+                    if info['total_kegs'] > 0:
+                        if info['at_discount_level']:
+                            st.success(f"✅ **{vendor}**: {info['total_kegs']} kegs (At {info['required_increment']}-keg discount level!)")
+                        else:
+                            st.warning(f"⚠️ **{vendor}**: {info['total_kegs']} kegs (Add {info['kegs_to_add']} more for {info['required_increment']}-keg discount)")
+
+                            # Show adjustment suggestions if available
+                            if 'adjustment_suggestions' in info and info['adjustment_suggestions']:
+                                with st.expander(f"💡 View suggested items to add for {vendor}"):
+                                    suggestions_df = pd.DataFrame(info['adjustment_suggestions'])
+                                    st.dataframe(
+                                        suggestions_df,
+                                        use_container_width=True,
+                                        hide_index=True
+                                    )
+
+            # Items needing recount
+            if results['items_needing_recount']:
+                st.markdown("---")
+                st.markdown("### 🔍 Items Needing Recount")
+                st.warning(f"⚠️ {len(results['items_needing_recount'])} items have data quality issues and should be recounted")
+
+                recount_data = []
+                for item in results['items_needing_recount']:
+                    recount_data.append({
+                        'Item': item['item_id'],
+                        'On Hand': item['on_hand'],
+                        'Avg Usage': item.get('avg_usage', 'N/A'),
+                        'Issue Type': item.get('issue_type', 'Unknown'),
+                        'Details': item.get('discrepancy', item.get('notes', ''))
+                    })
+
+                recount_df = pd.DataFrame(recount_data)
+                st.dataframe(
+                    recount_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=min(300, len(recount_df) * 35 + 38)
+                )
+
+            # Recommendations table
+            st.markdown("---")
+            st.markdown("### 📋 Recommendations")
+
+            # Filter options
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                show_all_recs = st.checkbox("Show all items", value=False, help="Show items with 0 recommended quantity")
+            with col2:
+                filter_vendor = st.selectbox(
+                    "Filter by Vendor",
+                    options=['All'] + sorted(results['recommendations']['vendor'].unique().tolist()),
+                    index=0
+                )
+            with col3:
+                filter_category = st.selectbox(
+                    "Filter by Category",
+                    options=['All'] + sorted(results['recommendations']['category'].unique().tolist()),
+                    index=0
+                )
+
+            # Apply filters
+            recs_df = results['recommendations'].copy()
+            if not show_all_recs:
+                recs_df = recs_df[recs_df['recommended_qty'] > 0]
+            if filter_vendor != 'All':
+                recs_df = recs_df[recs_df['vendor'] == filter_vendor]
+            if filter_category != 'All':
+                recs_df = recs_df[recs_df['category'] == filter_category]
+
+            # Editable recommendations
+            if not recs_df.empty:
+                st.markdown(f"**{len(recs_df)} items** to review")
+
+                # Create editable dataframe
+                edited_df = st.data_editor(
+                    recs_df[[
+                        'item_id', 'vendor', 'category', 'on_hand', 'avg_usage',
+                        'weeks_on_hand', 'target_weeks', 'recommended_qty', 'confidence', 'notes'
+                    ]],
+                    column_config={
+                        "item_id": st.column_config.TextColumn("Item", width="large"),
+                        "vendor": st.column_config.TextColumn("Vendor", width="small"),
+                        "category": st.column_config.TextColumn("Category", width="medium"),
+                        "on_hand": st.column_config.NumberColumn("On Hand", format="%.1f"),
+                        "avg_usage": st.column_config.NumberColumn("Avg Usage", format="%.1f"),
+                        "weeks_on_hand": st.column_config.NumberColumn("Weeks OH", format="%.1f"),
+                        "target_weeks": st.column_config.NumberColumn("Target Weeks", format="%.1f"),
+                        "recommended_qty": st.column_config.NumberColumn("Qty to Order", format="%.0f"),
+                        "confidence": st.column_config.TextColumn("Confidence", width="small"),
+                        "notes": st.column_config.TextColumn("Notes", width="large")
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                    height=600
+                )
+
+                # Export options
+                st.markdown("---")
+                st.markdown("### 📥 Export Orders")
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    # Export all recommendations
+                    csv_all = edited_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Download All Recommendations (CSV)",
+                        data=csv_all,
+                        file_name=f"agent_recommendations_{results['run_id']}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+
+                with col2:
+                    # Export by vendor
+                    export_vendor = st.selectbox(
+                        "Export by Vendor",
+                        options=sorted(results['recommendations']['vendor'].unique().tolist())
+                    )
+
+                    if export_vendor:
+                        vendor_df = get_order_by_vendor(edited_df, export_vendor)
+                        vendor_df = vendor_df[vendor_df['recommended_qty'] > 0]
+                        csv_vendor = vendor_df.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            label=f"📥 Download {export_vendor} Order (CSV)",
+                            data=csv_vendor,
+                            file_name=f"order_{export_vendor}_{results['run_id']}.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+
+                # Save approved orders
+                if st.button("✅ Save Approved Orders", type="primary", use_container_width=True):
+                    try:
+                        # Store approved orders in session state
+                        st.session_state.agent_approved_orders[results['run_id']] = edited_df
+
+                        # Save user actions to database
+                        for _, row in edited_df[edited_df['recommended_qty'] > 0].iterrows():
+                            save_user_action(
+                                results['run_id'],
+                                row['item_id'],
+                                'approved',
+                                row['recommended_qty']
+                            )
+
+                        st.success(f"✅ Saved {len(edited_df[edited_df['recommended_qty'] > 0])} approved orders!")
+                    except Exception as e:
+                        st.error(f"Error saving orders: {e}")
+            else:
+                st.info("No items match the current filters.")
+
+    # --- TAB 4: SALES MIX ANALYSIS ---
     with tab_sales_mix:
         st.subheader("📈 Sales Mix Analysis: Theoretical vs Actual Usage")
         st.markdown("""
@@ -776,7 +1028,7 @@ if uploaded_files:
         else:
             st.info("👆 Upload a Sales Mix CSV to begin analysis.")
 
-    # --- TAB 4: ITEM TRENDS ---
+    # --- TAB 5: ITEM TRENDS ---
     with tab_trends:
         st.subheader("📈 Item Trends Visualization")
         st.markdown("Select an item to view its historical usage trends over time.")
@@ -967,7 +1219,7 @@ if uploaded_files:
         else:
             st.info("👆 Select an item to view its trend visualization.")
 
-    # --- TAB 5: COGS ANALYSIS ---
+    # --- TAB 6: COGS ANALYSIS ---
     with tab_cogs:
         st.subheader("💰 Cost of Goods Sold (COGS) Analysis")
         st.markdown("Analyze your beverage costs, inventory value, and profitability metrics.")
@@ -1179,7 +1431,7 @@ if uploaded_files:
                 mime="text/csv"
             )
 
-    # --- TAB 6: POUR COST ANALYSIS ---
+    # --- TAB 7: POUR COST ANALYSIS ---
     with tab_pour_cost:
         st.subheader("📊 Pour Cost & Profitability Analysis")
         st.markdown("Analyze pour cost percentages, shrinkage, and variance between theoretical and actual usage.")
@@ -1626,7 +1878,7 @@ if uploaded_files:
         else:
             st.info("👆 Upload a Sales Mix CSV file to see pour cost analysis and variance reports.")
 
-    # --- TAB 7: EXCESS INVENTORY ---
+    # --- TAB 8: EXCESS INVENTORY ---
     with tab_excess_inventory:
         st.subheader("📦 Excess Inventory Analysis")
         st.markdown("Identify items with inventory levels exceeding suggested par levels based on average weekly usage.")
