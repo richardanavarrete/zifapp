@@ -30,7 +30,7 @@ WINE_BOTTLE_OZ = 25.4      # Standard 750ml
 WINE_BOTTLE_MAGNUM_OZ = 50.7 # 1.5 Liter (for house wines)
 
 # Renamed to match your other code
-WINE_GLASS_OZ = 6.0        # Standard wine glass pour
+WINE_GLASS_OZ = 5.0        # Standard wine glass pour
 
 # Canned beverages
 REDBULL_CAN_OZ = 8.4
