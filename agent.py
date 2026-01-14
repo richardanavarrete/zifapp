@@ -26,6 +26,98 @@ from storage import save_agent_run, get_user_prefs, init_db
 import mappings
 
 
+def analyze_usage_variance(
+    features_df: pd.DataFrame,
+    sales_mix_usage: Dict,
+    variance_threshold: float = 10.0
+) -> List[Dict]:
+    """
+    Compare theoretical usage from sales mix against actual usage from inventory.
+
+    Identifies items where counts might be off based on significant variance
+    between what was sold (theoretical) vs what was used (actual).
+
+    Args:
+        features_df: DataFrame with item features including last_week_usage
+        sales_mix_usage: Dict from aggregate_all_usage() with theoretical usage
+        variance_threshold: Percentage threshold to flag as significant (default 10%)
+
+    Returns:
+        List of dicts with variance analysis for items exceeding threshold:
+        - item_id: Inventory item name
+        - theoretical_usage: Expected usage from sales data
+        - actual_usage: Actual usage from inventory
+        - variance: Difference (theoretical - actual)
+        - variance_pct: Percentage variance relative to actual
+        - unit: Unit of measurement (kegs, bottles, oz, etc.)
+        - details: List of calculation details from sales mix
+        - interpretation: Human-readable explanation of what this variance means
+        - severity: 'high', 'medium', or 'low' based on variance percentage
+    """
+    variance_items = []
+
+    # Create lookup for features by item_id
+    features_lookup = features_df.set_index('item_id').to_dict('index')
+
+    for inv_item, data in sales_mix_usage.items():
+        theoretical_usage = data.get('theoretical_usage', 0)
+        unit = data.get('unit', 'units')
+        details = data.get('details', [])
+
+        # Get actual usage from features
+        if inv_item in features_lookup:
+            actual_usage = features_lookup[inv_item].get('last_week_usage')
+
+            # Only analyze if we have valid actual usage
+            if actual_usage is not None and actual_usage > 0:
+                variance = theoretical_usage - actual_usage
+                variance_pct = (variance / actual_usage) * 100
+
+                # Only include items that exceed threshold
+                if abs(variance_pct) >= variance_threshold:
+                    # Determine severity
+                    abs_var_pct = abs(variance_pct)
+                    if abs_var_pct >= 50:
+                        severity = 'high'
+                    elif abs_var_pct >= 25:
+                        severity = 'medium'
+                    else:
+                        severity = 'low'
+
+                    # Generate interpretation
+                    if variance > 0:
+                        # Theoretical > Actual: Should have used more
+                        interpretation = (
+                            f"📉 Used {abs(variance):.1f} {unit} LESS than expected. "
+                            f"Possible causes: Over-counting inventory, theft, waste, spillage, or "
+                            f"drinks not rung up correctly in POS."
+                        )
+                    else:
+                        # Theoretical < Actual: Used more than expected
+                        interpretation = (
+                            f"📈 Used {abs(variance):.1f} {unit} MORE than expected. "
+                            f"Possible causes: Under-counting inventory, over-ringing items, "
+                            f"comps not tracked in POS, or heavy pours."
+                        )
+
+                    variance_items.append({
+                        'item_id': inv_item,
+                        'theoretical_usage': round(theoretical_usage, 2),
+                        'actual_usage': round(actual_usage, 2),
+                        'variance': round(variance, 2),
+                        'variance_pct': round(variance_pct, 1),
+                        'unit': unit,
+                        'details': details,
+                        'interpretation': interpretation,
+                        'severity': severity
+                    })
+
+    # Sort by absolute variance percentage (highest first)
+    variance_items.sort(key=lambda x: abs(x['variance_pct']), reverse=True)
+
+    return variance_items
+
+
 def generate_run_id(dataset: InventoryDataset) -> str:
     """
     Generate a unique run ID based on dataset and timestamp.
@@ -96,6 +188,10 @@ def run_agent(
             - total_kegs, max_order_size (21), kegs_to_add
             - needs_rebalancing, stockout_items, min_weeks_on_hand
             - rebalancing_suggestions (if rebalancing needed)
+        - usage_variance_analysis: List of dicts with theoretical vs actual comparison
+            (only when sales_mix_usage is provided):
+            - item_id, theoretical_usage, actual_usage, variance, variance_pct
+            - unit, details (calculation breakdown), interpretation, severity
         - dataset: The enriched InventoryDataset
         - features: DataFrame with computed features
     """
@@ -233,6 +329,15 @@ def run_agent(
             )
             vendor_keg_info[vendor]['rebalancing_suggestions'] = suggestions
 
+    # Step 7.6: Analyze usage variance if sales mix data is available
+    usage_variance_analysis = []
+    if sales_mix_usage:
+        usage_variance_analysis = analyze_usage_variance(
+            features_df,
+            sales_mix_usage,
+            variance_threshold=10.0
+        )
+
     # Step 8: Generate summary
     summary_stats = generate_order_summary(recommendations_df)
 
@@ -249,6 +354,14 @@ def run_agent(
     for vendor, info in vendor_keg_info.items():
         if info['needs_rebalancing'] and info['kegs_to_add'] > 0:
             summary_text += f" | 🍺 {vendor}: {info['stockout_items']} items need rebalancing (order 21 kegs)"
+
+    # Add variance analysis info to summary
+    if usage_variance_analysis:
+        high_variance_count = sum(1 for item in usage_variance_analysis if item['severity'] == 'high')
+        if high_variance_count > 0:
+            summary_text += f" | 🔍 {len(usage_variance_analysis)} variance alerts ({high_variance_count} high priority)"
+        else:
+            summary_text += f" | 🔍 {len(usage_variance_analysis)} variance alerts"
 
     # Step 9: Save run to storage
     run_id = generate_run_id(dataset)
@@ -267,6 +380,7 @@ def run_agent(
         'summary_stats': summary_stats,
         'items_needing_recount': items_needing_recount,
         'vendor_keg_info': vendor_keg_info,
+        'usage_variance_analysis': usage_variance_analysis,
         'dataset': dataset,
         'features': features_df
     }
