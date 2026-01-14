@@ -25,6 +25,7 @@ import cache_manager
 from policy import OrderTargets
 from agent import run_agent, get_order_by_vendor
 from storage import init_db, save_user_actions
+from policy import distribute_kegs_to_target
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
@@ -682,41 +683,111 @@ if uploaded_files:
             with col4:
                 st.metric("Stockout Risks", stats['stockout_risks'])
 
-            # Vendor keg rebalancing analysis
+            # Vendor keg order optimizer (21-keg discount threshold)
             if results['vendor_keg_info']:
                 st.markdown("---")
-                st.markdown("### 🍺 Keg Order Analysis (21-Keg Rule)")
-                st.info("**21-Keg Rule**: Maximum order size is 21 kegs. When draft items won't make it to next week, order 21 kegs to rebalance inventory levels.")
+                st.markdown("### 🍺 Keg Order Optimizer")
+                st.info("**21-Keg Discount**: Order at least 21 kegs from a vendor to get maximum discount. Use the slider to adjust total kegs and auto-distribute to balance inventory.")
 
                 for vendor, info in results['vendor_keg_info'].items():
                     total_kegs = info.get('total_kegs', 0)
                     if total_kegs > 0:
-                        # Use .get() for defensive programming in case of data structure changes
                         needs_rebalancing = info.get('needs_rebalancing', False)
                         stockout_items = info.get('stockout_items', 0)
                         min_weeks = info.get('min_weeks_on_hand', 0.0)
-                        max_order = info.get('max_order_size', 21)
-                        kegs_to_add = info.get('kegs_to_add', 0)
 
+                        # Status indicator
                         if needs_rebalancing:
-                            st.warning(
-                                f"⚠️ **{vendor}**: {total_kegs} kegs currently ordered | "
-                                f"{stockout_items} items below threshold ({min_weeks:.1f} weeks min) | "
-                                f"**Recommend ordering {max_order} kegs total** (add {kegs_to_add})"
+                            st.warning(f"⚠️ **{vendor}**: {stockout_items} items below 1 week (min: {min_weeks:.1f} weeks)")
+                        else:
+                            st.success(f"✅ **{vendor}**: All items balanced (min: {min_weeks:.1f} weeks)")
+
+                        # Keg slider for this vendor
+                        st.markdown(f"**Adjust total kegs to order for {vendor}:**")
+
+                        col1, col2, col3 = st.columns([3, 1, 1])
+
+                        with col1:
+                            selected_kegs = st.slider(
+                                f"Total kegs for {vendor}",
+                                min_value=0,
+                                max_value=50,
+                                value=max(21, total_kegs) if needs_rebalancing else total_kegs,
+                                step=1,
+                                key=f"{vendor}_keg_slider",
+                                label_visibility="collapsed"
                             )
 
-                            # Show rebalancing suggestions if available
-                            if 'rebalancing_suggestions' in info and info['rebalancing_suggestions']:
-                                with st.expander(f"💡 View rebalancing plan for {vendor}"):
-                                    st.markdown("Distribute additional kegs to bring items to balanced levels:")
-                                    suggestions_df = pd.DataFrame(info['rebalancing_suggestions'])
+                        with col2:
+                            st.metric("Total Kegs", selected_kegs)
+
+                        with col3:
+                            # Discount indicator
+                            if selected_kegs >= 21:
+                                st.success("✅ Discount!")
+                            else:
+                                st.error(f"❌ Need {21 - selected_kegs}")
+
+                        # Show distribution preview if kegs selected
+                        if selected_kegs > 0:
+                            # Add target weeks slider
+                            target_weeks = st.slider(
+                                f"Target weeks on hand for {vendor}",
+                                min_value=2.0,
+                                max_value=6.0,
+                                value=4.0,
+                                step=0.5,
+                                key=f"{vendor}_target_weeks"
+                            )
+
+                            # Calculate distribution
+                            distributed_recs = distribute_kegs_to_target(
+                                results['recommendations'],
+                                vendor,
+                                selected_kegs,
+                                target_weeks
+                            )
+
+                            # Show distribution preview
+                            vendor_draft = distributed_recs[
+                                (distributed_recs['vendor'] == vendor) &
+                                (distributed_recs['category'] == 'Draft Beer')
+                            ].copy()
+
+                            if not vendor_draft.empty:
+                                # Calculate projected weeks after order
+                                vendor_draft['projected_weeks'] = vendor_draft.apply(
+                                    lambda row: (row['on_hand'] + row['recommended_qty']) / row['avg_usage']
+                                    if row['avg_usage'] > 0 else 0,
+                                    axis=1
+                                )
+
+                                with st.expander(f"📋 View distribution plan for {vendor} ({selected_kegs} kegs)"):
                                     st.dataframe(
-                                        suggestions_df,
+                                        vendor_draft[[
+                                            'item_id', 'on_hand', 'avg_usage', 'weeks_on_hand',
+                                            'recommended_qty', 'projected_weeks'
+                                        ]].style.format({
+                                            'on_hand': '{:.1f}',
+                                            'avg_usage': '{:.1f}',
+                                            'weeks_on_hand': '{:.1f}',
+                                            'recommended_qty': '{:.0f}',
+                                            'projected_weeks': '{:.1f}'
+                                        }),
                                         use_container_width=True,
                                         hide_index=True
                                     )
-                        else:
-                            st.success(f"✅ **{vendor}**: {total_kegs} kegs ordered (all items balanced, min {min_weeks:.1f} weeks)")
+
+                                # Apply button to update recommendations
+                                if st.button(f"✅ Apply {selected_kegs}-keg distribution to {vendor}", key=f"apply_{vendor}"):
+                                    # Update the recommendations in session state
+                                    for idx, row in distributed_recs.iterrows():
+                                        results['recommendations'].loc[
+                                            results['recommendations']['item_id'] == row['item_id'],
+                                            'recommended_qty'
+                                        ] = row['recommended_qty']
+                                    st.success(f"✅ Applied {selected_kegs}-keg distribution to {vendor}!")
+                                    st.rerun()
 
             # Items needing recount
             if results['items_needing_recount']:

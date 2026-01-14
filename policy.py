@@ -466,3 +466,93 @@ def get_keg_adjustment_suggestions(
         remaining_kegs -= add_qty
 
     return suggestions
+
+
+def distribute_kegs_to_target(
+    recommendations_df: pd.DataFrame,
+    vendor: str,
+    total_kegs: int,
+    target_weeks: float = 4.0
+) -> pd.DataFrame:
+    """
+    Distribute a fixed number of kegs across draft items to achieve balanced inventory.
+
+    This implements the 21-keg rule: order kegs in 21-keg increments (21, 42, 63, etc.)
+    and distribute them to bring all draft items to a target weeks on hand level.
+
+    Strategy:
+    1. Calculate how many kegs each item needs to reach target_weeks
+    2. Distribute the total_kegs proportionally, prioritizing lowest items
+    3. Return updated recommendations with new quantities
+
+    Args:
+        recommendations_df: DataFrame from recommend_order()
+        vendor: Vendor name (Crescent or Hensley)
+        total_kegs: Total kegs to distribute (should be 21, 42, 63, etc.)
+        target_weeks: Target weeks on hand to achieve (default 4.0)
+
+    Returns:
+        DataFrame with updated recommended_qty for draft items
+    """
+    # Get all draft beer items from this vendor
+    vendor_items = recommendations_df[
+        (recommendations_df['vendor'] == vendor) &
+        (recommendations_df['category'] == 'Draft Beer')
+    ].copy()
+
+    if vendor_items.empty or total_kegs <= 0:
+        return recommendations_df
+
+    # Calculate how many kegs each item needs to reach target
+    vendor_items['kegs_needed'] = 0
+    for idx, row in vendor_items.iterrows():
+        if row['avg_usage'] > 0:
+            target_on_hand = row['avg_usage'] * target_weeks
+            current_on_hand = row['on_hand']
+            gap = target_on_hand - current_on_hand
+            kegs_needed = max(0, math.ceil(gap))
+            vendor_items.at[idx, 'kegs_needed'] = kegs_needed
+        else:
+            vendor_items.at[idx, 'kegs_needed'] = 0
+
+    total_needed = vendor_items['kegs_needed'].sum()
+
+    # Distribute kegs
+    remaining_kegs = total_kegs
+    vendor_items['distributed_qty'] = 0
+
+    if total_needed == 0:
+        # No items need kegs, distribute evenly
+        kegs_per_item = total_kegs // len(vendor_items)
+        vendor_items['distributed_qty'] = kegs_per_item
+        remaining_kegs = total_kegs % len(vendor_items)
+    else:
+        # Sort by weeks_on_hand ascending (prioritize lowest)
+        vendor_items = vendor_items.sort_values('weeks_on_hand', ascending=True)
+
+        # First pass: give each item what it needs (up to available)
+        for idx, row in vendor_items.iterrows():
+            if remaining_kegs <= 0:
+                break
+
+            needed = int(row['kegs_needed'])
+            allocated = min(needed, remaining_kegs)
+            vendor_items.at[idx, 'distributed_qty'] = allocated
+            remaining_kegs -= allocated
+
+        # Second pass: distribute any remaining kegs to lowest items
+        if remaining_kegs > 0:
+            for idx, row in vendor_items.iterrows():
+                if remaining_kegs <= 0:
+                    break
+                vendor_items.at[idx, 'distributed_qty'] += 1
+                remaining_kegs -= 1
+
+    # Update the main recommendations DataFrame
+    result_df = recommendations_df.copy()
+    for idx, row in vendor_items.iterrows():
+        item_id = row['item_id']
+        new_qty = int(row['distributed_qty'])
+        result_df.loc[result_df['item_id'] == item_id, 'recommended_qty'] = new_qty
+
+    return result_df
