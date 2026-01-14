@@ -393,6 +393,14 @@ def calculate_wine_usage(sales_df):
     results = {}
     unmatched = []
 
+    # House wines come in 1.5L bottles, others in 750ml
+    HOUSE_WINES = [
+        "WINE Salmon Creek Cab",
+        "WINE Salmon Creek Chard",
+        "WINE Salmon Creek Merlot",
+        "WINE Salmon Creek White Zin"
+    ]
+
     wine_sales = sales_df[sales_df['Category'] == 'Wine'].copy()
 
     for _, row in wine_sales.iterrows():
@@ -409,7 +417,10 @@ def calculate_wine_usage(sales_df):
                 if inv_item not in results:
                     results[inv_item] = {'oz': 0, 'bottles': 0, 'items': []}
                 results[inv_item]['oz'] += total_oz
-                results[inv_item]['bottles'] = results[inv_item]['oz'] / WINE_BOTTLE_OZ
+
+                # Use 1.5L for house wines, 750ml for others
+                bottle_size = WINE_BOTTLE_MAGNUM_OZ if inv_item in HOUSE_WINES else WINE_BOTTLE_OZ
+                results[inv_item]['bottles'] = results[inv_item]['oz'] / bottle_size
                 results[inv_item]['items'].append(f"{item_name}: {qty} × {pour_oz}oz")
                 matched = True
                 break
