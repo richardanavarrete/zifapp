@@ -25,7 +25,7 @@ import cache_manager
 from policy import OrderTargets
 from agent import run_agent, get_order_by_vendor
 from storage import init_db, save_user_actions
-from policy import distribute_kegs_to_target, calculate_kegs_needed_for_target_weeks, calculate_projected_weeks_from_kegs
+from policy import distribute_kegs_to_target, calculate_kegs_needed_for_target_weeks
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
@@ -723,30 +723,31 @@ if uploaded_files:
                         else:
                             st.success(f"✅ **{vendor}**: All items balanced (min: {min_weeks:.1f} weeks)")
 
-                        # Keg slider for this vendor
-                        st.markdown(f"**Adjust total kegs to order for {vendor}:**")
-
-                        # Initialize session state for this vendor if not exists
-                        if f"{vendor}_last_keg_value" not in st.session_state:
-                            st.session_state[f"{vendor}_last_keg_value"] = max(21, total_kegs) if needs_rebalancing else total_kegs
-                        if f"{vendor}_last_weeks_value" not in st.session_state:
-                            st.session_state[f"{vendor}_last_weeks_value"] = 4.0
+                        # Weeks slider for this vendor
+                        st.markdown(f"**Adjust weeks on hand for {vendor}:**")
 
                         col1, col2, col3 = st.columns([3, 1, 1])
 
                         with col1:
-                            selected_kegs = st.slider(
-                                f"Total kegs for {vendor}",
-                                min_value=0,
-                                max_value=50,
-                                value=st.session_state[f"{vendor}_last_keg_value"],
-                                step=1,
-                                key=f"{vendor}_keg_slider",
+                            target_weeks = st.slider(
+                                f"Target weeks on hand for {vendor}",
+                                min_value=1.0,
+                                max_value=8.0,
+                                value=4.0,
+                                step=0.1,
+                                key=f"{vendor}_weeks_slider",
                                 label_visibility="collapsed"
                             )
 
+                        # Calculate how many kegs this equals
+                        selected_kegs = calculate_kegs_needed_for_target_weeks(
+                            results['recommendations'],
+                            vendor,
+                            target_weeks
+                        )
+
                         with col2:
-                            st.metric("Total Kegs", selected_kegs)
+                            st.metric("Kegs Needed", selected_kegs)
 
                         with col3:
                             # Discount indicator
@@ -755,51 +756,8 @@ if uploaded_files:
                             else:
                                 st.error(f"❌ Need {21 - selected_kegs}")
 
-                        # Show distribution preview if kegs selected
+                        # Calculate distribution if kegs needed
                         if selected_kegs > 0:
-                            # Add target weeks slider
-                            target_weeks = st.slider(
-                                f"Target weeks on hand for {vendor}",
-                                min_value=2.0,
-                                max_value=6.0,
-                                value=st.session_state[f"{vendor}_last_weeks_value"],
-                                step=0.5,
-                                key=f"{vendor}_target_weeks"
-                            )
-
-                            # Connect sliders: update the other slider based on which one changed
-                            keg_changed = selected_kegs != st.session_state[f"{vendor}_last_keg_value"]
-                            weeks_changed = target_weeks != st.session_state[f"{vendor}_last_weeks_value"]
-
-                            if keg_changed and not weeks_changed:
-                                # Keg slider was moved, update weeks
-                                projected_weeks = calculate_projected_weeks_from_kegs(
-                                    results['recommendations'],
-                                    vendor,
-                                    selected_kegs
-                                )
-                                st.session_state[f"{vendor}_last_keg_value"] = selected_kegs
-                                new_weeks = min(6.0, max(2.0, round(projected_weeks * 2) / 2))  # Round to nearest 0.5
-                                if new_weeks != st.session_state[f"{vendor}_last_weeks_value"]:
-                                    st.session_state[f"{vendor}_last_weeks_value"] = new_weeks
-                                    st.rerun()
-                            elif weeks_changed and not keg_changed:
-                                # Weeks slider was moved, update kegs
-                                needed_kegs = calculate_kegs_needed_for_target_weeks(
-                                    results['recommendations'],
-                                    vendor,
-                                    target_weeks
-                                )
-                                st.session_state[f"{vendor}_last_weeks_value"] = target_weeks
-                                new_kegs = min(50, needed_kegs)
-                                if new_kegs != st.session_state[f"{vendor}_last_keg_value"]:
-                                    st.session_state[f"{vendor}_last_keg_value"] = new_kegs
-                                    st.rerun()
-                            elif not keg_changed and not weeks_changed:
-                                # Neither changed (initial render or other update), just sync state
-                                st.session_state[f"{vendor}_last_keg_value"] = selected_kegs
-                                st.session_state[f"{vendor}_last_weeks_value"] = target_weeks
-
                             # Calculate distribution
                             distributed_recs = distribute_kegs_to_target(
                                 results['recommendations'],
