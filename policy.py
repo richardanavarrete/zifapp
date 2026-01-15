@@ -468,6 +468,88 @@ def get_keg_adjustment_suggestions(
     return suggestions
 
 
+def calculate_kegs_needed_for_target_weeks(
+    recommendations_df: pd.DataFrame,
+    vendor: str,
+    target_weeks: float
+) -> int:
+    """
+    Calculate how many kegs are needed to bring all items to target weeks on hand.
+
+    Args:
+        recommendations_df: DataFrame from recommend_order()
+        vendor: Vendor name (Crescent or Hensley)
+        target_weeks: Target weeks on hand to achieve
+
+    Returns:
+        Total number of kegs needed
+    """
+    vendor_items = recommendations_df[
+        (recommendations_df['vendor'] == vendor) &
+        (recommendations_df['category'] == 'Draft Beer')
+    ].copy()
+
+    if vendor_items.empty:
+        return 0
+
+    total_kegs = 0
+    for _, row in vendor_items.iterrows():
+        if row['avg_usage'] > 0:
+            target_on_hand = row['avg_usage'] * target_weeks
+            current_on_hand = row['on_hand']
+            gap = target_on_hand - current_on_hand
+            kegs_needed = max(0, math.ceil(gap))
+            total_kegs += kegs_needed
+
+    return total_kegs
+
+
+def calculate_projected_weeks_from_kegs(
+    recommendations_df: pd.DataFrame,
+    vendor: str,
+    total_kegs: int
+) -> float:
+    """
+    Calculate the minimum weeks on hand that will result from distributing kegs evenly.
+
+    Args:
+        recommendations_df: DataFrame from recommend_order()
+        vendor: Vendor name (Crescent or Hensley)
+        total_kegs: Total kegs to distribute
+
+    Returns:
+        Minimum projected weeks on hand across all items
+    """
+    vendor_items = recommendations_df[
+        (recommendations_df['vendor'] == vendor) &
+        (recommendations_df['category'] == 'Draft Beer') &
+        (recommendations_df['avg_usage'] > 0)
+    ].copy()
+
+    if vendor_items.empty or total_kegs <= 0:
+        return 0.0
+
+    # Simulate distribution
+    vendor_items['distributed_qty'] = 0
+
+    for _ in range(total_kegs):
+        vendor_items['projected_on_hand'] = (
+            vendor_items['on_hand'] + vendor_items['distributed_qty']
+        )
+        vendor_items['projected_weeks'] = (
+            vendor_items['projected_on_hand'] / vendor_items['avg_usage']
+        )
+        min_idx = vendor_items['projected_weeks'].idxmin()
+        vendor_items.at[min_idx, 'distributed_qty'] += 1
+
+    # Calculate final projected weeks
+    vendor_items['final_weeks'] = (
+        (vendor_items['on_hand'] + vendor_items['distributed_qty']) / vendor_items['avg_usage']
+    )
+
+    return float(vendor_items['final_weeks'].min())
+
+
 def distribute_kegs_to_target(
     recommendations_df: pd.DataFrame,
     vendor: str,
