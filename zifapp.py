@@ -28,8 +28,8 @@ from storage import init_db, save_user_actions
 from policy import distribute_kegs_to_target, calculate_kegs_needed_for_target_weeks
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
-st.set_page_config(page_title="Bev Usage Analyzer", layout="wide")
-st.title("🍺 Bev Usage Analyzer")
+st.set_page_config(page_title="COGHound: sniffing out savings!", layout="wide")
+st.title("🐕 COGHound: sniffing out savings!")
 
 # --- Caching the data processing ---
 @st.cache_data
