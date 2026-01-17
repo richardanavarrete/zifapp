@@ -201,12 +201,14 @@ class VoiceItemMatcher:
         - "titos 5"
         - "3 miller lite"
         - "bourbon barrel two point five"
+        - "buffalo trace 850 grams" (weight-based)
+        - "bud light keg 65 pounds" (keg weight)
 
         Args:
             transcript: Voice transcript
 
         Returns:
-            Tuple of (item_text, count_value)
+            Tuple of (item_text, count_value, is_weight, weight_unit)
         """
         # Number word to digit mapping
         number_words = {
@@ -226,15 +228,33 @@ class VoiceItemMatcher:
 
         transcript_lower = transcript.lower().strip()
 
+        # Check for weight-based input (grams or pounds)
+        # Pattern: "item name 850 grams" or "item 65 pounds"
+        weight_match = re.search(r'(.+?)\s+(\d+(?:\.\d+)?)\s*(grams?|g|pounds?|lbs?|lb)\s*$', transcript_lower)
+        if weight_match:
+            item_text = weight_match.group(1).strip()
+            weight_value = float(weight_match.group(2))
+            weight_unit = weight_match.group(3)
+
+            # Normalize unit
+            if weight_unit in ['grams', 'gram', 'g']:
+                normalized_unit = 'grams'
+            else:
+                normalized_unit = 'pounds'
+
+            # Return as special format: (item_text, weight_value, weight_unit)
+            # The caller will need to handle this differently
+            return (item_text, weight_value, normalized_unit)
+
         # Pattern 1: Number at the end (e.g., "buffalo trace 3")
         match = re.search(r'(.+?)\s+(\d+(?:\.\d+)?)\s*$', transcript_lower)
         if match:
-            return match.group(1).strip(), float(match.group(2))
+            return (match.group(1).strip(), float(match.group(2)), None)
 
         # Pattern 2: Number at the start (e.g., "3 miller lite")
         match = re.search(r'^(\d+(?:\.\d+)?)\s+(.+)$', transcript_lower)
         if match:
-            return match.group(2).strip(), float(match.group(1))
+            return (match.group(2).strip(), float(match.group(1)), None)
 
         # Pattern 3: Number word at the end (e.g., "buffalo trace three")
         words = transcript_lower.split()
@@ -242,7 +262,7 @@ class VoiceItemMatcher:
             last_word = words[-1]
             if last_word in number_words:
                 item_text = ' '.join(words[:-1])
-                return item_text, float(number_words[last_word])
+                return (item_text, float(number_words[last_word]), None)
 
             # Check for "point" pattern (e.g., "two point five")
             if len(words) >= 3 and words[-2] == 'point':
@@ -250,39 +270,41 @@ class VoiceItemMatcher:
                 if second_last in number_words and last_word in number_words:
                     count = number_words[second_last] + (number_words[last_word] / 10.0)
                     item_text = ' '.join(words[:-3])
-                    return item_text, count
+                    return (item_text, count, None)
 
         # Pattern 4: Number word at the start (e.g., "three buffalo trace")
         if words and words[0] in number_words:
             item_text = ' '.join(words[1:])
-            return item_text, float(number_words[words[0]])
+            return (item_text, float(number_words[words[0]]), None)
 
         # Pattern 5: Fraction words (e.g., "buffalo trace half")
         if words and words[-1] in fraction_words:
             item_text = ' '.join(words[:-1])
-            return item_text, fraction_words[words[-1]]
+            return (item_text, fraction_words[words[-1]], None)
 
         # No count found, return transcript as item text with no count
-        return transcript, None
+        return (transcript, None, None)
 
-    def match_with_count(self, transcript: str, top_n: int = 3) -> Tuple[List[MatchResult], Optional[float]]:
+    def match_with_count(self, transcript: str, top_n: int = 3) -> Tuple[List[MatchResult], Optional[float], Optional[str]]:
         """
         Parse and match a transcript that includes both item name and count.
 
         Args:
-            transcript: Voice transcript (e.g., "buffalo trace 3")
+            transcript: Voice transcript (e.g., "buffalo trace 3" or "buffalo trace 850 grams")
             top_n: Number of top matches to return
 
         Returns:
-            Tuple of (match_results, count_value)
+            Tuple of (match_results, count_value, weight_unit)
+            - weight_unit is "grams" or "pounds" if weight was detected, None otherwise
         """
-        # First, try to parse out the count
-        item_text, count_value = self.parse_count_from_transcript(transcript)
+        # First, try to parse out the count/weight
+        parse_result = self.parse_count_from_transcript(transcript)
+        item_text, count_value, weight_unit = parse_result
 
         # Then match the item text
         matches = self.match(item_text, top_n=top_n)
 
-        return matches, count_value
+        return matches, count_value, weight_unit
 
     def get_confidence_level(self, confidence: float) -> str:
         """

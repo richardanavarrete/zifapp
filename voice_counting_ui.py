@@ -157,10 +157,11 @@ def render_voice_counting_tab(dataset, inventory_layout=None):
 
     # Voice/Text Input Section
     st.markdown("### 🎤 Count Items")
+    st.info("💡 **Tip**: You can also input weights! Say \"Buffalo Trace 850 grams\" or \"Keg 65 pounds\"")
 
     input_method = st.radio(
         "Input Method",
-        ["💬 Manual Entry", "🎤 Voice Recording (Browser)", "📁 Upload Audio File", "⚖️ Weigh Bottle/Keg", "📷 Photo Count"],
+        ["💬 Manual Entry", "🎤 Voice Recording (Browser)", "📁 Upload Audio File", "📷 Photo Count"],
         horizontal=True
     )
 
@@ -170,8 +171,6 @@ def render_voice_counting_tab(dataset, inventory_layout=None):
         render_browser_voice_input(session, dataset)
     elif input_method == "📁 Upload Audio File":
         render_audio_file_input(session, dataset)
-    elif input_method == "⚖️ Weigh Bottle/Keg":
-        render_weight_input(session, dataset)
     elif input_method == "📷 Photo Count":
         render_photo_counting(session, dataset)
 
@@ -272,8 +271,13 @@ def process_transcript(session, transcript, dataset):
     """Process a transcript and add to session."""
     matcher = st.session_state.voice_matcher
 
-    # Parse item name and count
-    matches, count_value = matcher.match_with_count(transcript)
+    # Parse item name, count, and optional weight unit
+    matches, count_value, weight_unit = matcher.match_with_count(transcript)
+
+    # If weight was detected, we need to calculate fill percentage
+    is_weight_input = weight_unit is not None
+    actual_count = count_value
+    notes = None
 
     if not matches:
         # No match found
@@ -287,7 +291,8 @@ def process_transcript(session, transcript, dataset):
             count_value=count_value,
             confidence_score=0.0,
             match_method="manual",
-            is_verified=False
+            is_verified=False,
+            notes=f"Weight: {count_value} {weight_unit}" if is_weight_input else None
         )
         session.add_record(record)
         st.warning(f"⚠️ No match found for: '{transcript}'. Added to log for manual review.")
@@ -295,6 +300,12 @@ def process_transcript(session, transcript, dataset):
         # Show top match for confirmation
         top_match = matches[0]
         item = dataset.items[top_match.item_id]
+
+        # If weight input, calculate fill percentage
+        if is_weight_input:
+            fill_pct = item.calculate_fill_from_weight(count_value, input_unit=weight_unit)
+            actual_count = fill_pct
+            notes = f"{count_value} {weight_unit} = {fill_pct:.0%} full"
 
         # Auto-verify high confidence matches
         if top_match.confidence >= 0.85:
@@ -305,19 +316,26 @@ def process_transcript(session, transcript, dataset):
                 raw_transcript=transcript,
                 cleaned_transcript=transcript,
                 matched_item_id=top_match.item_id,
-                count_value=count_value,
-                confidence_score=top_match.confidence,
-                match_method=top_match.method,
-                is_verified=True
+                count_value=actual_count,
+                confidence_score=1.0 if is_weight_input else top_match.confidence,  # Weight is precise
+                match_method="weight" if is_weight_input else top_match.method,
+                is_verified=True,
+                notes=notes
             )
             session.add_record(record)
-            st.success(f"✓ Matched: {item.display_name} - Count: {count_value} (Confidence: {top_match.confidence:.0%})")
+
+            if is_weight_input:
+                st.success(f"⚖️ Weighed: {item.display_name} = {actual_count:.2f} bottles ({count_value} {weight_unit})")
+            else:
+                st.success(f"✓ Matched: {item.display_name} - Count: {count_value} (Confidence: {top_match.confidence:.0%})")
         else:
             # Show confirmation dialog for lower confidence
             st.session_state.pending_match = {
                 'transcript': transcript,
                 'matches': matches,
-                'count_value': count_value
+                'count_value': actual_count,
+                'weight_unit': weight_unit,
+                'notes': notes
             }
 
 
@@ -471,151 +489,31 @@ def rematch_all_records(session, dataset):
 
     for record in session.records:
         if not record.matched_item_id:  # Only re-match unmatched records
-            matches, count_value = matcher.match_with_count(record.raw_transcript)
+            matches, count_value, weight_unit = matcher.match_with_count(record.raw_transcript)
             if matches:
                 top_match = matches[0]
+                item = dataset.items[top_match.item_id]
+
+                # Check if this is a weight input
+                if weight_unit and count_value is not None:
+                    fill_pct = item.calculate_fill_from_weight(count_value, input_unit=weight_unit)
+                    record.count_value = fill_pct
+                    record.match_method = "weight"
+                    record.confidence_score = 1.0
+                    record.notes = f"{count_value} {weight_unit} = {fill_pct:.0%} full"
+                else:
+                    record.match_method = top_match.method
+                    record.confidence_score = top_match.confidence
+                    if count_value is not None:
+                        record.count_value = count_value
+
                 record.matched_item_id = top_match.item_id
-                record.confidence_score = top_match.confidence
-                record.match_method = top_match.method
-                if count_value is not None:
-                    record.count_value = count_value
+
                 # Auto-verify high confidence
-                if top_match.confidence >= 0.85:
+                if record.confidence_score >= 0.85:
                     record.is_verified = True
 
     session.updated_at = datetime.now()
-
-
-def render_weight_input(session, dataset):
-    """Render weight-based counting interface."""
-    from bottle_weights import format_weight_display, get_weight_ranges
-
-    st.markdown("### ⚖️ Weigh Bottle/Keg")
-    st.info("📏 Place item on scale and read weight. **Bottles in grams, kegs in pounds.**")
-
-    # Initialize session state for weight workflow
-    if 'weight_selected_item_id' not in st.session_state:
-        st.session_state.weight_selected_item_id = None
-
-    # Step 1: Search and select item
-    st.markdown("**Step 1: What item are you weighing?**")
-
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        item_search = st.text_input(
-            "Item name",
-            placeholder="Type item name or use voice...",
-            key="weight_item_search"
-        )
-
-    # Show fuzzy matches
-    if item_search:
-        matcher = st.session_state.voice_matcher
-        matches = matcher.match(item_search, top_n=5)
-
-        if matches:
-            st.markdown("**Select item:**")
-            for match in matches:
-                item = dataset.items[match.item_id]
-                col_a, col_b, col_c = st.columns([3, 1, 1])
-                with col_a:
-                    if st.button(
-                        f"{item.display_name}",
-                        key=f"weight_select_{match.item_id}",
-                        use_container_width=True
-                    ):
-                        st.session_state.weight_selected_item_id = match.item_id
-                        st.rerun()
-                with col_b:
-                    st.caption(f"{match.confidence:.0%}")
-                with col_c:
-                    unit_type = "Keg" if item.is_keg() else "Bottle"
-                    st.caption(unit_type)
-
-    # Step 2: Input weight
-    if st.session_state.weight_selected_item_id:
-        item = dataset.items[st.session_state.weight_selected_item_id]
-
-        st.markdown("---")
-        st.success(f"✓ Selected: **{item.display_name}**")
-
-        # Determine if keg or bottle
-        is_keg_item = item.is_keg()
-        weight_unit = "pounds" if is_keg_item else "grams"
-        weight_label = "Weight (pounds)" if is_keg_item else "Weight (grams)"
-
-        # Get expected weight range
-        ranges = get_weight_ranges(item.unit_of_measure or "Bottle")
-        min_weight, max_weight = ranges['pounds'] if is_keg_item else ranges['grams']
-
-        st.markdown(f"**Step 2: Place on scale and read weight in {weight_unit}:**")
-        st.caption(f"Expected range: {min_weight:.0f} - {max_weight:.0f} {weight_unit}")
-
-        weight_input = st.number_input(
-            weight_label,
-            min_value=0.0,
-            max_value=max_weight * 2,
-            step=10.0 if not is_keg_item else 1.0,
-            format="%.1f" if is_keg_item else "%.0f",
-            key="weight_input_value"
-        )
-
-        # Calculate fill level
-        if weight_input > 0:
-            fill_pct = item.calculate_fill_from_weight(
-                weight_input,
-                input_unit=weight_unit
-            )
-
-            st.markdown("---")
-            st.markdown("**Fill Level:**")
-
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Percentage", f"{fill_pct:.0%}")
-            with col2:
-                st.metric("Bottle Count", f"{fill_pct:.2f}")
-
-            # Visual progress bar
-            if fill_pct > 0.5:
-                progress_color = "🟢"
-            elif fill_pct > 0.25:
-                progress_color = "🟡"
-            else:
-                progress_color = "🔴"
-
-            st.progress(fill_pct)
-            st.caption(f"{progress_color} {weight_input} {weight_unit} = {fill_pct:.0%} full")
-
-            # Validation warnings
-            if weight_input < min_weight * 0.8 or weight_input > max_weight * 1.2:
-                st.warning(f"⚠️ Weight outside expected range. Please verify reading.")
-
-            # Add to session button
-            if st.button("✓ Add to Session", type="primary", use_container_width=True):
-                record = VoiceCountRecord(
-                    record_id=str(uuid.uuid4()),
-                    session_id=session.session_id,
-                    timestamp=datetime.now(),
-                    raw_transcript=f"Weighed: {weight_input} {weight_unit}",
-                    matched_item_id=item.item_id,
-                    count_value=fill_pct,
-                    confidence_score=1.0,  # Weight is precise
-                    match_method="weight",
-                    is_verified=True,
-                    notes=f"{weight_input} {weight_unit} = {fill_pct:.0%} full"
-                )
-                session.add_record(record)
-                st.session_state.weight_selected_item_id = None
-                storage.save_voice_count_session(session)
-                st.success(f"✓ Added {fill_pct:.2f} bottles of {item.display_name}")
-                st.rerun()
-
-    # Clear selection button
-    if st.session_state.weight_selected_item_id:
-        if st.button("← Start Over", key="weight_clear"):
-            st.session_state.weight_selected_item_id = None
-            st.rerun()
 
 
 def render_photo_counting(session, dataset):
