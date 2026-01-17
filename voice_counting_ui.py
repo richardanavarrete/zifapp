@@ -489,22 +489,38 @@ def transcribe_audio_bytes(audio_bytes):
 
     try:
         import io
-        from pydub import AudioSegment
 
-        # Convert bytes to AudioSegment
-        audio = AudioSegment.from_file(io.BytesIO(audio_bytes))
-
-        # Export as WAV for speech recognition
-        wav_io = io.BytesIO()
-        audio.export(wav_io, format='wav')
-        wav_io.seek(0)
-
-        # Recognize speech
         recognizer = sr.Recognizer()
-        with sr.AudioFile(wav_io) as source:
-            audio_data = recognizer.record(source)
-            text = recognizer.recognize_google(audio_data)
-            return text
+
+        # The audio-recorder-streamlit outputs WAV format by default
+        # Try direct recognition first (no conversion needed)
+        try:
+            with sr.AudioFile(io.BytesIO(audio_bytes)) as source:
+                audio_data = recognizer.record(source)
+                text = recognizer.recognize_google(audio_data)
+                return text
+        except Exception as direct_error:
+            # If direct recognition fails, try with pydub conversion
+            try:
+                from pydub import AudioSegment
+
+                # Convert bytes to AudioSegment
+                audio = AudioSegment.from_file(io.BytesIO(audio_bytes))
+
+                # Export as WAV for speech recognition
+                wav_io = io.BytesIO()
+                audio.export(wav_io, format='wav')
+                wav_io.seek(0)
+
+                # Recognize speech
+                with sr.AudioFile(wav_io) as source:
+                    audio_data = recognizer.record(source)
+                    text = recognizer.recognize_google(audio_data)
+                    return text
+            except Exception as conversion_error:
+                st.error(f"Could not transcribe audio. FFmpeg may not be installed. Error: {conversion_error}")
+                st.info("💡 Tip: Use Manual Entry mode as a fallback, or check that FFmpeg is installed.")
+                return None
     except Exception as e:
         st.error(f"Transcription error: {e}")
         return None
@@ -516,14 +532,39 @@ def transcribe_audio_file(audio_file):
         return None
 
     try:
+        import io
         recognizer = sr.Recognizer()
 
         # Read audio file
         audio_file.seek(0)
-        with sr.AudioFile(audio_file) as source:
-            audio_data = recognizer.record(source)
-            text = recognizer.recognize_google(audio_data)
-            return text
+        audio_bytes = audio_file.read()
+
+        # Try direct recognition first
+        try:
+            audio_file.seek(0)
+            with sr.AudioFile(audio_file) as source:
+                audio_data = recognizer.record(source)
+                text = recognizer.recognize_google(audio_data)
+                return text
+        except Exception as direct_error:
+            # If direct recognition fails, try with pydub conversion
+            try:
+                from pydub import AudioSegment
+
+                # Convert to WAV format
+                audio = AudioSegment.from_file(io.BytesIO(audio_bytes))
+                wav_io = io.BytesIO()
+                audio.export(wav_io, format='wav')
+                wav_io.seek(0)
+
+                with sr.AudioFile(wav_io) as source:
+                    audio_data = recognizer.record(source)
+                    text = recognizer.recognize_google(audio_data)
+                    return text
+            except Exception as conversion_error:
+                st.error(f"Could not transcribe audio file. FFmpeg may not be installed. Error: {conversion_error}")
+                st.info("💡 Tip: Try using WAV format, or use Manual Entry mode as a fallback.")
+                return None
     except Exception as e:
         st.error(f"Transcription error: {e}")
         return None
