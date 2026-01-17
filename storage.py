@@ -93,6 +93,50 @@ def init_db():
             )
         """)
 
+        # Voice count sessions table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS voice_count_sessions (
+                session_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                session_name TEXT NOT NULL,
+                status TEXT NOT NULL,
+                total_items_counted INTEGER DEFAULT 0,
+                inventory_order_json TEXT,
+                template_file_name TEXT
+            )
+        """)
+
+        # Voice count records table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS voice_count_records (
+                record_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                raw_transcript TEXT NOT NULL,
+                cleaned_transcript TEXT,
+                matched_item_id TEXT,
+                count_value REAL,
+                confidence_score REAL NOT NULL,
+                match_method TEXT NOT NULL,
+                is_verified INTEGER DEFAULT 0,
+                location TEXT,
+                notes TEXT,
+                FOREIGN KEY (session_id) REFERENCES voice_count_sessions(session_id)
+            )
+        """)
+
+        # Create indices for voice count tables
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_voice_records_session
+            ON voice_count_records(session_id)
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_voice_records_item
+            ON voice_count_records(matched_item_id)
+        """)
+
         conn.commit()
 
 
@@ -364,3 +408,226 @@ def get_item_history(item_id: str, limit: int = 10) -> Dict:
             'recommendations': recs_df,
             'actions': actions_df
         }
+
+
+# ============================================================================
+# Voice Count Session Management
+# ============================================================================
+
+def save_voice_count_session(session) -> bool:
+    """
+    Save or update a voice count session.
+
+    Args:
+        session: VoiceCountSession object
+
+    Returns:
+        True if successful
+    """
+    from models import VoiceCountSession  # Import here to avoid circular dependency
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # Check if session exists
+        cursor.execute("SELECT session_id FROM voice_count_sessions WHERE session_id = ?", (session.session_id,))
+        existing = cursor.fetchone()
+
+        inventory_order_json = json.dumps(session.inventory_order) if session.inventory_order else None
+
+        if existing:
+            # Update existing session
+            cursor.execute("""
+                UPDATE voice_count_sessions
+                SET updated_at = ?, session_name = ?, status = ?,
+                    total_items_counted = ?, inventory_order_json = ?, template_file_name = ?
+                WHERE session_id = ?
+            """, (
+                session.updated_at.isoformat(),
+                session.session_name,
+                session.status,
+                session.total_items_counted,
+                inventory_order_json,
+                session.template_file_name,
+                session.session_id
+            ))
+        else:
+            # Insert new session
+            cursor.execute("""
+                INSERT INTO voice_count_sessions (
+                    session_id, created_at, updated_at, session_name,
+                    status, total_items_counted, inventory_order_json, template_file_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                session.session_id,
+                session.created_at.isoformat(),
+                session.updated_at.isoformat(),
+                session.session_name,
+                session.status,
+                session.total_items_counted,
+                inventory_order_json,
+                session.template_file_name
+            ))
+
+        # Save all records for this session
+        # First delete existing records to avoid duplicates
+        cursor.execute("DELETE FROM voice_count_records WHERE session_id = ?", (session.session_id,))
+
+        # Then insert all current records
+        for record in session.records:
+            cursor.execute("""
+                INSERT INTO voice_count_records (
+                    record_id, session_id, timestamp, raw_transcript,
+                    cleaned_transcript, matched_item_id, count_value,
+                    confidence_score, match_method, is_verified, location, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                record.record_id,
+                record.session_id,
+                record.timestamp.isoformat(),
+                record.raw_transcript,
+                record.cleaned_transcript,
+                record.matched_item_id,
+                record.count_value,
+                record.confidence_score,
+                record.match_method,
+                1 if record.is_verified else 0,
+                record.location,
+                record.notes
+            ))
+
+        conn.commit()
+        return True
+
+
+def load_voice_count_session(session_id: str):
+    """
+    Load a voice count session from the database.
+
+    Args:
+        session_id: The session ID to load
+
+    Returns:
+        VoiceCountSession object or None if not found
+    """
+    from models import VoiceCountSession, VoiceCountRecord  # Import here to avoid circular dependency
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # Load session
+        cursor.execute("SELECT * FROM voice_count_sessions WHERE session_id = ?", (session_id,))
+        session_row = cursor.fetchone()
+
+        if not session_row:
+            return None
+
+        # Parse inventory order
+        inventory_order = json.loads(session_row[6]) if session_row[6] else []
+
+        # Load records
+        cursor.execute("SELECT * FROM voice_count_records WHERE session_id = ? ORDER BY timestamp", (session_id,))
+        record_rows = cursor.fetchall()
+
+        records = []
+        for row in record_rows:
+            records.append(VoiceCountRecord(
+                record_id=row[0],
+                session_id=row[1],
+                timestamp=datetime.fromisoformat(row[2]),
+                raw_transcript=row[3],
+                cleaned_transcript=row[4],
+                matched_item_id=row[5],
+                count_value=row[6],
+                confidence_score=row[7],
+                match_method=row[8],
+                is_verified=bool(row[9]),
+                location=row[10],
+                notes=row[11]
+            ))
+
+        return VoiceCountSession(
+            session_id=session_row[0],
+            created_at=datetime.fromisoformat(session_row[1]),
+            updated_at=datetime.fromisoformat(session_row[2]),
+            session_name=session_row[3],
+            status=session_row[4],
+            total_items_counted=session_row[5],
+            records=records,
+            inventory_order=inventory_order,
+            template_file_name=session_row[7]
+        )
+
+
+def list_voice_count_sessions(limit: int = 50) -> List[Dict]:
+    """
+    List all voice count sessions.
+
+    Args:
+        limit: Maximum number of sessions to return
+
+    Returns:
+        List of session summary dicts
+    """
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT session_id, created_at, updated_at, session_name, status, total_items_counted
+            FROM voice_count_sessions
+            ORDER BY updated_at DESC
+            LIMIT ?
+        """, (limit,))
+
+        sessions = []
+        for row in cursor.fetchall():
+            sessions.append({
+                'session_id': row[0],
+                'created_at': row[1],
+                'updated_at': row[2],
+                'session_name': row[3],
+                'status': row[4],
+                'total_items_counted': row[5]
+            })
+
+        return sessions
+
+
+def delete_voice_count_session(session_id: str) -> bool:
+    """
+    Delete a voice count session and all its records.
+
+    Args:
+        session_id: The session to delete
+
+    Returns:
+        True if successful
+    """
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # Delete records first (foreign key constraint)
+        cursor.execute("DELETE FROM voice_count_records WHERE session_id = ?", (session_id,))
+
+        # Delete session
+        cursor.execute("DELETE FROM voice_count_sessions WHERE session_id = ?", (session_id,))
+
+        conn.commit()
+        return True
+
+
+def get_voice_count_records(session_id: str) -> List[Dict]:
+    """
+    Get all records for a specific voice count session.
+
+    Args:
+        session_id: The session ID
+
+    Returns:
+        List of record dicts
+    """
+    with get_db() as conn:
+        return pd.read_sql_query(
+            "SELECT * FROM voice_count_records WHERE session_id = ? ORDER BY timestamp",
+            conn,
+            params=(session_id,)
+        ).to_dict('records')
