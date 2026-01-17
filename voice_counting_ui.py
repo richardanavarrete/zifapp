@@ -656,6 +656,11 @@ def render_photo_counting(session, dataset):
         # Load image
         image = Image.open(photo)
 
+        # Convert to RGB mode to ensure compatibility with canvas
+        # (some images may be in RGBA, palette mode, etc.)
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+
         # Resize image if it's too large (for better display)
         max_width = 800
         max_height = 600
@@ -672,12 +677,27 @@ def render_photo_counting(session, dataset):
 
         st.session_state.photo_image = image
 
+        # Clear previous bottle annotations if new photo is taken
+        if 'last_photo_hash' not in st.session_state or st.session_state.last_photo_hash != hash(photo.getvalue()):
+            st.session_state.photo_bottles = []
+            st.session_state.last_photo_hash = hash(photo.getvalue())
+
+        # Clear photo button
+        col_left, col_right = st.columns([3, 1])
+        with col_right:
+            if st.button("❌ Clear photo", use_container_width=True):
+                st.session_state.photo_image = None
+                st.session_state.photo_bottles = []
+                if 'last_photo_hash' in st.session_state:
+                    del st.session_state.last_photo_hash
+                st.rerun()
+
         st.markdown("---")
         st.markdown("**Step 2: Tap each bottle on the image**")
         st.caption("Click/tap bottles to mark them. Each click adds a numbered marker.")
 
-        # Show image preview
-        st.image(image, caption="Your photo (click points below to mark bottles)", use_container_width=True)
+        # Show image preview (the canvas below will be interactive)
+        st.image(image, caption="Your photo (tap points on the canvas below to mark bottles)", use_container_width=True)
 
         # Create canvas for annotation
         canvas_result = st_canvas(

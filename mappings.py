@@ -85,12 +85,14 @@ def get_category_for_item(item_id: str) -> str:
     Determine category based on item name patterns.
 
     Extracted from zifapp.py lines 178-194.
+
+    IMPORTANT: Check specific liquor types BEFORE checking for "WELL"
+    to ensure items like "VODKA Well" are categorized as "Vodka" not "Well".
     """
     upper_item = item_id.upper().strip()
 
-    if "WELL" in upper_item:
-        return "Well"
-    elif "WHISKEY" in upper_item:
+    # Check specific liquor types first (before WELL)
+    if "WHISKEY" in upper_item:
         return "Whiskey"
     elif "VODKA" in upper_item:
         return "Vodka"
@@ -102,6 +104,11 @@ def get_category_for_item(item_id: str) -> str:
         return "Rum"
     elif "SCOTCH" in upper_item:
         return "Scotch"
+    elif "BRANDY" in upper_item:
+        return "Brandy"
+    elif "WELL" in upper_item:
+        # Only match WELL as last resort (for generic well items)
+        return "Well"
     elif "LIQ" in upper_item and "SCHNAPPS" not in upper_item:
         return "Liqueur"
     elif "SCHNAPPS" in upper_item:
