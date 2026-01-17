@@ -54,10 +54,41 @@ class Item:
     unit_cost: Optional[float] = None  # $ per unit (bottle, keg, etc.)
     unit_of_measure: Optional[str] = None  # "Bottle (1 L)", "Keg", etc.
 
+    # Weight data (for weight-based counting)
+    full_weight_grams: Optional[float] = None  # Full bottle/keg weight
+    empty_weight_grams: Optional[float] = None  # Empty bottle/keg weight
+
     def __post_init__(self):
         # Ensure item_id is always stripped and consistent
         self.item_id = self.item_id.strip()
         self.display_name = self.display_name.strip()
+
+    def calculate_fill_from_weight(self, current_weight: float, input_unit: str = "grams") -> float:
+        """
+        Calculate fill percentage from current weight.
+
+        Args:
+            current_weight: Current weight reading from scale
+            input_unit: "grams" or "pounds"
+
+        Returns:
+            Fill percentage (0.0 to 1.0)
+        """
+        from bottle_weights import calculate_fill_from_weight
+
+        fill_pct, _ = calculate_fill_from_weight(
+            current_weight=current_weight,
+            full_weight=self.full_weight_grams,
+            empty_weight=self.empty_weight_grams,
+            unit_of_measure=self.unit_of_measure or "Bottle",
+            input_unit=input_unit
+        )
+        return fill_pct
+
+    def is_keg(self) -> bool:
+        """Check if this item is a keg."""
+        from bottle_weights import is_keg
+        return is_keg(self.unit_of_measure or "")
 
 
 @dataclass
