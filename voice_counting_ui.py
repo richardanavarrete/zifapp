@@ -347,33 +347,98 @@ def render_transcript_log(session, dataset):
         st.info("No records yet. Start counting above!")
         return
 
-    # Convert records to DataFrame for editing
-    log_data = []
+    # Group counts by item
+    item_groups = {}
     for record in session.records:
+        if record.matched_item_id:
+            if record.matched_item_id not in item_groups:
+                item_groups[record.matched_item_id] = []
+            item_groups[record.matched_item_id].append(record)
+
+    # Display grouped summary
+    if item_groups:
+        st.markdown("#### 📊 Summary by Item")
+
+        for item_id, records in sorted(item_groups.items()):
+            item = dataset.items.get(item_id)
+            if not item:
+                continue
+
+            # Calculate total and breakdown
+            counts = [r.count_value for r in records if r.count_value is not None]
+            total = sum(counts)
+            breakdown = " + ".join([f"{c:.2f}" if c < 1 else f"{c:.0f}" for c in counts])
+
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.markdown(f"**{item.display_name}**: `{total:.2f}` = {breakdown}")
+            with col2:
+                st.caption(f"{len(records)} count{'s' if len(records) > 1 else ''}")
+
+        st.markdown("---")
+
+    # Display individual records with edit/delete
+    st.markdown("#### 📝 Individual Records")
+
+    for i, record in enumerate(session.records):
         item_name = ""
         if record.matched_item_id and record.matched_item_id in dataset.items:
             item_name = dataset.items[record.matched_item_id].display_name
 
-        log_data.append({
-            'Time': record.timestamp.strftime('%H:%M:%S'),
-            'Transcript': record.cleaned_transcript or record.raw_transcript,
-            'Matched Item': item_name,
-            'Count': record.count_value,
-            'Confidence': f"{record.confidence_score:.0%}",
-            'Verified': "✓" if record.is_verified else "",
-            'record_id': record.record_id  # Hidden column for tracking
-        })
+        with st.expander(
+            f"{record.timestamp.strftime('%H:%M:%S')} - {item_name or record.raw_transcript} - {record.count_value or 'No count'}",
+            expanded=False
+        ):
+            col1, col2, col3 = st.columns([2, 1, 1])
 
-    df = pd.DataFrame(log_data)
+            with col1:
+                # Edit count
+                new_count = st.number_input(
+                    "Count",
+                    value=float(record.count_value) if record.count_value else 0.0,
+                    step=0.1,
+                    format="%.2f",
+                    key=f"edit_count_{i}"
+                )
 
-    # Display as editable table
-    st.dataframe(
-        df[['Time', 'Transcript', 'Matched Item', 'Count', 'Confidence', 'Verified']],
-        use_container_width=True,
-        hide_index=True
-    )
+                if new_count != record.count_value:
+                    if st.button("💾 Save Count", key=f"save_count_{i}"):
+                        record.count_value = new_count
+                        session.updated_at = datetime.now()
+                        storage.save_voice_count_session(session)
+                        st.success("Updated!")
+                        st.rerun()
+
+            with col2:
+                # Verify toggle
+                if st.button(
+                    "✓ Verified" if record.is_verified else "⚠ Verify",
+                    key=f"verify_{i}",
+                    type="primary" if not record.is_verified else "secondary"
+                ):
+                    record.is_verified = not record.is_verified
+                    session.updated_at = datetime.now()
+                    storage.save_voice_count_session(session)
+                    st.rerun()
+
+            with col3:
+                # Delete button
+                if st.button("🗑️ Delete", key=f"delete_{i}"):
+                    session.records.pop(i)
+                    session.total_items_counted = len(session.records)
+                    session.updated_at = datetime.now()
+                    storage.save_voice_count_session(session)
+                    st.success("Deleted!")
+                    st.rerun()
+
+            # Show details
+            st.caption(f"**Transcript:** {record.raw_transcript}")
+            st.caption(f"**Method:** {record.match_method} | **Confidence:** {record.confidence_score:.0%}")
+            if record.notes:
+                st.caption(f"**Notes:** {record.notes}")
 
     # Action buttons
+    st.markdown("---")
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
@@ -382,12 +447,14 @@ def render_transcript_log(session, dataset):
                 if record.matched_item_id:
                     record.is_verified = True
             session.updated_at = datetime.now()
+            storage.save_voice_count_session(session)
             st.success("All matched records verified!")
             st.rerun()
 
     with col2:
         if st.button("🔄 Re-match All", use_container_width=True):
             rematch_all_records(session, dataset)
+            storage.save_voice_count_session(session)
             st.success("Re-matched all records!")
             st.rerun()
 
@@ -397,6 +464,7 @@ def render_transcript_log(session, dataset):
                 session.records = []
                 session.total_items_counted = 0
                 session.updated_at = datetime.now()
+                storage.save_voice_count_session(session)
                 st.session_state.confirm_clear = False
                 st.success("All records cleared!")
                 st.rerun()
@@ -405,18 +473,32 @@ def render_transcript_log(session, dataset):
                 st.warning("Click again to confirm deletion")
 
     with col4:
-        # Download transcript as text
-        transcript_text = "\n".join([
-            f"{r.timestamp.strftime('%H:%M:%S')} - {r.raw_transcript} -> {r.matched_item_id or 'UNMATCHED'} ({r.count_value})"
-            for r in session.records
-        ])
-        st.download_button(
-            "📄 Download Log",
-            data=transcript_text,
-            file_name=f"transcript_{session.session_name}.txt",
-            mime="text/plain",
-            use_container_width=True
-        )
+        # Download transcript as CSV with grouped format
+        csv_data = []
+        for item_id, records in sorted(item_groups.items()):
+            item = dataset.items.get(item_id)
+            if not item:
+                continue
+            counts = [r.count_value for r in records if r.count_value is not None]
+            total = sum(counts)
+            csv_data.append({
+                'Item': item.display_name,
+                'Total': total,
+                'Counts': ', '.join([f"{c:.2f}" for c in counts])
+            })
+
+        if csv_data:
+            csv_df = pd.DataFrame(csv_data)
+            csv_string = csv_df.to_csv(index=False)
+            st.download_button(
+                "📄 Download CSV",
+                data=csv_string,
+                file_name=f"counts_{session.session_name}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        else:
+            st.button("📄 Download CSV", disabled=True, use_container_width=True)
 
 
 def render_export_section(session, dataset, inventory_layout):
