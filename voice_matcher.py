@@ -63,20 +63,33 @@ class VoiceItemMatcher:
             # "WHISKEY Buffalo Trace" -> "Buffalo Trace"
             parts = item_id.split(' ', 1)
             if len(parts) > 1:
-                variations.append(parts[1])
+                # Only add the suffix if it's unique enough (more than one word or longer than 4 chars)
+                # This prevents all "VODKA Well", "RUM Well" etc from having identical "Well" variation
+                suffix = parts[1]
+                suffix_words = suffix.split()
+                if len(suffix_words) > 1 or len(suffix) > 4:
+                    variations.append(suffix)
 
             # 4. Lowercase versions for case-insensitive matching
             variations.append(item_id.lower())
             variations.append(item.display_name.lower())
 
-            # 5. Category + short name
+            # 5. Reversed word order for two-word items (critical for "well vodka" vs "VODKA Well")
+            # "VODKA Well" -> also add "Well VODKA" and "well vodka"
+            if len(parts) == 2:
+                # Add reversed order in both cases
+                reversed_id = f"{parts[1]} {parts[0]}"
+                variations.append(reversed_id)
+                variations.append(reversed_id.lower())
+
+            # 6. Category + short name
             # "Whiskey Buffalo" from "WHISKEY Buffalo Trace"
             if len(parts) > 1:
                 name_words = parts[1].split()
                 if name_words:
                     variations.append(f"{item.category} {name_words[0]}")
 
-            # 6. Remove common words that add noise
+            # 7. Remove common words that add noise
             cleaned = self._clean_for_matching(item_id)
             variations.append(cleaned)
 
