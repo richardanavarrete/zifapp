@@ -26,10 +26,11 @@ from policy import OrderTargets
 from agent import run_agent, get_order_by_vendor
 from storage import init_db, save_user_actions
 from policy import distribute_kegs_to_target, calculate_kegs_needed_for_target_weeks
+from voice_counting_ui import render_voice_counting_tab
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
-st.set_page_config(page_title="COGHound: sniffing out savings!", layout="wide")
-st.title("🐕 COGHound: sniffing out savings!")
+st.set_page_config(page_title="HoundCOGS: sniffing out savings!", layout="wide")
+st.title("🐕 HoundCOGS: sniffing out savings!")
 
 # --- Caching the data processing ---
 @st.cache_data
@@ -384,10 +385,11 @@ if uploaded_files:
         st.error(f"An error occurred during data processing: {e}")
         st.stop()
 
-    tab_summary, tab_ordering_worksheet, tab_agent, tab_sales_mix, tab_trends, tab_cogs, tab_pour_cost, tab_excess_inventory = st.tabs([
+    tab_summary, tab_ordering_worksheet, tab_agent, tab_voice_counting, tab_sales_mix, tab_trends, tab_cogs, tab_pour_cost, tab_excess_inventory = st.tabs([
         "📊 Summary",
         "🧪 Ordering Worksheet",
         "🤖 Agent",
+        "🎙️ Voice Counting",
         "Sales Mix Analysis",
         "📈 Item Trends",
         "💰 COGS Analysis",
@@ -1102,7 +1104,20 @@ if uploaded_files:
             else:
                 st.info("No items match the current filters.")
 
-    # --- TAB 4: SALES MIX ANALYSIS ---
+    # --- TAB 4: VOICE COUNTING ---
+    with tab_voice_counting:
+        # Load inventory layout for location-based ordering
+        inventory_layout = None
+        try:
+            import json
+            with open('inventory_layout.json', 'r') as f:
+                inventory_layout = json.load(f)
+        except:
+            pass  # Use default ordering if layout file not available
+
+        render_voice_counting_tab(dataset, inventory_layout)
+
+    # --- TAB 5: SALES MIX ANALYSIS ---
     with tab_sales_mix:
         st.subheader("📈 Sales Mix Analysis: Theoretical vs Actual Usage")
         st.markdown("""
@@ -1289,7 +1304,7 @@ if uploaded_files:
         else:
             st.info("👆 Upload a Sales Mix CSV to begin analysis.")
 
-    # --- TAB 5: ITEM TRENDS ---
+    # --- TAB 6: ITEM TRENDS ---
     with tab_trends:
         st.subheader("📈 Item Trends Visualization")
         st.markdown("Select an item to view its historical usage trends over time.")
@@ -1480,7 +1495,7 @@ if uploaded_files:
         else:
             st.info("👆 Select an item to view its trend visualization.")
 
-    # --- TAB 6: COGS ANALYSIS ---
+    # --- TAB 7: COGS ANALYSIS ---
     with tab_cogs:
         st.subheader("💰 Cost of Goods Sold (COGS) Analysis")
         st.markdown("Analyze your beverage costs, inventory value, and profitability metrics.")
@@ -1692,7 +1707,7 @@ if uploaded_files:
                 mime="text/csv"
             )
 
-    # --- TAB 7: POUR COST ANALYSIS ---
+    # --- TAB 8: POUR COST ANALYSIS ---
     with tab_pour_cost:
         st.subheader("📊 Pour Cost & Profitability Analysis")
         st.markdown("Analyze pour cost percentages, shrinkage, and variance between theoretical and actual usage.")
@@ -2139,7 +2154,7 @@ if uploaded_files:
         else:
             st.info("👆 Upload a Sales Mix CSV file to see pour cost analysis and variance reports.")
 
-    # --- TAB 8: EXCESS INVENTORY ---
+    # --- TAB 9: EXCESS INVENTORY ---
     with tab_excess_inventory:
         st.subheader("📦 Excess Inventory Analysis")
         st.markdown("Identify items with inventory levels exceeding suggested par levels based on average weekly usage.")

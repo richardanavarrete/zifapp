@@ -137,6 +137,60 @@ class InventoryDataset:
         return None
 
 
+@dataclass
+class VoiceCountRecord:
+    """Individual item count from voice input."""
+    record_id: str  # UUID
+    session_id: str  # Links to VoiceCountSession
+    timestamp: datetime
+    raw_transcript: str  # Original speech-to-text output
+    cleaned_transcript: Optional[str] = None  # User-edited version
+    matched_item_id: Optional[str] = None  # Matched Item.item_id
+    count_value: Optional[float] = None  # Counted quantity
+    confidence_score: float = 0.0  # 0.0-1.0 fuzzy match confidence
+    match_method: str = "manual"  # "exact", "fuzzy", "manual"
+    is_verified: bool = False  # User confirmed the match
+    location: Optional[str] = None  # Physical location during count
+    notes: Optional[str] = None
+
+    def __post_init__(self):
+        # Use cleaned_transcript as raw_transcript if not set
+        if self.cleaned_transcript is None:
+            self.cleaned_transcript = self.raw_transcript
+
+
+@dataclass
+class VoiceCountSession:
+    """A complete voice counting session."""
+    session_id: str  # UUID
+    created_at: datetime
+    updated_at: datetime
+    session_name: str  # "Friday Evening Count", etc.
+    status: str = "in_progress"  # "in_progress", "completed", "exported"
+    total_items_counted: int = 0
+    records: List[VoiceCountRecord] = field(default_factory=list)
+    inventory_order: List[str] = field(default_factory=list)  # item_ids in sheet order for export
+    template_file_name: Optional[str] = None  # Name of uploaded Excel template used for ordering
+
+    def add_record(self, record: VoiceCountRecord):
+        """Add a voice count record to this session."""
+        self.records.append(record)
+        self.total_items_counted = len(self.records)
+        self.updated_at = datetime.now()
+
+    def get_verified_records(self) -> List[VoiceCountRecord]:
+        """Get only verified records."""
+        return [r for r in self.records if r.is_verified]
+
+    def get_unmatched_records(self) -> List[VoiceCountRecord]:
+        """Get records that don't have a matched item."""
+        return [r for r in self.records if r.matched_item_id is None]
+
+    def get_low_confidence_records(self, threshold: float = 0.7) -> List[VoiceCountRecord]:
+        """Get records with confidence below threshold."""
+        return [r for r in self.records if r.matched_item_id and r.confidence_score < threshold]
+
+
 def _parse_weekly_cogs_section(xls, sheet: str, week_date, source_file: str) -> Optional[WeeklyCOGSSummary]:
     """
     Parse the 'Weekly COGS' summary section from a sheet.
