@@ -10,3 +10,5 @@ SpeechRecognition>=3.10.0
 pydub>=0.25.1
 openai-whisper>=20231117
 audio-recorder-streamlit>=0.0.8
+streamlit-drawable-canvas>=0.9.0
+Pillow>=9.0.0

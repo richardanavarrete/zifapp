@@ -160,7 +160,7 @@ def render_voice_counting_tab(dataset, inventory_layout=None):
 
     input_method = st.radio(
         "Input Method",
-        ["💬 Manual Entry", "🎤 Voice Recording (Browser)", "📁 Upload Audio File"],
+        ["💬 Manual Entry", "🎤 Voice Recording (Browser)", "📁 Upload Audio File", "⚖️ Weigh Bottle/Keg", "📷 Photo Count"],
         horizontal=True
     )
 
@@ -170,6 +170,10 @@ def render_voice_counting_tab(dataset, inventory_layout=None):
         render_browser_voice_input(session, dataset)
     elif input_method == "📁 Upload Audio File":
         render_audio_file_input(session, dataset)
+    elif input_method == "⚖️ Weigh Bottle/Keg":
+        render_weight_input(session, dataset)
+    elif input_method == "📷 Photo Count":
+        render_photo_counting(session, dataset)
 
     st.markdown("---")
 
@@ -480,6 +484,304 @@ def rematch_all_records(session, dataset):
                     record.is_verified = True
 
     session.updated_at = datetime.now()
+
+
+def render_weight_input(session, dataset):
+    """Render weight-based counting interface."""
+    from bottle_weights import format_weight_display, get_weight_ranges
+
+    st.markdown("### ⚖️ Weigh Bottle/Keg")
+    st.info("📏 Place item on scale and read weight. **Bottles in grams, kegs in pounds.**")
+
+    # Initialize session state for weight workflow
+    if 'weight_selected_item_id' not in st.session_state:
+        st.session_state.weight_selected_item_id = None
+
+    # Step 1: Search and select item
+    st.markdown("**Step 1: What item are you weighing?**")
+
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        item_search = st.text_input(
+            "Item name",
+            placeholder="Type item name or use voice...",
+            key="weight_item_search"
+        )
+
+    # Show fuzzy matches
+    if item_search:
+        matcher = st.session_state.voice_matcher
+        matches = matcher.match(item_search, top_n=5)
+
+        if matches:
+            st.markdown("**Select item:**")
+            for match in matches:
+                item = dataset.items[match.item_id]
+                col_a, col_b, col_c = st.columns([3, 1, 1])
+                with col_a:
+                    if st.button(
+                        f"{item.display_name}",
+                        key=f"weight_select_{match.item_id}",
+                        use_container_width=True
+                    ):
+                        st.session_state.weight_selected_item_id = match.item_id
+                        st.rerun()
+                with col_b:
+                    st.caption(f"{match.confidence:.0%}")
+                with col_c:
+                    unit_type = "Keg" if item.is_keg() else "Bottle"
+                    st.caption(unit_type)
+
+    # Step 2: Input weight
+    if st.session_state.weight_selected_item_id:
+        item = dataset.items[st.session_state.weight_selected_item_id]
+
+        st.markdown("---")
+        st.success(f"✓ Selected: **{item.display_name}**")
+
+        # Determine if keg or bottle
+        is_keg_item = item.is_keg()
+        weight_unit = "pounds" if is_keg_item else "grams"
+        weight_label = "Weight (pounds)" if is_keg_item else "Weight (grams)"
+
+        # Get expected weight range
+        ranges = get_weight_ranges(item.unit_of_measure or "Bottle")
+        min_weight, max_weight = ranges['pounds'] if is_keg_item else ranges['grams']
+
+        st.markdown(f"**Step 2: Place on scale and read weight in {weight_unit}:**")
+        st.caption(f"Expected range: {min_weight:.0f} - {max_weight:.0f} {weight_unit}")
+
+        weight_input = st.number_input(
+            weight_label,
+            min_value=0.0,
+            max_value=max_weight * 2,
+            step=10.0 if not is_keg_item else 1.0,
+            format="%.1f" if is_keg_item else "%.0f",
+            key="weight_input_value"
+        )
+
+        # Calculate fill level
+        if weight_input > 0:
+            fill_pct = item.calculate_fill_from_weight(
+                weight_input,
+                input_unit=weight_unit
+            )
+
+            st.markdown("---")
+            st.markdown("**Fill Level:**")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Percentage", f"{fill_pct:.0%}")
+            with col2:
+                st.metric("Bottle Count", f"{fill_pct:.2f}")
+
+            # Visual progress bar
+            if fill_pct > 0.5:
+                progress_color = "🟢"
+            elif fill_pct > 0.25:
+                progress_color = "🟡"
+            else:
+                progress_color = "🔴"
+
+            st.progress(fill_pct)
+            st.caption(f"{progress_color} {weight_input} {weight_unit} = {fill_pct:.0%} full")
+
+            # Validation warnings
+            if weight_input < min_weight * 0.8 or weight_input > max_weight * 1.2:
+                st.warning(f"⚠️ Weight outside expected range. Please verify reading.")
+
+            # Add to session button
+            if st.button("✓ Add to Session", type="primary", use_container_width=True):
+                record = VoiceCountRecord(
+                    record_id=str(uuid.uuid4()),
+                    session_id=session.session_id,
+                    timestamp=datetime.now(),
+                    raw_transcript=f"Weighed: {weight_input} {weight_unit}",
+                    matched_item_id=item.item_id,
+                    count_value=fill_pct,
+                    confidence_score=1.0,  # Weight is precise
+                    match_method="weight",
+                    is_verified=True,
+                    notes=f"{weight_input} {weight_unit} = {fill_pct:.0%} full"
+                )
+                session.add_record(record)
+                st.session_state.weight_selected_item_id = None
+                storage.save_voice_count_session(session)
+                st.success(f"✓ Added {fill_pct:.2f} bottles of {item.display_name}")
+                st.rerun()
+
+    # Clear selection button
+    if st.session_state.weight_selected_item_id:
+        if st.button("← Start Over", key="weight_clear"):
+            st.session_state.weight_selected_item_id = None
+            st.rerun()
+
+
+def render_photo_counting(session, dataset):
+    """Render photo-based counting interface (WISK-style visual mode)."""
+    st.markdown("### 📷 Photo Count")
+    st.info("📸 Take a photo of your shelf, tap each bottle, then specify fill level and depth.")
+
+    # Try to use streamlit-drawable-canvas for annotation
+    try:
+        from streamlit_drawable_canvas import st_canvas
+        from PIL import Image
+        CANVAS_AVAILABLE = True
+    except ImportError:
+        CANVAS_AVAILABLE = False
+        st.error("⚠️ Photo counting requires streamlit-drawable-canvas. Install with: `pip install streamlit-drawable-canvas`")
+        st.info("For now, use other counting methods (Manual, Voice, or Weight)")
+        return
+
+    # Initialize session state
+    if 'photo_bottles' not in st.session_state:
+        st.session_state.photo_bottles = []
+    if 'photo_image' not in st.session_state:
+        st.session_state.photo_image = None
+
+    # Step 1: Capture or upload photo
+    st.markdown("**Step 1: Take or upload photo**")
+
+    photo_input_method = st.radio(
+        "Photo source",
+        ["📷 Camera", "📁 Upload"],
+        horizontal=True,
+        key="photo_source"
+    )
+
+    photo = None
+    if photo_input_method == "📷 Camera":
+        photo = st.camera_input("Take photo of shelf")
+    else:
+        photo = st.file_uploader("Upload photo", type=['jpg', 'jpeg', 'png'], key="photo_upload")
+
+    if photo:
+        # Load image
+        image = Image.open(photo)
+        st.session_state.photo_image = image
+
+        st.markdown("---")
+        st.markdown("**Step 2: Tap each bottle on the image**")
+        st.caption("Click/tap bottles to mark them. Each click adds a numbered marker.")
+
+        # Create canvas for annotation
+        canvas_result = st_canvas(
+            fill_color="rgba(255, 165, 0, 0.3)",
+            stroke_width=2,
+            stroke_color="#FF6B6B",
+            background_image=image,
+            drawing_mode="point",
+            point_display_radius=15,
+            height=min(image.height, 600),
+            width=min(image.width, 800),
+            key="photo_canvas",
+        )
+
+        # Get clicked points
+        if canvas_result.json_data is not None:
+            objects = canvas_result.json_data.get("objects", [])
+
+            if len(objects) > 0:
+                st.markdown("---")
+                st.markdown(f"**Step 3: Specify details for each bottle ({len(objects)} marked)**")
+
+                # Process each marked bottle
+                for i, obj in enumerate(objects):
+                    with st.expander(f"🍾 Bottle #{i+1} (x: {obj['left']:.0f}, y: {obj['top']:.0f})", expanded=(i==0)):
+                        col1, col2 = st.columns([3, 1])
+
+                        with col1:
+                            item_name = st.text_input(
+                                "What is this?",
+                                placeholder="Type item name...",
+                                key=f"photo_item_{i}"
+                            )
+
+                        # Fuzzy match if searching
+                        matched_item_id = None
+                        if item_name:
+                            matcher = st.session_state.voice_matcher
+                            matches = matcher.match(item_name, top_n=3)
+                            if matches:
+                                st.markdown("**Select:**")
+                                for match in matches:
+                                    if st.button(
+                                        f"{dataset.items[match.item_id].display_name} ({match.confidence:.0%})",
+                                        key=f"photo_match_{i}_{match.item_id}"
+                                    ):
+                                        matched_item_id = match.item_id
+
+                        # Fill level selector
+                        fill_level = st.select_slider(
+                            "Fill level",
+                            options=["Empty", "1/4", "1/2", "3/4", "Full"],
+                            value="Full",
+                            key=f"photo_fill_{i}"
+                        )
+
+                        # Depth (how many deep on shelf)
+                        depth = st.number_input(
+                            "How many bottles deep?",
+                            min_value=1,
+                            max_value=20,
+                            value=1,
+                            key=f"photo_depth_{i}"
+                        )
+
+                        # Calculate count
+                        fill_map = {"Empty": 0.0, "1/4": 0.25, "1/2": 0.5, "3/4": 0.75, "Full": 1.0}
+                        fill_pct = fill_map[fill_level]
+                        total_count = depth * fill_pct
+
+                        st.info(f"📊 Total: {total_count:.2f} bottles ({depth} deep × {fill_pct:.0%} full)")
+
+                        # Store in session state
+                        bottle_data = {
+                            'index': i,
+                            'item_name': item_name,
+                            'matched_item_id': matched_item_id,
+                            'fill_level': fill_pct,
+                            'depth': depth,
+                            'count': total_count,
+                            'position': (obj['left'], obj['top'])
+                        }
+
+                        # Update session state
+                        if i < len(st.session_state.photo_bottles):
+                            st.session_state.photo_bottles[i] = bottle_data
+                        else:
+                            st.session_state.photo_bottles.append(bottle_data)
+
+                # Add all to session button
+                st.markdown("---")
+                if st.button("✓ Add All Bottles to Session", type="primary", use_container_width=True):
+                    added_count = 0
+                    for bottle_data in st.session_state.photo_bottles:
+                        if bottle_data.get('matched_item_id'):
+                            record = VoiceCountRecord(
+                                record_id=str(uuid.uuid4()),
+                                session_id=session.session_id,
+                                timestamp=datetime.now(),
+                                raw_transcript=f"Photo: {bottle_data['item_name']}",
+                                matched_item_id=bottle_data['matched_item_id'],
+                                count_value=bottle_data['count'],
+                                confidence_score=0.95,  # User confirmed
+                                match_method="photo",
+                                is_verified=True,
+                                notes=f"{bottle_data['fill_level']:.0%} full, {bottle_data['depth']} deep"
+                            )
+                            session.add_record(record)
+                            added_count += 1
+
+                    if added_count > 0:
+                        storage.save_voice_count_session(session)
+                        st.session_state.photo_bottles = []
+                        st.session_state.photo_image = None
+                        st.success(f"✓ Added {added_count} bottles to session!")
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ No matched items to add. Please identify bottles first.")
 
 
 def transcribe_audio_bytes(audio_bytes):
