@@ -32,6 +32,9 @@ from voice_counting_ui import render_voice_counting_tab
 st.set_page_config(page_title="HoundCOGS: sniffing out savings!", layout="wide")
 st.title("🐕 HoundCOGS: sniffing out savings!")
 
+# --- Initialize Database ---
+init_db()
+
 # --- Caching the data processing ---
 @st.cache_data
 def load_and_process_data(uploaded_files, smoothing_level=0.3, trend_threshold=0.1):
