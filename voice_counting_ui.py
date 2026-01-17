@@ -213,7 +213,8 @@ def render_browser_voice_input(session, dataset):
         st.info("💡 Use Manual Entry or Upload Audio File instead")
         return
 
-    st.markdown("Click the microphone to start/stop recording. Speak clearly: 'Item name' then 'quantity'")
+    st.markdown("**🎤 Continuous Recording Mode**")
+    st.info("💡 Click microphone to start/stop. Say multiple items: 'Buffalo Trace 3, Titos 5, Makers 850 grams...'")
 
     # Record audio
     audio_bytes = audio_recorder(
@@ -227,13 +228,20 @@ def render_browser_voice_input(session, dataset):
     if audio_bytes:
         st.audio(audio_bytes, format="audio/wav")
 
-        if st.button("🔄 Transcribe & Match", key="transcribe_btn"):
+        if st.button("🔄 Transcribe & Process All Items", key="transcribe_btn", type="primary"):
             with st.spinner("Transcribing..."):
                 transcript = transcribe_audio_bytes(audio_bytes)
                 if transcript:
-                    st.success(f"Heard: {transcript}")
-                    process_transcript(session, transcript, dataset)
-                    st.rerun()
+                    st.success(f"📝 Transcribed: {transcript}")
+
+                    # Process multiple items from single transcript
+                    items_processed = process_multi_item_transcript(session, transcript, dataset)
+
+                    if items_processed > 0:
+                        st.success(f"✅ Added {items_processed} items to session!")
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ No items could be matched. Try speaking more clearly.")
                 else:
                     st.error("Could not transcribe audio. Please try again.")
 
@@ -245,7 +253,8 @@ def render_audio_file_input(session, dataset):
         st.info("💡 Use Manual Entry or Browser Voice Recording instead")
         return
 
-    st.markdown("Upload an audio file (WAV, MP3, FLAC) to transcribe")
+    st.markdown("**📁 Upload Audio File**")
+    st.info("💡 Upload a recording with multiple items: 'Buffalo Trace 3, Titos 5, Makers 850 grams...'")
 
     audio_file = st.file_uploader(
         "Upload Audio",
@@ -256,13 +265,20 @@ def render_audio_file_input(session, dataset):
     if audio_file:
         st.audio(audio_file)
 
-        if st.button("🔄 Transcribe & Match", key="file_transcribe_btn"):
+        if st.button("🔄 Transcribe & Process All Items", key="file_transcribe_btn", type="primary"):
             with st.spinner("Transcribing..."):
                 transcript = transcribe_audio_file(audio_file)
                 if transcript:
-                    st.success(f"Transcribed: {transcript}")
-                    process_transcript(session, transcript, dataset)
-                    st.rerun()
+                    st.success(f"📝 Transcribed: {transcript}")
+
+                    # Process multiple items from single transcript
+                    items_processed = process_multi_item_transcript(session, transcript, dataset)
+
+                    if items_processed > 0:
+                        st.success(f"✅ Added {items_processed} items to session!")
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ No items could be matched. Try speaking more clearly.")
                 else:
                     st.error("Could not transcribe audio. Please try speaking more clearly.")
 
@@ -632,18 +648,36 @@ def render_photo_counting(session, dataset):
 
     photo = None
     if photo_input_method == "📷 Camera":
-        photo = st.camera_input("Take photo of shelf")
+        photo = st.camera_input("Take photo of shelf", key="camera_input")
     else:
         photo = st.file_uploader("Upload photo", type=['jpg', 'jpeg', 'png'], key="photo_upload")
 
     if photo:
         # Load image
         image = Image.open(photo)
+
+        # Resize image if it's too large (for better display)
+        max_width = 800
+        max_height = 600
+
+        # Calculate resize ratio
+        width_ratio = max_width / image.width if image.width > max_width else 1
+        height_ratio = max_height / image.height if image.height > max_height else 1
+        resize_ratio = min(width_ratio, height_ratio)
+
+        if resize_ratio < 1:
+            new_width = int(image.width * resize_ratio)
+            new_height = int(image.height * resize_ratio)
+            image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
         st.session_state.photo_image = image
 
         st.markdown("---")
         st.markdown("**Step 2: Tap each bottle on the image**")
         st.caption("Click/tap bottles to mark them. Each click adds a numbered marker.")
+
+        # Show image preview
+        st.image(image, caption="Your photo (click points below to mark bottles)", use_container_width=True)
 
         # Create canvas for annotation
         canvas_result = st_canvas(
@@ -653,8 +687,8 @@ def render_photo_counting(session, dataset):
             background_image=image,
             drawing_mode="point",
             point_display_radius=15,
-            height=min(image.height, 600),
-            width=min(image.width, 800),
+            height=image.height,
+            width=image.width,
             key="photo_canvas",
         )
 
@@ -762,6 +796,100 @@ def render_photo_counting(session, dataset):
                         st.rerun()
                     else:
                         st.warning("⚠️ No matched items to add. Please identify bottles first.")
+
+
+def process_multi_item_transcript(session, transcript, dataset):
+    """
+    Process multiple items from a continuous recording transcript.
+
+    Example input: "Buffalo Trace 3, Titos 5, Makers Mark 850 grams, Jim Beam 2"
+
+    Args:
+        session: Current VoiceCountSession
+        transcript: Full transcript containing multiple items
+        dataset: InventoryDataset
+
+    Returns:
+        Number of items successfully processed
+    """
+    matcher = st.session_state.voice_matcher
+
+    # Split transcript by common separators (comma, "and", semicolon)
+    # Also handle natural pauses that might be transcribed as periods
+    separators = [',', ' and ', ';', '.']
+
+    # Replace all separators with a common delimiter
+    normalized = transcript
+    for sep in separators:
+        normalized = normalized.replace(sep, '|')
+
+    # Split into individual item segments
+    segments = [s.strip() for s in normalized.split('|') if s.strip()]
+
+    items_processed = 0
+
+    for segment in segments:
+        # Skip very short segments (likely transcription noise)
+        if len(segment) < 3:
+            continue
+
+        # Process each segment through the existing transcript processor
+        matches, count_value, weight_unit = matcher.match_with_count(segment)
+
+        if not matches:
+            # No match found - add to log for manual review
+            record = VoiceCountRecord(
+                record_id=str(uuid.uuid4()),
+                session_id=session.session_id,
+                timestamp=datetime.now(),
+                raw_transcript=segment,
+                cleaned_transcript=segment,
+                matched_item_id=None,
+                count_value=count_value,
+                confidence_score=0.0,
+                match_method="voice",
+                is_verified=False,
+                notes=f"Weight: {count_value} {weight_unit}" if weight_unit else "Unmatched from continuous recording"
+            )
+            session.add_record(record)
+            items_processed += 1
+        else:
+            # Process the match
+            top_match = matches[0]
+            item = dataset.items[top_match.item_id]
+
+            # Calculate actual count (handle weight inputs)
+            is_weight_input = weight_unit is not None
+            actual_count = count_value
+            notes = None
+
+            if is_weight_input and count_value is not None:
+                fill_pct = item.calculate_fill_from_weight(count_value, input_unit=weight_unit)
+                actual_count = fill_pct
+                notes = f"{count_value} {weight_unit} = {fill_pct:.0%} full"
+
+            # Create record
+            record = VoiceCountRecord(
+                record_id=str(uuid.uuid4()),
+                session_id=session.session_id,
+                timestamp=datetime.now(),
+                raw_transcript=segment,
+                cleaned_transcript=segment,
+                matched_item_id=top_match.item_id,
+                count_value=actual_count,
+                confidence_score=1.0 if is_weight_input else top_match.confidence,
+                match_method="weight" if is_weight_input else top_match.method,
+                is_verified=top_match.confidence >= 0.85,  # Auto-verify high confidence
+                notes=notes
+            )
+            session.add_record(record)
+            items_processed += 1
+
+    # Update session
+    session.updated_at = datetime.now()
+    storage.save_voice_count_session(session)
+
+    return items_processed
 
 
 def transcribe_audio_bytes(audio_bytes):
