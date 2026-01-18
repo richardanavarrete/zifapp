@@ -637,6 +637,8 @@ def render_photo_counting(session, dataset):
         st.session_state.photo_image = None
     if 'photo_click_points' not in st.session_state:
         st.session_state.photo_click_points = []
+    if 'last_click_coords' not in st.session_state:
+        st.session_state.last_click_coords = None
 
     # Step 1: Capture or upload photo
     st.markdown("**Step 1: Take or upload photo**")
@@ -683,6 +685,7 @@ def render_photo_counting(session, dataset):
         if 'last_photo_hash' not in st.session_state or st.session_state.last_photo_hash != hash(photo.getvalue()):
             st.session_state.photo_bottles = []
             st.session_state.photo_click_points = []
+            st.session_state.last_click_coords = None
             st.session_state.last_photo_hash = hash(photo.getvalue())
 
         # Action buttons
@@ -691,6 +694,7 @@ def render_photo_counting(session, dataset):
             if st.button("🔄 Clear Marks", use_container_width=True):
                 st.session_state.photo_click_points = []
                 st.session_state.photo_bottles = []
+                st.session_state.last_click_coords = None
                 st.rerun()
         with col2:
             if st.button("⬅️ Undo Last", use_container_width=True):
@@ -698,12 +702,14 @@ def render_photo_counting(session, dataset):
                     st.session_state.photo_click_points.pop()
                     if st.session_state.photo_bottles:
                         st.session_state.photo_bottles.pop()
+                    st.session_state.last_click_coords = None
                     st.rerun()
         with col3:
             if st.button("❌ Clear", use_container_width=True):
                 st.session_state.photo_image = None
                 st.session_state.photo_bottles = []
                 st.session_state.photo_click_points = []
+                st.session_state.last_click_coords = None
                 if 'last_photo_hash' in st.session_state:
                     del st.session_state.last_photo_hash
                 st.rerun()
@@ -728,13 +734,17 @@ def render_photo_counting(session, dataset):
         # Display clickable image
         value = streamlit_image_coordinates(display_image, key="photo_clicker")
 
-        # Handle click event
+        # Handle click event with deduplication
         if value is not None and value.get("x") is not None:
-            # Add new click point
             new_x = value["x"]
             new_y = value["y"]
-            st.session_state.photo_click_points.append((new_x, new_y))
-            st.rerun()
+            current_coords = (new_x, new_y)
+
+            # Only add if this is a new click (different from last registered click)
+            if st.session_state.last_click_coords != current_coords:
+                st.session_state.photo_click_points.append(current_coords)
+                st.session_state.last_click_coords = current_coords
+                st.rerun()
 
         # Show bottle specification UI if there are click points
         if len(st.session_state.photo_click_points) > 0:
@@ -834,6 +844,7 @@ def render_photo_counting(session, dataset):
                     st.session_state.photo_bottles = []
                     st.session_state.photo_click_points = []
                     st.session_state.photo_image = None
+                    st.session_state.last_click_coords = None
                     st.success(f"✓ Added {added_count} bottles to session!")
                     st.rerun()
                 else:
