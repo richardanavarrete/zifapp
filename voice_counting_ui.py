@@ -661,9 +661,9 @@ def render_photo_counting(session, dataset):
         if image.mode != 'RGB':
             image = image.convert('RGB')
 
-        # Resize image if it's too large (for better display)
-        max_width = 800
-        max_height = 600
+        # Resize image if it's too large (for better display on all devices including mobile)
+        max_width = 600
+        max_height = 800
 
         # Calculate resize ratio
         width_ratio = max_width / image.width if image.width > max_width else 1
@@ -709,6 +709,7 @@ def render_photo_counting(session, dataset):
             point_display_radius=15,
             height=image.height,
             width=image.width,
+            update_streamlit=True,
             key="photo_canvas",
         )
 
