@@ -623,6 +623,7 @@ def render_photo_counting(session, dataset):
     try:
         from streamlit_drawable_canvas import st_canvas
         from PIL import Image
+        import numpy as np
         CANVAS_AVAILABLE = True
     except ImportError:
         CANVAS_AVAILABLE = False
@@ -699,16 +700,21 @@ def render_photo_counting(session, dataset):
         # Show image preview (the canvas below will be interactive)
         st.image(image, caption="Your photo (tap points on the canvas below to mark bottles)", use_container_width=True)
 
+        # Convert PIL Image to numpy and back for better cloud compatibility
+        # This workaround helps with streamlit-drawable-canvas background image issues on cloud deployments
+        img_array = np.array(image)
+        canvas_bg_image = Image.fromarray(img_array)
+
         # Create canvas for annotation
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)",
             stroke_width=2,
             stroke_color="#FF6B6B",
-            background_image=image,
+            background_image=canvas_bg_image,
             drawing_mode="point",
             point_display_radius=15,
-            height=image.height,
-            width=image.width,
+            height=canvas_bg_image.height,
+            width=canvas_bg_image.width,
             update_streamlit=True,
             key="photo_canvas",
         )
