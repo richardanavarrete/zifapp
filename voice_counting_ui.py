@@ -157,7 +157,20 @@ def render_voice_counting_tab(dataset, inventory_layout=None):
 
     # Voice/Text Input Section
     st.markdown("### 🎤 Count Items")
-    st.info("💡 **Tip**: You can also input weights! Say \"Buffalo Trace 850 grams\" or \"Keg 65 pounds\"")
+
+    # AI Assistant toggle (premium feature)
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.info("💡 **Tip**: You can also input weights! Say \"Buffalo Trace 850 grams\" or \"Keg 65 pounds\"")
+    with col2:
+        use_ai_assistant = st.checkbox(
+            "🤖 AI Assistant",
+            value=False,
+            help="Premium: AI helps parse speech, handles corrections and duplicates (~$0.001/session)"
+        )
+        if 'use_ai_assistant' not in st.session_state:
+            st.session_state.use_ai_assistant = False
+        st.session_state.use_ai_assistant = use_ai_assistant
 
     input_method = st.radio(
         "Input Method",
@@ -233,13 +246,24 @@ def render_browser_voice_input(session, dataset):
                     st.success(f"📝 Transcribed: {transcript}")
 
                     # Process multiple items from single transcript
-                    items_processed = process_multi_item_transcript(session, transcript, dataset)
+                    use_ai = st.session_state.get('use_ai_assistant', False)
+                    result = process_multi_item_transcript(session, transcript, dataset, use_ai=use_ai)
 
-                    if items_processed > 0:
-                        st.success(f"✅ Added {items_processed} items to session!")
-                        st.rerun()
+                    # Handle AI vs regular response
+                    if use_ai and isinstance(result, tuple):
+                        items_processed, ai_feedback = result
+                        if items_processed > 0:
+                            st.success(f"✅ {ai_feedback}")
+                            st.rerun()
+                        else:
+                            st.info(ai_feedback)
                     else:
-                        st.warning("⚠️ No items could be matched. Try speaking more clearly.")
+                        items_processed = result
+                        if items_processed > 0:
+                            st.success(f"✅ Added {items_processed} items to session!")
+                            st.rerun()
+                        else:
+                            st.warning("⚠️ No items could be matched. Try speaking more clearly.")
                 else:
                     st.error("Could not transcribe audio. Please try again.")
 
@@ -612,7 +636,188 @@ def rematch_all_records(session, dataset):
     session.updated_at = datetime.now()
 
 
-def process_multi_item_transcript(session, transcript, dataset):
+def process_with_ai_assistant(session, transcript, dataset):
+    """
+    Process transcript using AI assistant (premium feature).
+
+    The AI helps parse complex speech patterns, provides confirmation,
+    and guides the user through the counting process.
+
+    Args:
+        session: Current VoiceCountSession
+        transcript: Voice transcript
+        dataset: InventoryDataset
+
+    Returns:
+        Tuple of (items_processed, ai_feedback_message)
+    """
+    # Check if OpenAI is available
+    try:
+        from openai import OpenAI
+        import json
+    except ImportError:
+        st.error("⚠️ AI Assistant requires OpenAI package. Install with: `pip install openai`")
+        return 0, "AI Assistant not available - using free tier instead."
+
+    # Check for API key
+    if "openai" not in st.secrets or "api_key" not in st.secrets["openai"]:
+        st.error("⚠️ AI Assistant requires API key configuration")
+        return 0, "AI Assistant not configured - using free tier instead."
+
+    try:
+        client = OpenAI(api_key=st.secrets["openai"]["api_key"])
+
+        # Create prompt for AI
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",  # Cheap and fast
+            messages=[
+                {
+                    "role": "system",
+                    "content": """You are an inventory counting assistant. Extract items and counts from user speech.
+
+Handle duplicates, corrections, and hesitations naturally:
+- "Ketel One Ketel One three" → 3 Ketel One (person repeated themselves)
+- "Tito's... no wait Buffalo Trace two" → 2 Buffalo Trace (correction)
+- "Jim Beam um... three" → 3 Jim Beam (hesitation)
+
+Return JSON format:
+{
+  "items": [
+    {"name": "Buffalo Trace", "count": 3, "unit": null},
+    {"name": "Tito's Vodka", "count": 850, "unit": "grams"}
+  ],
+  "confirmation": "Got it - 3 Buffalo Trace and 850 grams of Tito's Vodka. What else?"
+}
+
+If you can't extract any items, return empty items array with helpful message."""
+                },
+                {
+                    "role": "user",
+                    "content": transcript
+                }
+            ],
+            temperature=0.3,
+            max_tokens=300
+        )
+
+        # Parse AI response
+        ai_content = response.choices[0].message.content
+        result = json.loads(ai_content)
+
+        # Process each item
+        items_processed = 0
+        matcher = st.session_state.voice_matcher
+
+        for item in result.get("items", []):
+            item_name = item["name"]
+            count_value = item.get("count")
+            unit = item.get("unit")
+
+            # Match to inventory
+            matches = matcher.match(item_name, top_n=3)
+
+            if matches and matches[0].confidence >= 0.65:
+                top_match = matches[0]
+                inventory_item = dataset.items[top_match.item_id]
+
+                # Handle weight conversion if needed
+                is_weight_input = unit in ["grams", "pounds"]
+                actual_count = count_value
+                notes = None
+
+                if is_weight_input and count_value is not None:
+                    fill_pct = inventory_item.calculate_fill_from_weight(count_value, input_unit=unit)
+                    actual_count = fill_pct
+                    notes = f"{count_value} {unit} = {fill_pct:.0%} full"
+
+                # Create record
+                record = VoiceCountRecord(
+                    record_id=str(uuid.uuid4()),
+                    session_id=session.session_id,
+                    timestamp=datetime.now(),
+                    raw_transcript=transcript,
+                    cleaned_transcript=item_name,
+                    matched_item_id=top_match.item_id,
+                    count_value=actual_count,
+                    confidence_score=top_match.confidence,
+                    match_method="ai_assistant",
+                    is_verified=top_match.confidence >= 0.85,
+                    notes=notes
+                )
+                session.add_record(record)
+                items_processed += 1
+
+        # Update session
+        session.updated_at = datetime.now()
+        storage.save_voice_count_session(session)
+
+        # Return with AI feedback
+        return items_processed, result.get("confirmation", "Items processed!")
+
+    except Exception as e:
+        st.error(f"❌ AI Assistant error: {str(e)}")
+        return 0, f"Error: {str(e)}"
+
+
+def clean_transcript_smart(transcript: str) -> str:
+    """
+    Clean transcript by handling common speech patterns.
+
+    Handles:
+    - Duplicates: "Ketel One Ketel One three" → "Ketel One three"
+    - Corrections: "Tito's... no wait Buffalo Trace three" → "Buffalo Trace three"
+    - Hesitations: "Jim Beam... two" → "Jim Beam two"
+    - Filler words: "um", "uh", "like"
+
+    Args:
+        transcript: Raw voice transcript
+
+    Returns:
+        Cleaned transcript
+    """
+    import re
+
+    # Remove filler words
+    filler_words = ['um', 'uh', 'like', 'you know', 'so', 'actually', 'basically']
+    cleaned = transcript.lower()
+    for filler in filler_words:
+        cleaned = re.sub(r'\b' + filler + r'\b', '', cleaned, flags=re.IGNORECASE)
+
+    # Handle corrections: "X... no wait Y" → keep only Y
+    cleaned = re.sub(r'.+?(no wait|wait|actually)\s+(.+)', r'\2', cleaned, flags=re.IGNORECASE)
+
+    # Remove excessive ellipses/pauses
+    cleaned = re.sub(r'\.{2,}', ' ', cleaned)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
+    # Handle duplicates: if same item appears twice in a row, keep only the one with a number
+    # "ketel one ketel one three" → "ketel one three"
+    words = cleaned.split()
+    result = []
+    i = 0
+    while i < len(words):
+        # Look ahead to see if next few words are a duplicate
+        if i < len(words) - 2:
+            # Check if we have "word word number" pattern
+            potential_dup = ' '.join(words[i:i+2])
+            potential_with_count = ' '.join(words[i+2:i+4]) if i+3 < len(words) else words[i+2] if i+2 < len(words) else ''
+
+            # If the first two words appear again, and the second mention has a number, skip first mention
+            if i+4 < len(words) and ' '.join(words[i+2:i+4]) == potential_dup:
+                # Skip the first mention
+                i += 2
+                continue
+
+        result.append(words[i])
+        i += 1
+
+    cleaned = ' '.join(result)
+
+    # Restore original casing for better matching
+    return cleaned.title() if cleaned else transcript
+
+
+def process_multi_item_transcript(session, transcript, dataset, use_ai=False):
     """
     Process multiple items from a continuous recording transcript.
 
@@ -622,10 +827,17 @@ def process_multi_item_transcript(session, transcript, dataset):
         session: Current VoiceCountSession
         transcript: Full transcript containing multiple items
         dataset: InventoryDataset
+        use_ai: If True, use AI assistant for parsing (premium feature)
 
     Returns:
-        Number of items successfully processed
+        Number of items successfully processed (or tuple with AI feedback if use_ai=True)
     """
+    # Check if AI mode is enabled and available
+    if use_ai:
+        return process_with_ai_assistant(session, transcript, dataset)
+
+    # Free tier: Smart cleaning + regular parsing
+    transcript = clean_transcript_smart(transcript)
     matcher = st.session_state.voice_matcher
 
     # Split transcript by common separators (comma, "and", semicolon)
