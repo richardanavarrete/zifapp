@@ -718,8 +718,8 @@ def render_photo_counting(session, dataset):
             st.markdown("**Step 4: Confirm and Add**")
 
             if st.button("✓ Process AI Results", type="primary", use_container_width=True):
-                # Treat AI result like a voice transcript
-                transcript = st.session_state.ai_analysis_result
+                # Convert AI format (2x Product) to transcript format (Product 2)
+                transcript = convert_ai_format_to_transcript(st.session_state.ai_analysis_result)
 
                 # Use existing multi-item processing
                 with st.spinner("Processing AI detected items..."):
@@ -732,6 +732,37 @@ def render_photo_counting(session, dataset):
                     st.rerun()
                 else:
                     st.warning("⚠️ No items could be matched. Please try voice or manual counting.")
+
+
+def convert_ai_format_to_transcript(ai_response):
+    """
+    Convert AI photo analysis format to voice transcript format.
+
+    AI format: "- 2x Tito's Vodka\n- 1x Buffalo Trace"
+    Transcript format: "Tito's Vodka 2, Buffalo Trace 1"
+
+    Args:
+        ai_response: AI analysis text
+
+    Returns:
+        str: Converted transcript
+    """
+    import re
+
+    # Extract lines with format "Nx Product Name" or "N x Product Name"
+    # Matches: "2x Tito's Vodka", "1x Buffalo Trace", "3 x Jagermeister"
+    pattern = r'[-•]\s*(\d+)\s*x\s+(.+?)(?=\n|$)'
+
+    matches = re.findall(pattern, ai_response, re.IGNORECASE | re.MULTILINE)
+
+    # Convert to "Product N, Product N" format
+    items = []
+    for count, product in matches:
+        # Clean up product name (remove trailing punctuation, extra spaces)
+        product = product.strip().rstrip('.,;')
+        items.append(f"{product} {count}")
+
+    return ', '.join(items)
 
 
 def render_scale_photo(session, dataset):
