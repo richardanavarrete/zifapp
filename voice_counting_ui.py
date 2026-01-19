@@ -169,7 +169,7 @@ def render_voice_counting_tab(dataset, inventory_layout=None):
 
     input_method = st.radio(
         "Input Method",
-        ["💬 Manual Entry", "🎤 Voice Recording (Browser)", "📁 Upload Audio File", "📷 Photo Count"],
+        ["💬 Manual Entry", "🎤 Voice Recording (Browser)", "📁 Upload Audio File", "📷 Photo Count", "⚖️ Scale Photo"],
         horizontal=True
     )
 
@@ -181,6 +181,8 @@ def render_voice_counting_tab(dataset, inventory_layout=None):
         render_audio_file_input(session, dataset)
     elif input_method == "📷 Photo Count":
         render_photo_counting(session, dataset)
+    elif input_method == "⚖️ Scale Photo":
+        render_scale_photo(session, dataset)
 
     st.markdown("---")
 
@@ -730,6 +732,167 @@ def render_photo_counting(session, dataset):
                     st.rerun()
                 else:
                     st.warning("⚠️ No items could be matched. Please try voice or manual counting.")
+
+
+def render_scale_photo(session, dataset):
+    """Render AI-powered scale photo interface for bottle weighing."""
+    st.markdown("### ⚖️ Scale Photo")
+    st.info("📸 Position bottle on scale with label visible. AI will read both the label and weight!")
+
+    # Check if OpenAI is available
+    if not OPENAI_AVAILABLE:
+        st.error("⚠️ AI scale photo requires OpenAI package. Install with: `pip install openai`")
+        st.info("For now, use other counting methods (Manual or Voice)")
+        return
+
+    # Check if API key is configured
+    if "openai" not in st.secrets or "api_key" not in st.secrets["openai"]:
+        st.error("⚠️ OpenAI API key not configured")
+        st.info("Please add your API key to .streamlit/secrets.toml")
+        st.code('''[openai]\napi_key = "your-api-key-here"''', language="toml")
+        return
+
+    from PIL import Image
+
+    # Initialize session state
+    if 'scale_analysis_result' not in st.session_state:
+        st.session_state.scale_analysis_result = None
+    if 'scale_photo_count' not in st.session_state:
+        st.session_state.scale_photo_count = 0
+
+    st.markdown("**Quick Workflow:**")
+    st.caption("1. Place bottle on scale (label facing camera) → 2. Take photo → 3. Remove bottle → 4. Repeat!")
+
+    # Photo input
+    photo = st.camera_input("📷 Capture bottle on scale", key=f"scale_camera_{st.session_state.scale_photo_count}")
+
+    if photo:
+        # Load image
+        image = Image.open(photo)
+
+        # Convert to RGB mode
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+
+        # Display the photo in a smaller size
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.image(image, caption="Bottle on scale", use_container_width=True)
+
+        with col2:
+            if st.button("🤖 Analyze", type="primary", use_container_width=True, key="analyze_scale"):
+                with st.spinner("🔍 Reading label and scale..."):
+                    ai_result = analyze_scale_photo_with_ai(image)
+                    if ai_result:
+                        st.session_state.scale_analysis_result = ai_result
+                        st.rerun()
+
+        # Show AI results if available
+        if st.session_state.scale_analysis_result:
+            st.markdown("---")
+            st.markdown("**AI Analysis:**")
+            st.success(st.session_state.scale_analysis_result)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ Add to Session", type="primary", use_container_width=True):
+                    # Process the result as a transcript
+                    transcript = st.session_state.scale_analysis_result
+
+                    with st.spinner("Adding item..."):
+                        # Use single item processing (not multi-item)
+                        process_transcript(session, transcript, dataset)
+
+                    st.success("✓ Item added!")
+                    st.session_state.scale_analysis_result = None
+                    st.session_state.scale_photo_count += 1
+                    st.rerun()
+
+            with col2:
+                if st.button("❌ Skip", use_container_width=True):
+                    st.session_state.scale_analysis_result = None
+                    st.session_state.scale_photo_count += 1
+                    st.rerun()
+
+        # Show photo counter
+        if st.session_state.scale_photo_count > 0:
+            st.caption(f"📊 Bottles processed this session: {st.session_state.scale_photo_count}")
+
+
+def analyze_scale_photo_with_ai(image):
+    """
+    Analyze a photo of a bottle on a scale using GPT-4 Vision.
+    Extracts both the bottle label and weight reading.
+
+    Args:
+        image: PIL Image object
+
+    Returns:
+        str: AI response with bottle name and weight (e.g., "Tito's Vodka 850 grams")
+    """
+    if not OPENAI_AVAILABLE:
+        st.error("⚠️ OpenAI package not installed")
+        return None
+
+    if "openai" not in st.secrets or "api_key" not in st.secrets["openai"]:
+        st.error("⚠️ OpenAI API key not configured")
+        return None
+
+    try:
+        # Initialize OpenAI client
+        client = OpenAI(api_key=st.secrets["openai"]["api_key"])
+
+        # Convert PIL image to base64
+        import io
+        buffered = io.BytesIO()
+        image.save(buffered, format="JPEG")
+        img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+        # Create the API request
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": """You are analyzing a photo of a liquor bottle placed on a digital scale.
+
+Your task:
+1. Read the bottle label - identify the brand and product name (e.g., "Tito's Vodka", "Buffalo Trace Bourbon", "Corona Extra")
+2. Read the scale display - extract the weight in grams or pounds
+
+Respond in this EXACT format:
+[Brand Name] [Product Type] [weight] [unit]
+
+Examples:
+- "Tito's Vodka 850 grams"
+- "Buffalo Trace Bourbon 1.2 pounds"
+- "Corona Extra 645 grams"
+
+If you cannot read the bottle label, say "Unknown Bottle [weight] [unit]"
+If you cannot read the scale, say "Could not read scale display"
+
+Be concise - just give the brand, product, weight, and unit."""
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{img_base64}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_tokens=100
+        )
+
+        return response.choices[0].message.content
+
+    except Exception as e:
+        st.error(f"❌ Error analyzing photo: {str(e)}")
+        return None
 
 
 def analyze_photo_with_ai(image):
