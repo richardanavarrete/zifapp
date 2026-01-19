@@ -227,13 +227,16 @@ def render_browser_voice_input(session, dataset):
     st.markdown("**🎤 Continuous Recording Mode**")
     st.info("💡 Click microphone to start/stop. Say multiple items: 'Buffalo Trace 3, Titos 5, Makers 850 grams...'")
 
-    # Record audio
+    # Record audio (disable auto-stop on silence)
     audio_bytes = audio_recorder(
         text="Click to record",
         recording_color="#e74c3c",
         neutral_color="#3498db",
         icon_size="2x",
-        key="voice_recorder"
+        key="voice_recorder",
+        # Disable automatic stopping on silence - record until user clicks stop
+        energy_threshold=(-1.0, 1.0),  # Negative start = manual start, high stop = no auto-stop
+        pause_threshold=999.0  # Very high threshold prevents auto-stop on silence
     )
 
     if audio_bytes:
@@ -675,18 +678,25 @@ def process_with_ai_assistant(session, transcript, dataset):
                     "role": "system",
                     "content": """You are an inventory counting assistant. Extract items and counts from user speech.
 
-Handle duplicates, corrections, and hesitations naturally:
-- "Ketel One Ketel One three" → 3 Ketel One (person repeated themselves)
-- "Tito's... no wait Buffalo Trace two" → 2 Buffalo Trace (correction)
-- "Jim Beam um... three" → 3 Jim Beam (hesitation)
+Handle various formats and edge cases:
+- Continuous speech without commas: "Tito's 7.0 Buffalo Trace 3.0 Maker's Mark 5.0" → extract all 3 items
+- Decimal numbers: "7.0" or "3.0" should be parsed as 7 and 3 (integers)
+- Duplicates: "Ketel One Ketel One three" → 3 Ketel One (person repeated themselves)
+- Corrections: "Tito's... no wait Buffalo Trace two" → 2 Buffalo Trace (correction)
+- Hesitations: "Jim Beam um... three" → 3 Jim Beam (hesitation)
+- Multiple same items: "Tito's 7 ... Tito's 5" → Two separate entries: 7 Tito's and 5 Tito's
+
+IMPORTANT: When items are spoken continuously without clear separators (e.g., "Tito's 7.0 Buffalo Trace 3.0"),
+use the pattern where a NUMBER followed by a PRODUCT NAME indicates the end of the previous item.
 
 Return JSON format:
 {
   "items": [
     {"name": "Buffalo Trace", "count": 3, "unit": null},
-    {"name": "Tito's Vodka", "count": 850, "unit": "grams"}
+    {"name": "Tito's Vodka", "count": 7, "unit": null},
+    {"name": "Tito's Vodka", "count": 5, "unit": null}
   ],
-  "confirmation": "Got it - 3 Buffalo Trace and 850 grams of Tito's Vodka. What else?"
+  "confirmation": "Got it - 3 Buffalo Trace, 7 Tito's, and 5 Tito's. What else?"
 }
 
 If you can't extract any items, return empty items array with helpful message."""
@@ -840,9 +850,23 @@ def process_multi_item_transcript(session, transcript, dataset, use_ai=False):
     transcript = clean_transcript_smart(transcript)
     matcher = st.session_state.voice_matcher
 
-    # Split transcript by common separators (comma, "and", semicolon)
-    # Also handle natural pauses that might be transcribed as periods
-    separators = [',', ' and ', ';', '.']
+    # Normalize decimal numbers (7.0 → 7, 3.0 → 3) to prevent bad splits
+    import re
+    transcript = re.sub(r'(\d+)\.0+\b', r'\1', transcript)  # Remove .0 from numbers
+
+    # Detect continuous speech pattern: "Item1 Number1 Item2 Number2"
+    # Insert delimiter after each number-word pair, but NOT if followed by weight units
+    # Example: "Chambord 7 Buffalo Trace 6" → "Chambord 7|Buffalo Trace 6"
+    # But keep: "Makers 850 grams" → "Makers 850 grams" (no split)
+    transcript = re.sub(
+        r'(\d+)\s+(?!(?:grams?|g|pounds?|lbs?|lb)\b)([a-zA-Z])',  # Negative lookahead for weight units
+        r'\1|\2',  # Insert delimiter between number and word (if not a weight unit)
+        transcript,
+        flags=re.IGNORECASE
+    )
+
+    # Split transcript by common separators (comma, "and", semicolon, now includes |)
+    separators = [',', ' and ', ';', '|']
 
     # Replace all separators with a common delimiter
     normalized = transcript
