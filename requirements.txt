@@ -9,7 +9,5 @@ rapidfuzz>=3.0.0
 SpeechRecognition>=3.10.0
 pydub>=0.25.1
 openai-whisper>=20231117
-openai>=1.0.0
 audio-recorder-streamlit>=0.0.8
-streamlit-image-coordinates>=0.1.0
 Pillow>=9.0.0

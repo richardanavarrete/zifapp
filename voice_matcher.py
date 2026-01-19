@@ -120,6 +120,46 @@ class VoiceItemMatcher:
 
         return text
 
+    def _has_key_word_match(self, transcript: str, variation: str) -> bool:
+        """
+        Check if transcript contains key identifying words from the variation.
+
+        Prevents bad matches like "Villa San-Juliette" matching "Villa Sandi"
+        where only the first word matches but the brand name is different.
+
+        Args:
+            transcript: User input (lowercase)
+            variation: Item variation to check (lowercase)
+
+        Returns:
+            True if key brand words are present in transcript
+        """
+        # Split into words
+        transcript_words = set(transcript.split())
+        variation_words = set(variation.split())
+
+        # Common category/type words that shouldn't be the only match
+        non_distinctive = {
+            'vodka', 'whiskey', 'bourbon', 'rum', 'gin', 'tequila',
+            'beer', 'wine', 'ipa', 'lager', 'pale', 'ale', 'stout',
+            'red', 'white', 'chardonnay', 'pinot', 'grigio', 'noir', 'sauvignon', 'blanc',
+            'the', 'a', 'an', 'bottle', 'can', 'draft', 'keg'
+        }
+
+        # Get distinctive words from variation (the brand name parts)
+        distinctive_variation_words = variation_words - non_distinctive
+
+        if not distinctive_variation_words:
+            # If no distinctive words, allow the match (edge case)
+            return True
+
+        # Check if at least one distinctive word appears in transcript
+        # For multi-word brands like "Buffalo Trace" or "Villa San-Juliette",
+        # at least one of the brand words must match
+        matches = transcript_words & distinctive_variation_words
+
+        return len(matches) > 0
+
     def match(self, transcript: str, top_n: int = 3) -> List[MatchResult]:
         """
         Find the best matching items for a voice transcript.
@@ -183,14 +223,38 @@ class VoiceItemMatcher:
                         best_variation = variation
                         best_method = method
 
-            # Add to candidates if score is above threshold (50%)
-            if best_score >= 50:
-                all_candidates.append((
-                    item_id,
-                    best_variation,
-                    best_score / 100.0,  # Convert to 0.0-1.0
-                    best_method
-                ))
+            # Add to candidates if score is above threshold
+            # Use stricter threshold (65%) and require key brand words to match
+            if best_score >= 65:
+                # Additional check: ensure key brand words are present
+                if self._has_key_word_match(transcript.lower(), best_variation.lower()):
+                    all_candidates.append((
+                        item_id,
+                        best_variation,
+                        best_score / 100.0,  # Convert to 0.0-1.0
+                        best_method
+                    ))
+            elif best_score >= 50:
+                # Lower threshold (50-65%) only if very strong key word overlap
+                transcript_words = set(transcript.lower().split())
+                variation_words = set(best_variation.lower().split())
+
+                # Remove common noise words for comparison
+                noise = {'the', 'a', 'an', 'vodka', 'whiskey', 'rum', 'gin', 'beer', 'wine', 'bottle', 'can'}
+                transcript_key_words = transcript_words - noise
+                variation_key_words = variation_words - noise
+
+                # Require at least 80% of key words to match
+                if transcript_key_words and variation_key_words:
+                    overlap = len(transcript_key_words & variation_key_words)
+                    min_keys = min(len(transcript_key_words), len(variation_key_words))
+                    if overlap / min_keys >= 0.8:
+                        all_candidates.append((
+                            item_id,
+                            best_variation,
+                            best_score / 100.0,
+                            best_method
+                        ))
 
         # Sort by confidence and take top N
         all_candidates.sort(key=lambda x: x[2], reverse=True)
