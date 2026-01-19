@@ -89,11 +89,11 @@ MIXED_DRINK_RECIPES = {
     },
     
     "Espresso Martini": {
-        "VODKA Blue Ice Double Espresso": 5.0,
+        "VODKA Blue Ice Double Espresso": 3.0,
     },
 
     "Espresso Shot": {
-        "VODKA Blue Ie Double Espresso": 3.0
+        "VODKA Blue Ice Double Espresso": 1.5,
     },
 
     "Gimlet Vodka": {
