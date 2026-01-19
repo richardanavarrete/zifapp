@@ -17,12 +17,23 @@ import json
 
 # Audio recording component
 try:
-    from audio_recorder_streamlit import audio_recorder
+    from audiorecorder import audiorecorder
     AUDIO_RECORDER_AVAILABLE = True
 except ImportError:
     AUDIO_RECORDER_AVAILABLE = False
 
-# Speech recognition for file upload
+# Speech recognition - using OpenAI Whisper for better accuracy
+try:
+    import whisper
+    import torch
+    WHISPER_AVAILABLE = True
+    # Load Whisper model once (base model is fast and accurate enough)
+    # Model sizes: tiny, base, small, medium, large (larger = more accurate but slower)
+    WHISPER_MODEL = None  # Lazy load on first use
+except ImportError:
+    WHISPER_AVAILABLE = False
+
+# Fallback to Google Speech Recognition if Whisper not available
 try:
     import speech_recognition as sr
     SPEECH_RECOGNITION_AVAILABLE = True
@@ -220,30 +231,31 @@ def render_manual_input(session, dataset):
 def render_browser_voice_input(session, dataset):
     """Render browser-based voice recording interface."""
     if not AUDIO_RECORDER_AVAILABLE:
-        st.warning("⚠️ Audio recorder not available. Install with: `pip install audio-recorder-streamlit`")
+        st.warning("⚠️ Audio recorder not available. Install with: `pip install streamlit-audiorecorder`")
         st.info("💡 Use Manual Entry or Upload Audio File instead")
         return
 
     st.markdown("**🎤 Continuous Recording Mode**")
-    st.info("💡 Click microphone to start/stop. Say multiple items: 'Buffalo Trace 3, Titos 5, Makers 850 grams...'")
+    st.info("💡 Click Start to record. Say multiple items: 'Buffalo Trace 3, Titos 5, Makers 850 grams...'. Click Stop when done.")
 
-    # Record audio (disable auto-stop on silence)
-    audio_bytes = audio_recorder(
-        text="Click to record",
-        recording_color="#e74c3c",
-        neutral_color="#3498db",
-        icon_size="2x",
-        key="voice_recorder",
-        # Disable automatic stopping on silence - record until user clicks stop
-        energy_threshold=(-1.0, 1.0),  # Negative start = manual start, high stop = no auto-stop
-        pause_threshold=999.0  # Very high threshold prevents auto-stop on silence
+    # Record audio with better UI and visualizer
+    audio = audiorecorder(
+        start_prompt="🎤 Start Recording",
+        stop_prompt="⏹️ Stop Recording",
+        pause_prompt="",  # Hide pause button
+        show_visualizer=True,
+        key="voice_recorder"
     )
 
-    if audio_bytes:
-        st.audio(audio_bytes, format="audio/wav")
+    # Check if audio was recorded (AudioSegment has length > 0)
+    if len(audio) > 0:
+        # Play back the recorded audio
+        st.audio(audio.export().read(), format="audio/wav")
 
         if st.button("🔄 Transcribe & Process All Items", key="transcribe_btn", type="primary"):
             with st.spinner("Transcribing..."):
+                # Convert AudioSegment to bytes for transcription
+                audio_bytes = audio.export(format="wav").read()
                 transcript = transcribe_audio_bytes(audio_bytes)
                 if transcript:
                     st.success(f"📝 Transcribed: {transcript}")
@@ -273,8 +285,8 @@ def render_browser_voice_input(session, dataset):
 
 def render_audio_file_input(session, dataset):
     """Render audio file upload interface."""
-    if not SPEECH_RECOGNITION_AVAILABLE:
-        st.warning("⚠️ Speech recognition not available. Install with: `pip install SpeechRecognition`")
+    if not WHISPER_AVAILABLE and not SPEECH_RECOGNITION_AVAILABLE:
+        st.warning("⚠️ Speech recognition not available. Install with: `pip install openai-whisper`")
         st.info("💡 Use Manual Entry or Browser Voice Recording instead")
         return
 
@@ -942,89 +954,120 @@ def process_multi_item_transcript(session, transcript, dataset, use_ai=False):
     return items_processed
 
 
+def _load_whisper_model():
+    """Lazy load Whisper model on first use."""
+    global WHISPER_MODEL
+    if WHISPER_MODEL is None:
+        # Use 'base' model - good balance of speed and accuracy
+        # Options: tiny, base, small, medium, large
+        WHISPER_MODEL = whisper.load_model("base")
+    return WHISPER_MODEL
+
+
 def transcribe_audio_bytes(audio_bytes):
-    """Transcribe audio from bytes using speech recognition."""
-    if not SPEECH_RECOGNITION_AVAILABLE:
-        return None
+    """
+    Transcribe audio from bytes using OpenAI Whisper (preferred) or Google Speech as fallback.
 
-    try:
-        import io
+    Whisper provides ~7.4% WER (Word Error Rate) vs Google's higher error rate.
+    """
+    import io
+    import tempfile
 
-        recognizer = sr.Recognizer()
-
-        # The audio-recorder-streamlit outputs WAV format by default
-        # Try direct recognition first (no conversion needed)
+    # Try Whisper first (much better accuracy for brand names)
+    if WHISPER_AVAILABLE:
         try:
+            # Whisper needs a file, so save to temp file
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
+                temp_audio.write(audio_bytes)
+                temp_audio.flush()
+
+                # Load model and transcribe
+                model = _load_whisper_model()
+                result = model.transcribe(
+                    temp_audio.name,
+                    language="en",  # Specify English for better accuracy
+                    task="transcribe",
+                    fp16=False  # Use FP32 for CPU compatibility
+                )
+
+                # Clean up temp file
+                import os
+                os.unlink(temp_audio.name)
+
+                return result["text"].strip()
+
+        except Exception as whisper_error:
+            st.warning(f"⚠️ Whisper transcription failed: {whisper_error}")
+            st.info("💡 Falling back to Google Speech Recognition...")
+
+    # Fallback to Google Speech Recognition
+    if SPEECH_RECOGNITION_AVAILABLE:
+        try:
+            recognizer = sr.Recognizer()
+
             with sr.AudioFile(io.BytesIO(audio_bytes)) as source:
                 audio_data = recognizer.record(source)
                 text = recognizer.recognize_google(audio_data)
                 return text
-        except Exception as direct_error:
-            # If direct recognition fails, try with pydub conversion
-            try:
-                from pydub import AudioSegment
+        except Exception as e:
+            st.error(f"Google Speech Recognition error: {e}")
+            return None
 
-                # Convert bytes to AudioSegment
-                audio = AudioSegment.from_file(io.BytesIO(audio_bytes))
-
-                # Export as WAV for speech recognition
-                wav_io = io.BytesIO()
-                audio.export(wav_io, format='wav')
-                wav_io.seek(0)
-
-                # Recognize speech
-                with sr.AudioFile(wav_io) as source:
-                    audio_data = recognizer.record(source)
-                    text = recognizer.recognize_google(audio_data)
-                    return text
-            except Exception as conversion_error:
-                st.error(f"Could not transcribe audio. FFmpeg may not be installed. Error: {conversion_error}")
-                st.info("💡 Tip: Use Manual Entry mode as a fallback, or check that FFmpeg is installed.")
-                return None
-    except Exception as e:
-        st.error(f"Transcription error: {e}")
-        return None
+    st.error("❌ No transcription service available. Install Whisper with: `pip install openai-whisper`")
+    return None
 
 
 def transcribe_audio_file(audio_file):
-    """Transcribe audio from uploaded file."""
-    if not SPEECH_RECOGNITION_AVAILABLE:
-        return None
+    """
+    Transcribe audio from uploaded file using OpenAI Whisper (preferred) or Google Speech as fallback.
+    """
+    import io
+    import tempfile
 
-    try:
-        import io
-        recognizer = sr.Recognizer()
+    # Read audio file
+    audio_file.seek(0)
+    audio_bytes = audio_file.read()
 
-        # Read audio file
-        audio_file.seek(0)
-        audio_bytes = audio_file.read()
-
-        # Try direct recognition first
+    # Try Whisper first (much better accuracy)
+    if WHISPER_AVAILABLE:
         try:
+            # Whisper can work with various audio formats
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
+                temp_audio.write(audio_bytes)
+                temp_audio.flush()
+
+                # Load model and transcribe
+                model = _load_whisper_model()
+                result = model.transcribe(
+                    temp_audio.name,
+                    language="en",
+                    task="transcribe",
+                    fp16=False
+                )
+
+                # Clean up temp file
+                import os
+                os.unlink(temp_audio.name)
+
+                return result["text"].strip()
+
+        except Exception as whisper_error:
+            st.warning(f"⚠️ Whisper transcription failed: {whisper_error}")
+            st.info("💡 Falling back to Google Speech Recognition...")
+
+    # Fallback to Google Speech Recognition
+    if SPEECH_RECOGNITION_AVAILABLE:
+        try:
+            recognizer = sr.Recognizer()
             audio_file.seek(0)
+
             with sr.AudioFile(audio_file) as source:
                 audio_data = recognizer.record(source)
                 text = recognizer.recognize_google(audio_data)
                 return text
-        except Exception as direct_error:
-            # If direct recognition fails, try with pydub conversion
-            try:
-                from pydub import AudioSegment
+        except Exception as e:
+            st.error(f"Google Speech Recognition error: {e}")
+            return None
 
-                # Convert to WAV format
-                audio = AudioSegment.from_file(io.BytesIO(audio_bytes))
-                wav_io = io.BytesIO()
-                audio.export(wav_io, format='wav')
-                wav_io.seek(0)
-
-                with sr.AudioFile(wav_io) as source:
-                    audio_data = recognizer.record(source)
-                    text = recognizer.recognize_google(audio_data)
-                    return text
-            except Exception as conversion_error:
-                st.error(f"Could not transcribe audio file. FFmpeg may not be installed. Error: {conversion_error}")
-                st.info("💡 Tip: Try using WAV format, or use Manual Entry mode as a fallback.")
-                return None
-    except Exception as e:
-        st.error(f"Transcription error: {e}")
-        return None
+    st.error("❌ No transcription service available. Install Whisper with: `pip install openai-whisper`")
+    return None
