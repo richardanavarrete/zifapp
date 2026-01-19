@@ -29,6 +29,14 @@ try:
 except ImportError:
     SPEECH_RECOGNITION_AVAILABLE = False
 
+# OpenAI for AI-powered photo counting
+try:
+    from openai import OpenAI
+    import base64
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+
 from models import VoiceCountSession, VoiceCountRecord
 from voice_matcher import VoiceItemMatcher
 from voice_export import export_voice_count_to_excel, get_inventory_order_from_template, get_default_inventory_order
@@ -615,30 +623,30 @@ def rematch_all_records(session, dataset):
 
 
 def render_photo_counting(session, dataset):
-    """Render photo-based counting interface (WISK-style visual mode)."""
-    st.markdown("### 📷 Photo Count")
-    st.info("📸 Take a photo of your shelf, tap each bottle, then specify fill level and depth.")
+    """Render AI-powered photo counting interface using GPT-4 Vision."""
+    st.markdown("### 📷 AI Photo Count")
+    st.info("📸 Take a photo of your shelf and let AI identify and count bottles automatically.")
 
-    # Try to use streamlit-image-coordinates for click capture
-    try:
-        from streamlit_image_coordinates import streamlit_image_coordinates
-        from PIL import Image, ImageDraw
-        IMAGE_COORDS_AVAILABLE = True
-    except ImportError:
-        IMAGE_COORDS_AVAILABLE = False
-        st.error("⚠️ Photo counting requires streamlit-image-coordinates. Install with: `pip install streamlit-image-coordinates`")
+    # Check if OpenAI is available
+    if not OPENAI_AVAILABLE:
+        st.error("⚠️ AI photo counting requires OpenAI package. Install with: `pip install openai`")
         st.info("For now, use other counting methods (Manual, Voice, or Weight)")
         return
 
+    # Check if API key is configured
+    if "openai" not in st.secrets or "api_key" not in st.secrets["openai"]:
+        st.error("⚠️ OpenAI API key not configured")
+        st.info("Please add your API key to .streamlit/secrets.toml")
+        st.code('''[openai]\napi_key = "your-api-key-here"''', language="toml")
+        return
+
+    from PIL import Image
+
     # Initialize session state
-    if 'photo_bottles' not in st.session_state:
-        st.session_state.photo_bottles = []
-    if 'photo_image' not in st.session_state:
-        st.session_state.photo_image = None
-    if 'photo_click_points' not in st.session_state:
-        st.session_state.photo_click_points = []
-    if 'last_click_coords' not in st.session_state:
-        st.session_state.last_click_coords = None
+    if 'ai_analysis_result' not in st.session_state:
+        st.session_state.ai_analysis_result = None
+    if 'ai_detected_items' not in st.session_state:
+        st.session_state.ai_detected_items = []
 
     # Step 1: Capture or upload photo
     st.markdown("**Step 1: Take or upload photo**")
@@ -660,195 +668,138 @@ def render_photo_counting(session, dataset):
         # Load image
         image = Image.open(photo)
 
-        # Convert to RGB mode to ensure compatibility with canvas
-        # (some images may be in RGBA, palette mode, etc.)
+        # Convert to RGB mode
         if image.mode != 'RGB':
             image = image.convert('RGB')
 
-        # Resize image if it's too large (for better display on all devices including mobile)
-        max_width = 600
-        max_height = 800
+        # Display the photo
+        st.image(image, caption="Your photo", use_container_width=True)
 
-        # Calculate resize ratio
-        width_ratio = max_width / image.width if image.width > max_width else 1
-        height_ratio = max_height / image.height if image.height > max_height else 1
-        resize_ratio = min(width_ratio, height_ratio)
+        # Clear previous analysis if new photo is taken
+        photo_hash = hash(photo.getvalue())
+        if 'last_photo_hash' not in st.session_state or st.session_state.last_photo_hash != photo_hash:
+            st.session_state.ai_analysis_result = None
+            st.session_state.ai_detected_items = []
+            st.session_state.last_photo_hash = photo_hash
 
-        if resize_ratio < 1:
-            new_width = int(image.width * resize_ratio)
-            new_height = int(image.height * resize_ratio)
-            image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        st.markdown("---")
+        st.markdown("**Step 2: Analyze with AI**")
 
-        st.session_state.photo_image = image
-
-        # Clear previous bottle annotations if new photo is taken
-        if 'last_photo_hash' not in st.session_state or st.session_state.last_photo_hash != hash(photo.getvalue()):
-            st.session_state.photo_bottles = []
-            st.session_state.photo_click_points = []
-            st.session_state.last_click_coords = None
-            st.session_state.last_photo_hash = hash(photo.getvalue())
-
-        # Action buttons
-        col1, col2, col3 = st.columns([2, 2, 1])
+        # Analyze button
+        col1, col2 = st.columns([3, 1])
         with col1:
-            if st.button("🔄 Clear Marks", use_container_width=True):
-                st.session_state.photo_click_points = []
-                st.session_state.photo_bottles = []
-                st.session_state.last_click_coords = None
-                st.rerun()
+            if st.button("🤖 Analyze Photo with AI", type="primary", use_container_width=True):
+                with st.spinner("🔍 Analyzing photo..."):
+                    ai_result = analyze_photo_with_ai(image)
+                    if ai_result:
+                        st.session_state.ai_analysis_result = ai_result
+                        st.rerun()
         with col2:
-            if st.button("⬅️ Undo Last", use_container_width=True):
-                if st.session_state.photo_click_points:
-                    st.session_state.photo_click_points.pop()
-                    if st.session_state.photo_bottles:
-                        st.session_state.photo_bottles.pop()
-                    st.session_state.last_click_coords = None
-                    st.rerun()
-        with col3:
             if st.button("❌ Clear", use_container_width=True):
-                st.session_state.photo_image = None
-                st.session_state.photo_bottles = []
-                st.session_state.photo_click_points = []
-                st.session_state.last_click_coords = None
+                st.session_state.ai_analysis_result = None
+                st.session_state.ai_detected_items = []
                 if 'last_photo_hash' in st.session_state:
                     del st.session_state.last_photo_hash
                 st.rerun()
 
-        st.markdown("---")
-        st.markdown("**Step 2: Tap each bottle on the image**")
-        st.caption("Click/tap bottles to mark them. The image shows your marked bottles with numbered circles.")
-
-        # Draw markers on image
-        display_image = image.copy()
-        draw = ImageDraw.Draw(display_image)
-
-        # Draw existing click points
-        for i, (x, y) in enumerate(st.session_state.photo_click_points):
-            # Draw circle
-            radius = 15
-            draw.ellipse([x - radius, y - radius, x + radius, y + radius],
-                        fill=(255, 107, 107, 128), outline=(255, 107, 107), width=2)
-            # Draw number
-            draw.text((x - 5, y - 8), str(i + 1), fill=(255, 255, 255))
-
-        # Display clickable image
-        value = streamlit_image_coordinates(display_image, key="photo_clicker")
-
-        # Handle click event with deduplication
-        if value is not None and value.get("x") is not None:
-            new_x = value["x"]
-            new_y = value["y"]
-            current_coords = (new_x, new_y)
-
-            # Only add if this is a new click (different from last registered click)
-            if st.session_state.last_click_coords != current_coords:
-                st.session_state.photo_click_points.append(current_coords)
-                st.session_state.last_click_coords = current_coords
-                st.rerun()
-
-        # Show bottle specification UI if there are click points
-        if len(st.session_state.photo_click_points) > 0:
+        # Show AI results if available
+        if st.session_state.ai_analysis_result:
             st.markdown("---")
-            st.markdown(f"**Step 3: Specify details for each bottle ({len(st.session_state.photo_click_points)} marked)**")
+            st.markdown("**Step 3: AI Detected Items**")
 
-            # Process each marked bottle
-            for i, (x, y) in enumerate(st.session_state.photo_click_points):
-                with st.expander(f"🍾 Bottle #{i+1} (x: {x:.0f}, y: {y:.0f})", expanded=(i==len(st.session_state.photo_click_points)-1)):
-                    col1, col2 = st.columns([3, 1])
+            # Display raw AI response
+            st.markdown("**AI Analysis:**")
+            st.info(st.session_state.ai_analysis_result)
 
-                    with col1:
-                        item_name = st.text_input(
-                            "What is this?",
-                            placeholder="Type item name...",
-                            key=f"photo_item_{i}"
-                        )
-
-                    # Fuzzy match if searching
-                    matched_item_id = None
-                    if item_name:
-                        matcher = st.session_state.voice_matcher
-                        matches = matcher.match(item_name, top_n=3)
-                        if matches:
-                            st.markdown("**Select:**")
-                            for match in matches:
-                                if st.button(
-                                    f"{dataset.items[match.item_id].display_name} ({match.confidence:.0%})",
-                                    key=f"photo_match_{i}_{match.item_id}"
-                                ):
-                                    matched_item_id = match.item_id
-
-                    # Fill level selector
-                    fill_level = st.select_slider(
-                        "Fill level",
-                        options=["Empty", "1/4", "1/2", "3/4", "Full"],
-                        value="Full",
-                        key=f"photo_fill_{i}"
-                    )
-
-                    # Depth (how many deep on shelf)
-                    depth = st.number_input(
-                        "How many bottles deep?",
-                        min_value=1,
-                        max_value=20,
-                        value=1,
-                        key=f"photo_depth_{i}"
-                    )
-
-                    # Calculate count
-                    fill_map = {"Empty": 0.0, "1/4": 0.25, "1/2": 0.5, "3/4": 0.75, "Full": 1.0}
-                    fill_pct = fill_map[fill_level]
-                    total_count = depth * fill_pct
-
-                    st.info(f"📊 Total: {total_count:.2f} bottles ({depth} deep × {fill_pct:.0%} full)")
-
-                    # Store in session state
-                    bottle_data = {
-                        'index': i,
-                        'item_name': item_name,
-                        'matched_item_id': matched_item_id,
-                        'fill_level': fill_pct,
-                        'depth': depth,
-                        'count': total_count,
-                        'position': (x, y)
-                    }
-
-                    # Update session state
-                    if i < len(st.session_state.photo_bottles):
-                        st.session_state.photo_bottles[i] = bottle_data
-                    else:
-                        st.session_state.photo_bottles.append(bottle_data)
-
-            # Add all to session button
+            # Process the AI response as if it's a transcript
             st.markdown("---")
-            if st.button("✓ Add All Bottles to Session", type="primary", use_container_width=True):
-                added_count = 0
-                for bottle_data in st.session_state.photo_bottles:
-                    if bottle_data.get('matched_item_id'):
-                        record = VoiceCountRecord(
-                            record_id=str(uuid.uuid4()),
-                            session_id=session.session_id,
-                            timestamp=datetime.now(),
-                            raw_transcript=f"Photo: {bottle_data['item_name']}",
-                            matched_item_id=bottle_data['matched_item_id'],
-                            count_value=bottle_data['count'],
-                            confidence_score=0.95,  # User confirmed
-                            match_method="photo",
-                            is_verified=True,
-                            notes=f"{bottle_data['fill_level']:.0%} full, {bottle_data['depth']} deep"
-                        )
-                        session.add_record(record)
-                        added_count += 1
+            st.markdown("**Step 4: Confirm and Add**")
 
-                if added_count > 0:
-                    storage.save_voice_count_session(session)
-                    st.session_state.photo_bottles = []
-                    st.session_state.photo_click_points = []
-                    st.session_state.photo_image = None
-                    st.session_state.last_click_coords = None
-                    st.success(f"✓ Added {added_count} bottles to session!")
+            if st.button("✓ Process AI Results", type="primary", use_container_width=True):
+                # Treat AI result like a voice transcript
+                transcript = st.session_state.ai_analysis_result
+
+                # Use existing multi-item processing
+                with st.spinner("Processing AI detected items..."):
+                    items_processed = process_multi_item_transcript(session, transcript, dataset)
+
+                if items_processed > 0:
+                    st.success(f"✓ Added {items_processed} items from AI analysis!")
+                    st.session_state.ai_analysis_result = None
+                    st.session_state.ai_detected_items = []
                     st.rerun()
                 else:
-                    st.warning("⚠️ No matched items to add. Please identify bottles first.")
+                    st.warning("⚠️ No items could be matched. Please try voice or manual counting.")
+
+
+def analyze_photo_with_ai(image):
+    """
+    Analyze a photo using GPT-4 Vision to identify and count bottles.
+
+    Args:
+        image: PIL Image object
+
+    Returns:
+        str: AI response describing bottles found in the image, or None if error
+    """
+    if not OPENAI_AVAILABLE:
+        st.error("⚠️ OpenAI package not installed. Install with: `pip install openai`")
+        return None
+
+    # Check if API key is configured
+    if "openai" not in st.secrets or "api_key" not in st.secrets["openai"]:
+        st.error("⚠️ OpenAI API key not configured. Please add it to .streamlit/secrets.toml")
+        return None
+
+    try:
+        # Initialize OpenAI client
+        client = OpenAI(api_key=st.secrets["openai"]["api_key"])
+
+        # Convert PIL image to base64
+        import io
+        buffered = io.BytesIO()
+        image.save(buffered, format="JPEG")
+        img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+        # Create the API request
+        response = client.chat.completions.create(
+            model="gpt-4o",  # gpt-4o supports vision
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": """Analyze this photo of a liquor shelf and list all bottles you can identify.
+
+For each bottle, provide:
+- Brand name and product type (e.g., "Tito's Vodka", "Buffalo Trace Bourbon")
+- Approximate count of visible bottles of that same product
+
+Format your response as a simple list like:
+- 3x Tito's Vodka
+- 2x Buffalo Trace Bourbon
+- 1x Jagermeister
+
+Only list bottles you can clearly identify. If you see bottles but can't read the label, describe them as "Unknown [type] bottle"."""
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{img_base64}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            max_tokens=500
+        )
+
+        return response.choices[0].message.content
+
+    except Exception as e:
+        st.error(f"❌ Error analyzing photo: {str(e)}")
+        return None
 
 
 def process_multi_item_transcript(session, transcript, dataset):
