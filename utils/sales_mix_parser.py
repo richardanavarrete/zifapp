@@ -339,7 +339,9 @@ def calculate_liquor_usage(sales_df):
         if not matched:
             # Fallback: Check if this is a mixed drink miscategorized as liquor
             # (e.g., "Iceberg" comes in as Bar Other but is actually a frozen drink)
-            for recipe_name, ingredients in MIXED_DRINK_RECIPES.items():
+            # Sort recipes by name length (longest first) to match specific variants before generic ones
+            sorted_recipes = sorted(MIXED_DRINK_RECIPES.items(), key=lambda x: len(x[0]), reverse=True)
+            for recipe_name, ingredients in sorted_recipes:
                 # Match if recipe name is in POS item OR POS item is in recipe name
                 # This handles both exact matches and partial matches in either direction
                 if (recipe_name.lower() in clean_name.lower() or
@@ -574,8 +576,11 @@ def calculate_mixed_drink_usage(sales_df):
                 continue
 
         # Standard mixed drink recipes (non-margarita drinks)
+        # Sort recipes by name length (longest first) to match specific variants before generic ones
+        # e.g., "Old Fashion Bulleit Rye" should match before "Old Fashion"
         matched = False
-        for recipe_name, ingredients in MIXED_DRINK_RECIPES.items():
+        sorted_recipes = sorted(MIXED_DRINK_RECIPES.items(), key=lambda x: len(x[0]), reverse=True)
+        for recipe_name, ingredients in sorted_recipes:
             if recipe_name.lower() in clean_name.lower():
                 for inv_item, oz_per_drink in ingredients.items():
                     if inv_item not in results:
@@ -664,7 +669,9 @@ def attribute_revenue_to_items(sales_df, all_results):
                             break
                 else:
                     # Other mixed drinks
-                    for recipe_name, ingredients in MIXED_DRINK_RECIPES.items():
+                    # Sort recipes by name length (longest first) to match specific variants before generic ones
+                    sorted_recipes = sorted(MIXED_DRINK_RECIPES.items(), key=lambda x: len(x[0]), reverse=True)
+                    for recipe_name, ingredients in sorted_recipes:
                         if recipe_name.lower() in clean_name.lower():
                             # Split revenue proportionally by ingredient cost/volume
                             for inv_item in ingredients.keys():
