@@ -305,18 +305,37 @@ def render_browser_voice_input(session, dataset):
                     st.error(f"Transcription error: {str(e)}")
 
 
+def format_transcript_with_newlines(transcript: str) -> str:
+    """Format transcript with newlines after each number for easier reading/editing."""
+    import re
+    # Insert newline after numbers (but not before weight units)
+    # Pattern: number followed by space and a letter (start of next item)
+    formatted = re.sub(
+        r'(\d+\.?\d*)\s*,?\s*(?!(?:grams?|g|pounds?|lbs?|lb|oz|ounces?)\b)([A-Za-z])',
+        r'\1\n\2',
+        transcript,
+        flags=re.IGNORECASE
+    )
+    # Also handle period followed by space and capital letter (sentence boundary)
+    formatted = re.sub(r'\.\s+([A-Z])', r'.\n\1', formatted)
+    return formatted.strip()
+
+
 def render_transcript_editor(session, dataset):
     """Render the editable transcript text box and mapping controls."""
     st.markdown("### 📝 Review & Edit Transcript")
-    st.info("💡 Edit the transcript below if needed, then click 'Map Items' to match to your inventory.")
+    st.info("💡 Edit the transcript below if needed (one item per line), then click 'Map Items' to match to your inventory.")
 
-    # Editable text area for transcript
+    # Format transcript with newlines for easier editing
+    display_transcript = format_transcript_with_newlines(st.session_state.pending_transcript)
+
+    # Editable text area for transcript - larger size
     edited_transcript = st.text_area(
         "Transcription",
-        value=st.session_state.pending_transcript,
-        height=150,
+        value=display_transcript,
+        height=300,
         key="transcript_editor",
-        help="Edit the transcript to fix any transcription errors before mapping to items"
+        help="Edit the transcript to fix any transcription errors before mapping to items. One item per line."
     )
 
     # Action buttons
@@ -1008,8 +1027,8 @@ def process_multi_item_transcript(session, transcript, dataset, use_ai=False):
         flags=re.IGNORECASE
     )
 
-    # Split transcript by common separators (comma, "and", semicolon, now includes |)
-    separators = [',', ' and ', ';', '|']
+    # Split transcript by common separators (comma, "and", semicolon, newline, now includes |)
+    separators = ['\n', ',', ' and ', ';', '|']
 
     # Replace all separators with a common delimiter
     normalized = transcript
