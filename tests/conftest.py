@@ -4,7 +4,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app
-from api.config import Settings
 
 
 @pytest.fixture

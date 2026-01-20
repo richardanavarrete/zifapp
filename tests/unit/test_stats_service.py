@@ -1,10 +1,11 @@
 """Tests for stats service."""
 
-import pytest
 from datetime import date
 
-from smallcogs.models.inventory import Item, Record
+import pytest
+
 from smallcogs.models.common import TrendDirection
+from smallcogs.models.inventory import Item, Record
 from smallcogs.services.stats_service import StatsService
 
 

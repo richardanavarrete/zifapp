@@ -9,11 +9,11 @@ This module handles exporting voice count sessions to Excel format with:
 """
 
 from io import BytesIO
-from datetime import datetime
-from typing import Optional, Dict, List
+from typing import Dict, List, Optional
+
 import pandas as pd
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 
@@ -128,9 +128,6 @@ def export_voice_count_to_excel(
     header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
     header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-
-    subheader_fill = PatternFill(start_color="B8CCE4", end_color="B8CCE4", fill_type="solid")
-    subheader_font = Font(bold=True)
 
     high_conf_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")  # Light green
     med_conf_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")   # Light yellow

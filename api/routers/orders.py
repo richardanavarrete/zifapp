@@ -4,19 +4,20 @@ Order Recommendations API Routes
 Endpoints for agentic ordering - smart recommendations based on usage.
 """
 
-from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Depends
+from typing import List, Optional
 
+from fastapi import APIRouter, Depends, HTTPException
+
+from api.dependencies import get_inventory_service, get_order_service
 from smallcogs.models.orders import (
-    OrderTargets,
+    ApprovalRequest,
     OrderConstraints,
+    OrderExport,
+    OrderTargets,
     RecommendationRun,
     RecommendRequest,
-    ApprovalRequest,
-    OrderExport,
 )
-from smallcogs.services import OrderService, InventoryService
-from api.dependencies import get_order_service, get_inventory_service
+from smallcogs.services import InventoryService, OrderService
 
 router = APIRouter(prefix="/orders", tags=["Order Recommendations"])
 

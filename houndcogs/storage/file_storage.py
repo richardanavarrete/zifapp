@@ -6,13 +6,11 @@ Supports local storage with optional S3 backend.
 """
 
 import logging
-import os
-import shutil
 import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 from fastapi import UploadFile
 

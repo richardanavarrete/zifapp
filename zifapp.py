@@ -1,31 +1,28 @@
-import streamlit as st
-import pandas as pd
-from datetime import datetime
-from utils import parse_sales_mix_csv, aggregate_all_usage
-from statsmodels.tsa.holtwinters import SimpleExpSmoothing
-import re
 import math
+
+import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-from models import create_dataset_from_excel
-from features import compute_features
-from mappings import enrich_dataset
+import streamlit as st
+from statsmodels.tsa.holtwinters import SimpleExpSmoothing
+
+import cache_manager
+from agent import get_order_by_vendor, run_agent
 from cogs import (
     calculate_cogs_by_category,
     calculate_cogs_by_vendor,
-    calculate_theoretical_cogs,
-    calculate_pour_cost,
+    calculate_item_profitability,
     calculate_pour_cost_actual,
+    calculate_theoretical_cogs,
     calculate_variance_analysis,
     generate_shrinkage_report,
     get_cogs_summary,
-    calculate_item_profitability
 )
-import cache_manager
-from policy import OrderTargets
-from agent import run_agent, get_order_by_vendor
+from features import compute_features
+from mappings import enrich_dataset
+from models import create_dataset_from_excel
+from policy import OrderTargets, calculate_kegs_needed_for_target_weeks, distribute_kegs_to_target
 from storage import init_db, save_user_actions
-from policy import distribute_kegs_to_target, calculate_kegs_needed_for_target_weeks
+from utils import aggregate_all_usage, parse_sales_mix_csv
 from voice_counting_ui import render_voice_counting_tab
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
@@ -93,7 +90,7 @@ def load_and_process_data(uploaded_files, smoothing_level=0.3, trend_threshold=0
         except Exception:
             st.warning(f"⚠️ Error processing file: {uploaded_file.name}")
             continue
-            
+
     full_df = pd.concat(compiled_data, ignore_index=True)
     full_df = full_df.dropna(subset=['Item', 'Usage'])
     full_df['Item'] = full_df['Item'].astype(str).str.strip()
@@ -118,28 +115,28 @@ def load_and_process_data(uploaded_files, smoothing_level=0.3, trend_threshold=0
         usage = group['Usage']
         inventory = group['End Inventory']
         dates = group['Date']
-        
+
         last_week_usage = usage.iloc[-1] if not usage.empty else None
         last_10 = usage.tail(10)
         last_4 = usage.tail(4)
         last_2 = usage.tail(2)
-        
+
         # Calculate YTD based on the most recent year in the data, not current calendar year
         if pd.api.types.is_datetime64_any_dtype(dates) and not dates.empty:
             most_recent_year = dates.max().year
             ytd_avg = group[dates.dt.year == most_recent_year]['Usage'].mean()
         else:
             ytd_avg = None
-        
+
         def safe_div(n, d):
             if pd.notna(d) and d > 0:
                 return round(n / d, 2)
             return None
-            
+
         avg_of_highest_4 = usage.nlargest(4).mean() if not usage.empty else None
         non_zero_usage = usage[usage > 0]
         avg_of_lowest_4_non_zero = non_zero_usage.nsmallest(4).mean() if not non_zero_usage.empty else None
-        
+
         # Trend calculation
         trend_indicator = "→"
         if len(usage) >= 4:
@@ -155,7 +152,7 @@ def load_and_process_data(uploaded_files, smoothing_level=0.3, trend_threshold=0
                         trend_indicator = "↓"
             except Exception:
                 trend_indicator = "→"
-                
+
         return pd.Series({
             'Trend': trend_indicator,
             'On Hand': round(inventory.iloc[-1], 2),
@@ -178,14 +175,14 @@ def load_and_process_data(uploaded_files, smoothing_level=0.3, trend_threshold=0
 
     summary_df = full_df.groupby('Item').apply(compute_metrics).reset_index()
     summary_df['Item'] = summary_df['Item'].astype(str)
-    
+
     # Sort based on original order
     original_order_cleaned = [item.strip() for item in original_order]
     summary_df['ItemOrder'] = summary_df['Item'].apply(
         lambda x: original_order_cleaned.index(x) if x in original_order_cleaned else float('inf')
     )
     summary_df = summary_df.sort_values(by='ItemOrder').drop(columns='ItemOrder')
-    
+
     # Define Vendor Map
     vendor_map = {
         "Breakthru": ["WHISKEY Buffalo Trace", "WHISKEY Bulleit Straight Rye", "WHISKEY Crown Royal", "WHISKEY Crown Royal Regal Apple", "WHISKEY Fireball Cinnamon", "WHISKEY Jack Daniels Black", "WHISKEY Jack Daniels Tennessee Fire", "VODKA Deep Eddy Lime", "VODKA Deep Eddy Orange", "VODKA Deep Eddy Ruby Red", "VODKA Fleischmann's Cherry", "VODKA Fleischmann's Grape", "VODKA Ketel One", "LIQ Amaretto", "LIQ Baileys Irish Cream", "LIQ Chambord", "LIQ Melon", "LIQ Rumpleminze", "LIQ Triple Sec", "LIQ Blue Curacao", "LIQ Butterscotch", "LIQ Peach Schnapps", "LIQ Sour Apple", "LIQ Watermelon Schnapps", "BRANDY Well", "GIN Well", "RUM Well", "SCOTCH Well", "TEQUILA Well", "VODKA Well", "WHISKEY Well", "GIN Tanqueray", "TEQUILA Casamigos Blanco", "TEQUILA Corazon Reposado", "TEQUILA Don Julio Blanco", "RUM Captain Morgan Spiced", "WINE LaMarca Prosecco", "WINE William Wycliff Brut Chateauamp", "BAR CONS Bloody Mary", "JUICE Red Bull", "JUICE Red Bull SF", "JUICE Red Bull Yellow"],
@@ -197,26 +194,40 @@ def load_and_process_data(uploaded_files, smoothing_level=0.3, trend_threshold=0
     # Clean vendor map items
     for vendor, items in vendor_map.items():
         vendor_map[vendor] = [item.strip() for item in items]
-        
+
     # Define Category Map based on keywords
     category_map = {cat: [] for cat in ["Well", "Whiskey", "Vodka", "Gin", "Tequila", "Rum", "Scotch", "Liqueur", "Cordials", "Wine", "Draft Beer", "Bottled Beer", "Juice", "Bar Consumables"]}
     for item in summary_df['Item']:
         upper_item = item.upper().strip()
-        if "WELL" in upper_item: category_map["Well"].append(item)
-        elif "WHISKEY" in upper_item: category_map["Whiskey"].append(item)
-        elif "VODKA" in upper_item: category_map["Vodka"].append(item)
-        elif "GIN" in upper_item: category_map["Gin"].append(item)
-        elif "TEQUILA" in upper_item: category_map["Tequila"].append(item)
-        elif "RUM" in upper_item: category_map["Rum"].append(item)
-        elif "SCOTCH" in upper_item: category_map["Scotch"].append(item)
-        elif "LIQ" in upper_item and "SCHNAPPS" not in upper_item: category_map["Liqueur"].append(item)
-        elif "SCHNAPPS" in upper_item: category_map["Cordials"].append(item)
-        elif "WINE" in upper_item: category_map["Wine"].append(item)
-        elif "BEER DFT" in upper_item: category_map["Draft Beer"].append(item)
-        elif "BEER BTL" in upper_item: category_map["Bottled Beer"].append(item)
-        elif "JUICE" in upper_item: category_map["Juice"].append(item)
-        elif "BAR CONS" in upper_item: category_map["Bar Consumables"].append(item)
-        
+        if "WELL" in upper_item:
+            category_map["Well"].append(item)
+        elif "WHISKEY" in upper_item:
+            category_map["Whiskey"].append(item)
+        elif "VODKA" in upper_item:
+            category_map["Vodka"].append(item)
+        elif "GIN" in upper_item:
+            category_map["Gin"].append(item)
+        elif "TEQUILA" in upper_item:
+            category_map["Tequila"].append(item)
+        elif "RUM" in upper_item:
+            category_map["Rum"].append(item)
+        elif "SCOTCH" in upper_item:
+            category_map["Scotch"].append(item)
+        elif "LIQ" in upper_item and "SCHNAPPS" not in upper_item:
+            category_map["Liqueur"].append(item)
+        elif "SCHNAPPS" in upper_item:
+            category_map["Cordials"].append(item)
+        elif "WINE" in upper_item:
+            category_map["Wine"].append(item)
+        elif "BEER DFT" in upper_item:
+            category_map["Draft Beer"].append(item)
+        elif "BEER BTL" in upper_item:
+            category_map["Bottled Beer"].append(item)
+        elif "JUICE" in upper_item:
+            category_map["Juice"].append(item)
+        elif "BAR CONS" in upper_item:
+            category_map["Bar Consumables"].append(item)
+
     return summary_df, vendor_map, category_map, full_df
 
 
@@ -456,9 +467,9 @@ if uploaded_files:
             if selected_category != "All Categories":
                 display_df = summary_df[summary_df['Item'].isin(category_map.get(selected_category, []))]
                 download_filename = f"beverage_summary_{selected_category}.csv"
-                
+
         threshold = st.slider("Highlight if weeks remaining is below:", 0.2, 10.0, 2.0, 0.1)
-        
+
         def highlight_weeks_remaining(val, threshold=2.0):
             if pd.notna(val) and isinstance(val, (int, float)) and val < threshold:
                 return 'background-color: #ff4b4b'
@@ -466,8 +477,8 @@ if uploaded_files:
 
         format_dict = {col: '{:,.2f}' for col in display_df.select_dtypes(include=['float64', 'float32']).columns}
         styled_df = display_df.style.format(format_dict, na_rep="-").applymap(
-            highlight_weeks_remaining, 
-            threshold=threshold, 
+            highlight_weeks_remaining,
+            threshold=threshold,
             subset=['Weeks Remaining (YTD)', 'Weeks Remaining (10 Wk)', 'Weeks Remaining (4 Wk)']
         )
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
@@ -512,7 +523,7 @@ if uploaded_files:
         st.markdown("---")
 
         mode = st.selectbox("Select View Mode:", ["By Vendor", "By Category"])
-        
+
         usage_option = st.selectbox(
             "Select usage average for calculation:",
             options=['10-Week Average', '4-Week Average', '2-Week Average', 'Year-to-Date Average', 'Lowest 4 Average (non-zero)', 'Highest 4 Average'],
@@ -536,7 +547,7 @@ if uploaded_files:
                         df_to_update = st.session_state[worksheet_state_key].copy()
                         df_to_update['Target Weeks of Supply'] = bulk_week_target
                         df_to_update['Order Qty (Bottles)'] = df_to_update.apply(
-                            lambda r: max(0, int(math.ceil((r['Target Weeks of Supply'] * r['Selected Avg']) - r['On Hand']))) if r['Selected Avg'] > 0 else 0, 
+                            lambda r: max(0, int(math.ceil((r['Target Weeks of Supply'] * r['Selected Avg']) - r['On Hand']))) if r['Selected Avg'] > 0 else 0,
                             axis=1
                         )
                         st.session_state[worksheet_state_key] = df_to_update
@@ -554,10 +565,10 @@ if uploaded_files:
                 }
                 worksheet_df = pd.DataFrame(editor_df_data).reset_index(drop=True)
                 worksheet_df['Selected Avg'] = pd.to_numeric(worksheet_df['Selected Avg'], errors='coerce').fillna(0)
-                
+
                 def temp_safe_div(n, d):
                     return round(n / d, 1) if d and pd.notna(d) and d > 0 else 0.0
-                    
+
                 worksheet_df['Current Wks Left'] = worksheet_df.apply(lambda row: temp_safe_div(row['On Hand'], row['Selected Avg']), axis=1)
                 st.session_state[worksheet_state_key] = worksheet_df[['Item', 'On Hand', 'Current Wks Left', 'Selected Avg', 'Order Qty (Bottles)', 'Target Weeks of Supply']]
                 st.session_state[usage_state_key] = usage_option
@@ -670,7 +681,7 @@ if uploaded_files:
                             # aggregate_all_usage returns (all_usage_dict, unmatched_items, total_revenue)
                             all_usage, _, _ = aggregate_all_usage(st.session_state.sales_mix_data)
                             sales_mix_usage = all_usage
-                        except:
+                        except Exception:
                             pass
 
                     # Run the agent
@@ -1115,7 +1126,7 @@ if uploaded_files:
             import json
             with open('inventory_layout.json', 'r') as f:
                 inventory_layout = json.load(f)
-        except:
+        except Exception:
             pass  # Use default ordering if layout file not available
 
         render_voice_counting_tab(dataset, inventory_layout)
@@ -1187,7 +1198,7 @@ if uploaded_files:
 
                     # Calculate theoretical usage
                     all_usage, unmatched_items, total_revenue = aggregate_all_usage(sales_df)
-                    
+
                     usage_data = []
                     for inv_item, data in all_usage.items():
                         row = {
@@ -1212,9 +1223,9 @@ if uploaded_files:
                             row['Variance'] = None
                             row['Variance %'] = None
                         usage_data.append(row)
-                    
+
                     usage_df = pd.DataFrame(usage_data)
-                    
+
                     st.markdown("---")
                     col1, col2 = st.columns(2)
                     with col1:
@@ -1225,9 +1236,9 @@ if uploaded_files:
                         )
                     with col2:
                         show_variance_only = st.checkbox("Show only items with variance data", value=False)
-                    
+
                     display_usage_df = usage_df.copy()
-                    
+
                     if category_filter != "All":
                         if category_filter == "Draft Beer":
                             display_usage_df = display_usage_df[display_usage_df['Inventory Item'].str.contains('BEER DFT')]
@@ -1243,10 +1254,10 @@ if uploaded_files:
                             display_usage_df = display_usage_df[
                                 display_usage_df['Inventory Item'].str.contains('BAR CONS|JUICE', regex=True)
                             ]
-                    
+
                     if show_variance_only:
                         display_usage_df = display_usage_df[display_usage_df['Variance'].notna()]
-                    
+
                     def highlight_variance(val):
                         if pd.isna(val):
                             return ''
@@ -1255,16 +1266,16 @@ if uploaded_files:
                         elif val < -10:
                             return 'background-color: #90EE90'
                         return ''
-                    
+
                     st.markdown("### Theoretical Usage Results")
                     st.markdown("""
                     **Variance Interpretation:**
-                    - 🔴 **Positive variance (red):** Theoretical > Actual — You should have used more than you did. 
+                    - 🔴 **Positive variance (red):** Theoretical > Actual — You should have used more than you did.
                       Possible: theft, waste, spillage, or inventory count error.
-                    - 🟢 **Negative variance (green):** Theoretical < Actual — You used more than sales suggest. 
+                    - 🟢 **Negative variance (green):** Theoretical < Actual — You used more than sales suggest.
                       Possible: over-ringing, comps not tracked, or heavy pours.
                     """)
-                    
+
                     if not display_usage_df.empty:
                         styled_usage = display_usage_df.style.applymap(
                             highlight_variance, subset=['Variance %']
@@ -1274,9 +1285,9 @@ if uploaded_files:
                             'Variance': '{:.2f}',
                             'Variance %': '{:.1f}%'
                         }, na_rep="-")
-                        
+
                         st.dataframe(styled_usage, use_container_width=True, hide_index=True)
-                        
+
                         csv_usage = display_usage_df.to_csv(index=False).encode('utf-8')
                         st.download_button(
                             "Download Usage Analysis CSV",
@@ -1285,13 +1296,13 @@ if uploaded_files:
                         )
                     else:
                         st.warning("No data to display with current filters.")
-                    
+
                     if unmatched_items:
                         with st.expander(f"⚠️ Unmatched Items ({len(unmatched_items)})", expanded=False):
                             st.markdown("These items could not be mapped to inventory:")
                             for item in unmatched_items:
                                 st.write(f"- {item}")
-                    
+
                     with st.expander("📋 Detailed Calculation Breakdown", expanded=False):
                         for inv_item, data in all_usage.items():
                             if data.get('details'):
@@ -1299,7 +1310,7 @@ if uploaded_files:
                                 for detail in data['details']:
                                     st.write(f"  - {detail}")
                                 st.markdown("---")
-                
+
             except Exception as e:
                 st.error(f"Error processing Sales Mix: {e}")
                 import traceback
@@ -2390,7 +2401,7 @@ if uploaded_files:
             - Filter by vendor to focus on specific supplier relationships
             - Export filtered data to share with purchasing team
             """)
-            
+
         else:
             st.success("✅ No excess inventory detected! All items are at or below suggested par levels.")
-            st.info(f"Try adjusting the averaging method or Target Weeks slider to see how different settings affect excess inventory calculations.")
+            st.info("Try adjusting the averaging method or Target Weeks slider to see how different settings affect excess inventory calculations.")

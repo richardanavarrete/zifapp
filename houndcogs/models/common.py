@@ -1,14 +1,37 @@
 """Common types used across the inventory system."""
 
-from enum import Enum
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, Field
+from enum import Enum
 
+from pydantic import BaseModel, Field
 
 # ============================================================================
 # Status Enums (these are system states, not business data)
 # ============================================================================
+
+
+class Category(str, Enum):
+    """Inventory item categories."""
+    WHISKEY = "Whiskey"
+    VODKA = "Vodka"
+    GIN = "Gin"
+    TEQUILA = "Tequila"
+    RUM = "Rum"
+    SCOTCH = "Scotch"
+    LIQUEUR = "Liqueur"
+    WINE = "Wine"
+    BEER_DRAFT = "Draft Beer"
+    BEER_BOTTLE = "Bottled Beer"
+    OTHER = "Other"
+
+
+class Vendor(str, Enum):
+    """Inventory item vendors."""
+    BREAKTHRU = "Breakthru"
+    SOUTHERN = "Southern"
+    REPUBLIC = "Republic"
+    OTHER = "Other"
+
 
 class ReasonCode(str, Enum):
     """Order recommendation reason codes."""

@@ -1,10 +1,10 @@
 """Data models for HoundCOGS."""
 
-from houndcogs.models.common import Category, Vendor, ReasonCode, Confidence
-from houndcogs.models.inventory import Item, WeeklyRecord, InventoryDataset
-from houndcogs.models.orders import OrderTargets, OrderConstraints, Recommendation, AgentRun
 from houndcogs.models.cogs import COGSSummary, PourCostResult, VarianceResult
-from houndcogs.models.voice import VoiceSession, VoiceCountRecord, TranscriptionResult, MatchResult
+from houndcogs.models.common import Category, Confidence, ReasonCode, Vendor
+from houndcogs.models.inventory import InventoryDataset, Item, WeeklyRecord
+from houndcogs.models.orders import AgentRun, OrderConstraints, OrderTargets, Recommendation
+from houndcogs.models.voice import MatchResult, TranscriptionResult, VoiceCountRecord, VoiceSession
 
 __all__ = [
     # Common

@@ -11,19 +11,24 @@ This module provides the main run_agent() function that:
 7. Returns structured results
 """
 
-import pandas as pd
+import hashlib
 from datetime import datetime
 from typing import Dict, List, Optional
-import hashlib
 
-from models import InventoryDataset
-from features import compute_features
-from policy import (
-    recommend_order, generate_order_summary, OrderTargets, OrderConstraints,
-    calculate_vendor_keg_totals, get_keg_adjustment_suggestions
-)
-from storage import save_agent_run, get_user_prefs, init_db
+import pandas as pd
+
 import mappings
+from features import compute_features
+from models import InventoryDataset
+from policy import (
+    OrderConstraints,
+    OrderTargets,
+    calculate_vendor_keg_totals,
+    generate_order_summary,
+    get_keg_adjustment_suggestions,
+    recommend_order,
+)
+from storage import get_user_prefs, init_db, save_agent_run
 
 
 def analyze_usage_variance(
@@ -59,7 +64,6 @@ def analyze_usage_variance(
         - severity: 'high', 'medium', or 'low' based on variance percentage
     """
     from config.batch_products import BATCH_PRODUCTS, convert_batch_to_ingredients
-    from config.constants import LIQUOR_BOTTLE_OZ
 
     variance_items = []
 
@@ -298,7 +302,7 @@ def run_agent(
     # Step 6: Identify items needing recount with detailed information
     # Create lookup dict for efficient access to features
     features_lookup = features_df.set_index('item_id')['last_week_usage'].to_dict()
-    
+
     items_needing_recount = []
     for _, row in recommendations_df.iterrows():
         reason_codes = row['reason_codes']
@@ -316,7 +320,7 @@ def run_agent(
                 'discrepancy': None,
                 'has_sales_mix_data': False  # Flag to indicate if sales mix data is available
             }
-            
+
             # Check if we have sales mix data for this item
             sales_mix_expected = None
             if sales_mix_usage and item_id in sales_mix_usage:
@@ -327,12 +331,12 @@ def run_agent(
                 recount_info['sales_mix_expected_usage'] = sales_mix_expected
                 recount_info['sales_mix_unit'] = sales_mix_unit
                 recount_info['sales_mix_details'] = sales_mix_data.get('details', [])
-            
+
             # Calculate expected values based on issue type
             if 'DATA_ISSUE_NEGATIVE' in reason_codes:
                 recount_info['issue_type'] = 'Negative Usage'
                 recount_info['issue_description'] = 'Usage calculation resulted in negative value, indicating inventory count may be incorrect.'
-                
+
                 # For negative usage: the calculated usage = (prev_on_hand + purchases - current_on_hand) was negative
                 # This usually means current_on_hand was counted too high relative to last week.
                 # Expected on_hand = current_on_hand + expected_usage shows what it SHOULD have been at start of week
@@ -344,11 +348,11 @@ def run_agent(
                 elif recount_info['avg_usage'] and recount_info['avg_usage'] > 0:
                     recount_info['expected_on_hand'] = round(row['on_hand'] + recount_info['avg_usage'], 2)
                     recount_info['discrepancy'] = f"Expected ~{recount_info['expected_on_hand']:.1f} based on avg usage of {recount_info['avg_usage']:.1f}/week"
-            
+
             elif 'DATA_ISSUE_JUMP' in reason_codes:
                 recount_info['issue_type'] = 'Usage Spike'
                 recount_info['issue_description'] = 'Last week usage was >5x the average, suggesting a counting error.'
-                
+
                 # Use sales mix data if available, otherwise fall back to avg usage
                 if sales_mix_expected is not None:
                     recount_info['expected_usage'] = round(sales_mix_expected, 2)
@@ -358,7 +362,7 @@ def run_agent(
                     recount_info['expected_usage'] = round(recount_info['avg_usage'], 2)
                     recount_info['actual_usage'] = round(recount_info['last_week_usage'], 2)
                     recount_info['discrepancy'] = f"Used {recount_info['actual_usage']:.1f} last week vs avg of {recount_info['expected_usage']:.1f}/week"
-            
+
             items_needing_recount.append(recount_info)
 
     # Step 7.5: Calculate vendor keg totals and suggestions for Crescent/Hensley

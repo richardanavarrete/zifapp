@@ -5,9 +5,8 @@ All secrets loaded from environment variables.
 NEVER hardcode API keys, passwords, or secrets.
 """
 
-import os
-from typing import List, Optional
 from functools import lru_cache
+from typing import List, Optional
 
 from pydantic_settings import BaseSettings
 

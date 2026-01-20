@@ -1,20 +1,20 @@
 """COGS (Cost of Goods Sold) analysis endpoints."""
 
 import uuid
-from datetime import datetime, date
+from datetime import date, datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, Body, File, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Query, UploadFile
 from pydantic import BaseModel
 
 from api.dependencies import get_api_key, get_file_storage
 from api.middleware.errors import NotFoundError, ProcessingError
 from houndcogs.models.cogs import (
+    COGSAnalysisRequest,
     COGSSummary,
     PourCostResult,
-    VarianceResult,
-    COGSAnalysisRequest,
     VarianceAnalysisRequest,
+    VarianceResult,
 )
 
 router = APIRouter()
@@ -154,7 +154,7 @@ async def upload_sales_mix(
     file_id = f"sm_{uuid.uuid4().hex[:12]}"
 
     # Save file
-    file_path = await file_storage.save_upload(
+    await file_storage.save_upload(
         file=file,
         dataset_id="sales_mix",
         filename=f"{file_id}_{file.filename}"

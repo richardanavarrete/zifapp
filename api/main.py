@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.config import get_settings
-from api.routers import health, inventory, voice, orders
+from api.routers import health, inventory, orders, voice
 
 # Configure logging
 logging.basicConfig(

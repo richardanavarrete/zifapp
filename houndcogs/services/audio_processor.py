@@ -8,9 +8,9 @@ Supports long recordings with chunking and parallel processing.
 import logging
 import os
 import tempfile
-from pathlib import Path
-from typing import Optional, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import List, Optional
 
 from houndcogs.models.voice import TranscriptionResult
 

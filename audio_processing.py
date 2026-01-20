@@ -8,10 +8,11 @@ This module provides:
 """
 
 import io
-import tempfile
 import os
-from typing import List, Tuple, Optional
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Tuple
+
 from pydub import AudioSegment
 from pydub.silence import detect_nonsilent
 

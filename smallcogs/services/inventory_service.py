@@ -4,13 +4,9 @@ Inventory Service - CRUD operations for inventory data
 Handles dataset management, item queries, and data persistence.
 """
 
-import uuid
-from datetime import datetime
-from typing import Optional, List, Dict
+from typing import Dict, List, Optional
 
-from smallcogs.models.inventory import (
-    Dataset, DatasetSummary, Item, Record, ItemStats, ItemFilter, UploadResult
-)
+from smallcogs.models.inventory import Dataset, DatasetSummary, Item, ItemFilter, UploadResult
 from smallcogs.services.parser_service import ParserService
 from smallcogs.services.stats_service import StatsService
 

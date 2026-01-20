@@ -17,18 +17,18 @@ MARGARITA_FLAVOR_ADDITIONS = {
     "Peach Flavor": {"LIQ Peach Schnapps": FLAVOR_OZ},
     "Melon Flavor": {"LIQ Melon": FLAVOR_OZ},
     "Amaretto Flavor": {"LIQ Amaretto": FLAVOR_OZ},
-    
+
     # Non-liquor flavors
     "Mango Flavor": {"BAR CONS Mango Puree": 1.0},
     "Strawberry Flavor": {},  # Uses strawberry mix, no tracked liquor
     "Iceberg": {},  # Frozen marg floater (~1oz mix), no tracked liquor
-    
+
     # Multi-ingredient flavors
     "Firecracker Flavor": {"LIQ Blue Curacao": FLAVOR_OZ},
     "Grateful Flavor": {"LIQ Blue Curacao": FLAVOR_OZ, "LIQ Chambord": FLAVOR_OZ},
     "Mary Jane Flavor": {"LIQ Blue Curacao": FLAVOR_OZ, "LIQ Melon": FLAVOR_OZ},
     "Missyrita Flavor": {"WINE Salmon Creek Merlot": FLAVOR_OZ, "LIQ Peach Schnapps": FLAVOR_OZ},
-    
+
     # Premium tequila flavors - these REPLACE well tequila, not add to it
     # Handled specially in the parser - no triple sec ratio change, just tequila swap
     "Milagro Anejo Flavor": {},  # Uses Milagro Anejo instead of well

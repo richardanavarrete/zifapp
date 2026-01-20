@@ -5,11 +5,11 @@ This module replaces compute_metrics() from zifapp.py:93-153 and adds
 additional features needed for intelligent ordering decisions.
 """
 
+
 import pandas as pd
-import numpy as np
 from statsmodels.tsa.holtwinters import SimpleExpSmoothing
+
 from models import InventoryDataset
-from typing import Optional
 
 
 def compute_features(

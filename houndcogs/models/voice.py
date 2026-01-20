@@ -1,7 +1,8 @@
 """Voice counting data models."""
 
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
 from houndcogs.models.common import SessionStatus

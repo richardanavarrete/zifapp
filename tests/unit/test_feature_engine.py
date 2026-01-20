@@ -1,12 +1,12 @@
 """Tests for the feature engine."""
 
-import pytest
 from datetime import date
 
-from houndcogs.models.inventory import Item, WeeklyRecord, InventoryDataset
+import pytest
+
+from houndcogs.models.inventory import InventoryDataset, Item, WeeklyRecord
 from houndcogs.services.feature_engine import (
     compute_features,
-    compute_features_for_item,
     get_feature_summary,
 )
 

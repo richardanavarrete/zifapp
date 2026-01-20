@@ -6,13 +6,13 @@ Attempts to auto-detect column mappings and parse any clean inventory sheet.
 
 import re
 import uuid
-from datetime import datetime, date
+from datetime import date
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple, Any
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from smallcogs.models.inventory import Item, Record, Dataset, UploadResult
+from smallcogs.models.inventory import Dataset, Item, Record
 
 
 class ParserService:
