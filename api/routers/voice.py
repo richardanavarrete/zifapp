@@ -13,10 +13,8 @@ from houndcogs.models.voice import (
     VoiceSession,
     VoiceCountRecord,
     TranscriptionResult,
-    MatchResult,
     VoiceMatchRequest,
     VoiceMatchResponse,
-    TranscribeRequest,
     SessionExport,
 )
 from houndcogs.models.common import SessionStatus
