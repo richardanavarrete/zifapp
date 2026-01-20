@@ -1,0 +1,13 @@
+# HoundCOGS UI Dependencies
+
+# Web framework
+streamlit>=1.30.0
+
+# HTTP client
+requests>=2.31.0
+
+# Data display
+pandas>=2.0.0
+
+# Configuration
+pydantic-settings>=2.1.0

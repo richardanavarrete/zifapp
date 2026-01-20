@@ -1,0 +1,40 @@
+# HoundCOGS Docker Compose - Development
+# Run with: docker-compose -f docker/docker-compose.dev.yml up
+
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: houndcogs-api-dev
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=true
+      - API_KEYS=
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DATABASE_URL=sqlite:///./data/db/houndcogs.db
+      - CORS_ORIGINS=*
+    volumes:
+      - ../houndcogs:/app/houndcogs:ro
+      - ../api:/app/api:ro
+      - ./data:/app/data
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  ui:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ui
+    container_name: houndcogs-ui-dev
+    ports:
+      - "8501:8501"
+    environment:
+      - UI_API_BASE_URL=http://api:8000
+      - UI_API_KEY=
+      - UI_DEBUG=true
+    volumes:
+      - ../ui:/app/ui:ro
+    depends_on:
+      - api
