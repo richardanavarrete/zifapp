@@ -1,39 +1,50 @@
 """
-Audio Processing Module - Silence removal and chunking for voice counting.
+Audio Processing Module - Optimized silence removal and chunking for voice counting.
 
 This module provides:
-- Silence removal from audio recordings
+- Fast silence removal from audio recordings
 - Chunking audio into 30-second segments with 1-second overlaps
-- OpenAI Whisper API transcription for chunked audio
+- Parallel OpenAI Whisper API transcription for speed
 """
 
 import io
 import tempfile
 import os
 from typing import List, Tuple, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pydub import AudioSegment
 from pydub.silence import detect_nonsilent
 
 
+def normalize_audio(audio: AudioSegment, target_dbfs: float = -20.0) -> AudioSegment:
+    """Normalize audio to target dBFS for consistent levels."""
+    change_in_dbfs = target_dbfs - audio.dBFS
+    return audio.apply_gain(change_in_dbfs)
+
+
 def remove_silence(audio: AudioSegment,
-                   min_silence_len: int = 500,
-                   silence_thresh: int = -40,
-                   keep_silence: int = 200) -> AudioSegment:
+                   min_silence_len: int = 400,
+                   silence_thresh: int = -45,
+                   keep_silence: int = 150) -> AudioSegment:
     """
     Remove silence from audio while keeping natural pauses.
+    Optimized parameters for voice recordings.
 
     Args:
         audio: AudioSegment to process
-        min_silence_len: Minimum length of silence to detect (ms)
-        silence_thresh: Silence threshold in dBFS (default -40)
+        min_silence_len: Minimum length of silence to detect (ms) - reduced for faster detection
+        silence_thresh: Silence threshold in dBFS - more sensitive for voice
         keep_silence: Amount of silence to keep at edges (ms)
 
     Returns:
         AudioSegment with silences removed
     """
+    # Normalize audio first for better silence detection
+    normalized = normalize_audio(audio)
+
     # Detect non-silent chunks
     nonsilent_ranges = detect_nonsilent(
-        audio,
+        normalized,
         min_silence_len=min_silence_len,
         silence_thresh=silence_thresh
     )
@@ -45,7 +56,7 @@ def remove_silence(audio: AudioSegment,
     # Combine non-silent chunks with small gaps
     chunks = []
     for start, end in nonsilent_ranges:
-        # Add a bit of padding around each chunk for natural speech
+        # Add padding around each chunk for natural speech
         chunk_start = max(0, start - keep_silence)
         chunk_end = min(len(audio), end + keep_silence)
         chunks.append(audio[chunk_start:chunk_end])
@@ -53,7 +64,7 @@ def remove_silence(audio: AudioSegment,
     # Join chunks with small silence gap
     if chunks:
         result = chunks[0]
-        silence_gap = AudioSegment.silent(duration=100)  # 100ms gap between phrases
+        silence_gap = AudioSegment.silent(duration=80)  # 80ms gap between phrases
         for chunk in chunks[1:]:
             result = result + silence_gap + chunk
         return result
@@ -83,7 +94,7 @@ def chunk_audio(audio: AudioSegment,
         return [audio]
 
     start = 0
-    step = chunk_duration_ms - overlap_ms  # Step size accounts for overlap
+    step = chunk_duration_ms - overlap_ms
 
     while start < audio_len:
         end = min(start + chunk_duration_ms, audio_len)
@@ -93,10 +104,8 @@ def chunk_audio(audio: AudioSegment,
         if len(chunk) > 500:
             chunks.append(chunk)
 
-        # Move to next chunk position
         start += step
 
-        # Stop if we've processed all audio
         if end >= audio_len:
             break
 
@@ -106,6 +115,7 @@ def chunk_audio(audio: AudioSegment,
 def process_audio_for_transcription(audio: AudioSegment) -> List[AudioSegment]:
     """
     Process audio: remove silence and chunk into 30s segments with 1s overlap.
+    Skips processing for short audio (under 25s).
 
     Args:
         audio: Raw AudioSegment from recording
@@ -113,6 +123,10 @@ def process_audio_for_transcription(audio: AudioSegment) -> List[AudioSegment]:
     Returns:
         List of processed AudioSegment chunks ready for transcription
     """
+    # For short audio (< 25s), skip silence removal - just send directly
+    if len(audio) < 25000:
+        return [audio]
+
     # Step 1: Remove silence
     cleaned_audio = remove_silence(audio)
 
@@ -122,55 +136,83 @@ def process_audio_for_transcription(audio: AudioSegment) -> List[AudioSegment]:
     return chunks
 
 
-def audio_to_bytes(audio: AudioSegment, format: str = "wav") -> bytes:
-    """Convert AudioSegment to bytes."""
-    buffer = io.BytesIO()
-    audio.export(buffer, format=format)
-    buffer.seek(0)
-    return buffer.read()
+def _transcribe_single_chunk(args: Tuple[int, AudioSegment, str]) -> Tuple[int, str]:
+    """
+    Transcribe a single audio chunk. Used for parallel processing.
+
+    Args:
+        args: Tuple of (chunk_index, audio_chunk, api_key)
+
+    Returns:
+        Tuple of (chunk_index, transcription)
+    """
+    from openai import OpenAI
+
+    chunk_index, chunk, api_key = args
+    client = OpenAI(api_key=api_key)
+
+    # Use MP3 format - much smaller files = faster upload
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
+        chunk.export(temp_file.name, format="mp3", bitrate="64k")
+        temp_path = temp_file.name
+
+    try:
+        with open(temp_path, "rb") as audio_file:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language="en",
+                response_format="text"
+            )
+        return (chunk_index, transcript.strip() if transcript else "")
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
 
 
 def transcribe_with_openai_api(audio_chunks: List[AudioSegment],
-                                api_key: str) -> str:
+                                api_key: str,
+                                max_workers: int = 4) -> str:
     """
-    Transcribe audio chunks using OpenAI's Whisper API.
+    Transcribe audio chunks using OpenAI's Whisper API in parallel.
 
     Args:
         audio_chunks: List of AudioSegment chunks
         api_key: OpenAI API key
+        max_workers: Maximum parallel API calls (default 4)
 
     Returns:
         Combined transcription from all chunks
     """
-    from openai import OpenAI
+    if not audio_chunks:
+        return ""
 
-    client = OpenAI(api_key=api_key)
-    transcriptions = []
+    # Single chunk - no need for parallel processing
+    if len(audio_chunks) == 1:
+        _, transcript = _transcribe_single_chunk((0, audio_chunks[0], api_key))
+        return transcript
 
-    for i, chunk in enumerate(audio_chunks):
-        # Save chunk to temporary file (OpenAI API needs a file)
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
-            chunk.export(temp_file.name, format="wav")
-            temp_path = temp_file.name
+    # Multiple chunks - process in parallel
+    transcriptions = [""] * len(audio_chunks)
 
-        try:
-            # Call OpenAI Whisper API
-            with open(temp_path, "rb") as audio_file:
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    language="en",
-                    response_format="text"
-                )
+    # Prepare args for each chunk
+    chunk_args = [(i, chunk, api_key) for i, chunk in enumerate(audio_chunks)]
 
-            if transcript:
-                transcriptions.append(transcript.strip())
-        finally:
-            # Clean up temp file
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
+    # Process chunks in parallel
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_transcribe_single_chunk, args): args[0]
+                   for args in chunk_args}
 
-    # Combine transcriptions, handling overlaps
+        for future in as_completed(futures):
+            try:
+                chunk_index, transcript = future.result()
+                transcriptions[chunk_index] = transcript
+            except Exception as e:
+                # Log error but continue with other chunks
+                print(f"Chunk transcription error: {e}")
+                continue
+
+    # Combine transcriptions in order, handling overlaps
     return merge_overlapping_transcriptions(transcriptions)
 
 
@@ -187,6 +229,9 @@ def merge_overlapping_transcriptions(transcriptions: List[str]) -> str:
     Returns:
         Merged transcription
     """
+    # Filter out empty transcriptions
+    transcriptions = [t for t in transcriptions if t and t.strip()]
+
     if not transcriptions:
         return ""
 
@@ -201,8 +246,6 @@ def merge_overlapping_transcriptions(transcriptions: List[str]) -> str:
         if not current:
             continue
 
-        # Try to find overlap between end of result and start of current
-        # Look for common word sequences (2-4 words)
         result_words = result.split()
         current_words = current.split()
 
@@ -210,10 +253,9 @@ def merge_overlapping_transcriptions(transcriptions: List[str]) -> str:
             result += " " + current
             continue
 
-        # Check for overlap in last 4 words of result vs first 4 words of current
+        # Check for overlap in last 5 words of result vs first 5 words of current
         overlap_found = False
-        for overlap_len in range(min(4, len(result_words), len(current_words)), 0, -1):
-            # Compare last N words of result with first N words of current
+        for overlap_len in range(min(5, len(result_words), len(current_words)), 0, -1):
             result_end = " ".join(result_words[-overlap_len:]).lower()
             current_start = " ".join(current_words[:overlap_len]).lower()
 
@@ -224,7 +266,7 @@ def merge_overlapping_transcriptions(transcriptions: List[str]) -> str:
                 break
 
         if not overlap_found:
-            # No overlap found, just concatenate with space
+            # No overlap found, just concatenate
             result = result + " " + current
 
     return result.strip()
@@ -249,7 +291,19 @@ def get_chunk_info(audio: AudioSegment,
     Returns:
         Tuple of (num_chunks, total_duration_seconds)
     """
+    # For short audio, return 1 chunk
+    if len(audio) < 25000:
+        return 1, get_audio_duration_seconds(audio)
+
     # First remove silence to get accurate estimate
     cleaned = remove_silence(audio)
     chunks = chunk_audio(cleaned, chunk_duration_ms, overlap_ms)
     return len(chunks), get_audio_duration_seconds(cleaned)
+
+
+def audio_to_bytes(audio: AudioSegment, format: str = "mp3") -> bytes:
+    """Convert AudioSegment to bytes. Default to MP3 for smaller size."""
+    buffer = io.BytesIO()
+    audio.export(buffer, format=format)
+    buffer.seek(0)
+    return buffer.read()
