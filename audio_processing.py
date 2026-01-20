@@ -114,8 +114,8 @@ def chunk_audio(audio: AudioSegment,
 
 def process_audio_for_transcription(audio: AudioSegment) -> List[AudioSegment]:
     """
-    Process audio: remove silence and chunk into 30s segments with 1s overlap.
-    Skips processing for short audio (under 25s).
+    Process audio: remove silence and chunk into segments.
+    Automatically adjusts chunk size based on audio length.
 
     Args:
         audio: Raw AudioSegment from recording
@@ -123,15 +123,32 @@ def process_audio_for_transcription(audio: AudioSegment) -> List[AudioSegment]:
     Returns:
         List of processed AudioSegment chunks ready for transcription
     """
+    audio_len = len(audio)
+
     # For short audio (< 25s), skip silence removal - just send directly
-    if len(audio) < 25000:
+    if audio_len < 25000:
         return [audio]
 
     # Step 1: Remove silence
     cleaned_audio = remove_silence(audio)
 
-    # Step 2: Chunk into 30s segments with 1s overlap
-    chunks = chunk_audio(cleaned_audio, chunk_duration_ms=30000, overlap_ms=1000)
+    # Step 2: Choose chunk size based on audio length
+    # Longer audio = larger chunks to reduce API calls
+    cleaned_len = len(cleaned_audio)
+    if cleaned_len > 300000:  # > 5 minutes
+        # Use 60-second chunks with 2s overlap for very long audio
+        chunk_duration = 60000
+        overlap = 2000
+    elif cleaned_len > 120000:  # > 2 minutes
+        # Use 45-second chunks with 1.5s overlap
+        chunk_duration = 45000
+        overlap = 1500
+    else:
+        # Standard 30-second chunks with 1s overlap
+        chunk_duration = 30000
+        overlap = 1000
+
+    chunks = chunk_audio(cleaned_audio, chunk_duration_ms=chunk_duration, overlap_ms=overlap)
 
     return chunks
 
@@ -172,14 +189,16 @@ def _transcribe_single_chunk(args: Tuple[int, AudioSegment, str]) -> Tuple[int, 
 
 def transcribe_with_openai_api(audio_chunks: List[AudioSegment],
                                 api_key: str,
-                                max_workers: int = 4) -> str:
+                                max_workers: int = None,
+                                progress_callback=None) -> str:
     """
     Transcribe audio chunks using OpenAI's Whisper API in parallel.
 
     Args:
         audio_chunks: List of AudioSegment chunks
         api_key: OpenAI API key
-        max_workers: Maximum parallel API calls (default 4)
+        max_workers: Maximum parallel API calls (auto-scales based on chunk count if None)
+        progress_callback: Optional callback(completed, total) for progress updates
 
     Returns:
         Combined transcription from all chunks
@@ -192,8 +211,20 @@ def transcribe_with_openai_api(audio_chunks: List[AudioSegment],
         _, transcript = _transcribe_single_chunk((0, audio_chunks[0], api_key))
         return transcript
 
+    # Auto-scale workers based on chunk count (more chunks = more parallelism)
+    if max_workers is None:
+        if len(audio_chunks) > 20:
+            max_workers = 10  # Many chunks - max parallelism
+        elif len(audio_chunks) > 10:
+            max_workers = 8
+        elif len(audio_chunks) > 5:
+            max_workers = 6
+        else:
+            max_workers = 4
+
     # Multiple chunks - process in parallel
     transcriptions = [""] * len(audio_chunks)
+    completed = 0
 
     # Prepare args for each chunk
     chunk_args = [(i, chunk, api_key) for i, chunk in enumerate(audio_chunks)]
@@ -207,9 +238,13 @@ def transcribe_with_openai_api(audio_chunks: List[AudioSegment],
             try:
                 chunk_index, transcript = future.result()
                 transcriptions[chunk_index] = transcript
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, len(audio_chunks))
             except Exception as e:
                 # Log error but continue with other chunks
                 print(f"Chunk transcription error: {e}")
+                completed += 1
                 continue
 
     # Combine transcriptions in order, handling overlaps
@@ -277,16 +312,13 @@ def get_audio_duration_seconds(audio: AudioSegment) -> float:
     return len(audio) / 1000.0
 
 
-def get_chunk_info(audio: AudioSegment,
-                   chunk_duration_ms: int = 30000,
-                   overlap_ms: int = 1000) -> Tuple[int, float]:
+def get_chunk_info(audio: AudioSegment) -> Tuple[int, float]:
     """
     Get information about how audio will be chunked.
+    Uses same adaptive logic as process_audio_for_transcription.
 
     Args:
         audio: AudioSegment to analyze
-        chunk_duration_ms: Chunk duration in ms
-        overlap_ms: Overlap in ms
 
     Returns:
         Tuple of (num_chunks, total_duration_seconds)
@@ -297,7 +329,20 @@ def get_chunk_info(audio: AudioSegment,
 
     # First remove silence to get accurate estimate
     cleaned = remove_silence(audio)
-    chunks = chunk_audio(cleaned, chunk_duration_ms, overlap_ms)
+    cleaned_len = len(cleaned)
+
+    # Use same adaptive chunk sizing
+    if cleaned_len > 300000:  # > 5 minutes
+        chunk_duration = 60000
+        overlap = 2000
+    elif cleaned_len > 120000:  # > 2 minutes
+        chunk_duration = 45000
+        overlap = 1500
+    else:
+        chunk_duration = 30000
+        overlap = 1000
+
+    chunks = chunk_audio(cleaned, chunk_duration, overlap)
     return len(chunks), get_audio_duration_seconds(cleaned)
 
 

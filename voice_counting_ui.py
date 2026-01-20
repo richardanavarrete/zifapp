@@ -291,18 +291,28 @@ def render_browser_voice_input(session, dataset):
                 # Process audio: remove silence and chunk
                 chunks = process_audio_for_transcription(audio)
 
-            with st.spinner(f"Transcribing {len(chunks)} audio chunk{'s' if len(chunks) > 1 else ''}..."):
-                try:
-                    transcript = transcribe_with_openai_api(chunks, api_key)
-                    if transcript:
-                        # Store transcript for editing
-                        st.session_state.pending_transcript = transcript
-                        st.session_state.transcript_ready_to_map = False
-                        st.rerun()
-                    else:
-                        st.error("Could not transcribe audio. Please try again.")
-                except Exception as e:
-                    st.error(f"Transcription error: {str(e)}")
+            try:
+                if len(chunks) > 3:
+                    # Long recording - show progress bar
+                    progress_bar = st.progress(0, text=f"Transcribing 0/{len(chunks)} chunks...")
+                    def update_progress(completed, total):
+                        progress_bar.progress(completed / total, text=f"Transcribing {completed}/{total} chunks...")
+                    transcript = transcribe_with_openai_api(chunks, api_key, progress_callback=update_progress)
+                    progress_bar.empty()
+                else:
+                    # Short recording - just spinner
+                    with st.spinner(f"Transcribing {len(chunks)} audio chunk{'s' if len(chunks) > 1 else ''}..."):
+                        transcript = transcribe_with_openai_api(chunks, api_key)
+
+                if transcript:
+                    # Store transcript for editing
+                    st.session_state.pending_transcript = transcript
+                    st.session_state.transcript_ready_to_map = False
+                    st.rerun()
+                else:
+                    st.error("Could not transcribe audio. Please try again.")
+            except Exception as e:
+                st.error(f"Transcription error: {str(e)}")
 
 
 def format_transcript_with_newlines(transcript: str) -> str:
@@ -442,18 +452,28 @@ def render_audio_file_input(session, dataset):
                     st.error(f"Could not load audio file: {str(e)}")
                     return
 
-            with st.spinner(f"Transcribing {len(chunks)} audio chunk{'s' if len(chunks) > 1 else ''}..."):
-                try:
-                    transcript = transcribe_with_openai_api(chunks, api_key)
-                    if transcript:
-                        # Store transcript for editing
-                        st.session_state.pending_transcript = transcript
-                        st.session_state.transcript_ready_to_map = False
-                        st.rerun()
-                    else:
-                        st.error("Could not transcribe audio. Please try again.")
-                except Exception as e:
-                    st.error(f"Transcription error: {str(e)}")
+            try:
+                if len(chunks) > 3:
+                    # Long recording - show progress bar
+                    progress_bar = st.progress(0, text=f"Transcribing 0/{len(chunks)} chunks...")
+                    def update_progress(completed, total):
+                        progress_bar.progress(completed / total, text=f"Transcribing {completed}/{total} chunks...")
+                    transcript = transcribe_with_openai_api(chunks, api_key, progress_callback=update_progress)
+                    progress_bar.empty()
+                else:
+                    # Short recording - just spinner
+                    with st.spinner(f"Transcribing {len(chunks)} audio chunk{'s' if len(chunks) > 1 else ''}..."):
+                        transcript = transcribe_with_openai_api(chunks, api_key)
+
+                if transcript:
+                    # Store transcript for editing
+                    st.session_state.pending_transcript = transcript
+                    st.session_state.transcript_ready_to_map = False
+                    st.rerun()
+                else:
+                    st.error("Could not transcribe audio. Please try again.")
+            except Exception as e:
+                st.error(f"Transcription error: {str(e)}")
 
 
 def process_transcript(session, transcript, dataset):
