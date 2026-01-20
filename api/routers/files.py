@@ -1,10 +1,9 @@
 """File management endpoints."""
 
 from datetime import datetime
-from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, HTTPException, status
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 
 from api.dependencies import get_api_key, get_file_storage
 from api.middleware.errors import NotFoundError

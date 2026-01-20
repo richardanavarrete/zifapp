@@ -1,9 +1,8 @@
 """Item detail page - drill-down view with charts."""
 
-import streamlit as st
-import plotly.express as px
-import plotly.graph_objects as go
 import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
 
 from ui.api_client import APIClient, APIError
 

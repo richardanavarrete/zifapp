@@ -4,20 +4,21 @@ Voice Counting API Routes
 Endpoints for transcription, matching, and session management.
 """
 
-from typing import Optional, List
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
+from typing import List, Optional
 
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+
+from api.dependencies import get_inventory_service, get_voice_service
 from smallcogs.models.voice import (
-    VoiceSession,
     CountRecord,
+    SessionExport,
+    SessionStatus,
     TranscriptionResult,
     VoiceMatchRequest,
     VoiceMatchResponse,
-    SessionExport,
-    SessionStatus,
+    VoiceSession,
 )
-from smallcogs.services import VoiceService, InventoryService
-from api.dependencies import get_voice_service, get_inventory_service
+from smallcogs.services import InventoryService, VoiceService
 
 router = APIRouter(prefix="/voice", tags=["Voice Counting"])
 
@@ -86,8 +87,8 @@ async def transcribe_audio(
     Supports: webm, mp3, wav, m4a, ogg
     """
     # Save temp file
-    import tempfile
     import os
+    import tempfile
 
     suffix = os.path.splitext(audio.filename)[1] if audio.filename else ".webm"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:

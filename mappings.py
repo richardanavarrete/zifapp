@@ -7,8 +7,8 @@ embedded in zifapp.py lines 166-194.
 
 import json
 from typing import Dict, List
-from models import Item, InventoryDataset
 
+from models import InventoryDataset
 
 # Vendor mapping (extracted from zifapp.py lines 166-172)
 VENDOR_MAP = {

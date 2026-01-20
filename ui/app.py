@@ -7,14 +7,14 @@ voice counting, and smart ordering.
 
 import streamlit as st
 
-from ui.config import UIConfig
 from ui.api_client import APIClient, APIError
+from ui.config import UIConfig
 from ui.pages.dashboard import render_dashboard
-from ui.pages.items import render_items_page
 from ui.pages.item_detail import render_item_detail
+from ui.pages.items import render_items_page
+from ui.pages.orders import render_orders_page
 from ui.pages.upload import render_upload_page
 from ui.pages.voice import render_voice_page
-from ui.pages.orders import render_orders_page
 
 # Page config
 st.set_page_config(

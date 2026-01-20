@@ -1,10 +1,9 @@
 """Common types used across the inventory system."""
 
-from enum import Enum
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, Field
+from enum import Enum
 
+from pydantic import BaseModel, Field
 
 # ============================================================================
 # Status Enums (these are system states, not business data)

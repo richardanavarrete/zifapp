@@ -5,10 +5,11 @@ This module provides intelligent matching between voice transcripts and inventor
 Uses rapidfuzz for fuzzy string matching with confidence scoring.
 """
 
-from typing import List, Dict, Optional, Tuple
-from dataclasses import dataclass
-from rapidfuzz import fuzz, process
 import re
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+
+from rapidfuzz import fuzz
 
 
 @dataclass
@@ -181,7 +182,7 @@ class VoiceItemMatcher:
             return []
 
         transcript = transcript.strip()
-        cleaned_transcript = self._clean_for_matching(transcript)
+        self._clean_for_matching(transcript)
         results = []
 
         # Strategy 1: Exact match (case-insensitive)

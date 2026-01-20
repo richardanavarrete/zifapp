@@ -6,11 +6,10 @@ from inventory records.
 """
 
 import logging
-from typing import List, Dict, Optional
-from dataclasses import dataclass
+from typing import Dict, List
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from houndcogs.models.inventory import InventoryDataset, ItemFeatures, WeeklyRecord
 

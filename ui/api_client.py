@@ -4,7 +4,8 @@ API Client for smallCOGS UI
 Handles all communication with the backend API.
 """
 
-from typing import Optional, Dict, List, Any
+from typing import Dict, List, Optional
+
 import requests
 
 from ui.config import UIConfig

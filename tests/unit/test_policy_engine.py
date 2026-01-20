@@ -1,12 +1,12 @@
 """Tests for the policy engine."""
 
-import pytest
-from datetime import date
 
+import pytest
+
+from houndcogs.models.common import Category, ReasonCode, Vendor
 from houndcogs.models.inventory import Item, ItemFeatures
-from houndcogs.models.orders import OrderTargets, OrderConstraints
-from houndcogs.models.common import Category, Vendor, ReasonCode, Confidence
-from houndcogs.services.policy_engine import apply_policies, PolicyResult
+from houndcogs.models.orders import OrderConstraints, OrderTargets
+from houndcogs.services.policy_engine import apply_policies
 
 
 def create_test_item(

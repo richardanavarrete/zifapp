@@ -6,11 +6,7 @@ counted and converted back to their ingredient equivalents to accurately reflect
 what's "in house" even though it's already mixed.
 """
 
-from config.constants import (
-    ZIPPARITA_TEQUILA_RATIO,
-    ZIPPARITA_TRIPLE_SEC_RATIO,
-    LIQUOR_BOTTLE_OZ
-)
+from config.constants import LIQUOR_BOTTLE_OZ, ZIPPARITA_TEQUILA_RATIO, ZIPPARITA_TRIPLE_SEC_RATIO
 
 # Define batch products and their ingredient breakdown
 # Each batch product maps to a dict of {inventory_item: ratio}

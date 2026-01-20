@@ -6,13 +6,13 @@ Matches voice input text to inventory items using multiple strategies.
 
 import logging
 import re
-from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
+from typing import Dict, List, Optional
 
 from rapidfuzz import fuzz, process
 
 from houndcogs.models.inventory import Item
-from houndcogs.models.voice import MatchResult, MatchCandidate
+from houndcogs.models.voice import MatchCandidate, MatchResult
 
 logger = logging.getLogger(__name__)
 

@@ -7,12 +7,13 @@ This module provides SQLite-based storage for:
 - User preferences (item-specific settings that override defaults)
 """
 
-import sqlite3
 import json
-import pandas as pd
+import sqlite3
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Dict, List, Optional
-from contextlib import contextmanager
+
+import pandas as pd
 
 DB_PATH = "agent_memory.db"
 
@@ -424,7 +425,6 @@ def save_voice_count_session(session) -> bool:
     Returns:
         True if successful
     """
-    from models import VoiceCountSession  # Import here to avoid circular dependency
 
     with get_db() as conn:
         cursor = conn.cursor()
@@ -510,7 +510,10 @@ def load_voice_count_session(session_id: str):
     Returns:
         VoiceCountSession object or None if not found
     """
-    from models import VoiceCountSession, VoiceCountRecord  # Import here to avoid circular dependency
+    from models import (  # Import here to avoid circular dependency
+        VoiceCountRecord,
+        VoiceCountSession,
+    )
 
     with get_db() as conn:
         cursor = conn.cursor()

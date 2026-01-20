@@ -1,8 +1,9 @@
 """COGS Analysis Page."""
 
-import streamlit as st
-import pandas as pd
 from datetime import date, timedelta
+
+import pandas as pd
+import streamlit as st
 
 from ui.api_client import get_client
 
@@ -186,7 +187,7 @@ def render_reports_section():
     """Render historical reports section."""
     st.subheader("Historical Reports")
 
-    client = get_client()
+    get_client()
 
     # Placeholder - would load from API
     st.info("No historical reports yet. Run an analysis to generate reports.")

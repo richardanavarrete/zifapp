@@ -2,10 +2,9 @@
 
 import os
 import uuid
-import shutil
-from typing import Optional, List
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
 from api.config import get_settings
 from api.middleware.auth import verify_api_key

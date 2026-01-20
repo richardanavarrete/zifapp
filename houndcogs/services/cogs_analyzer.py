@@ -6,18 +6,18 @@ Calculates Cost of Goods Sold, pour costs, and variance analysis.
 
 import logging
 import uuid
-from datetime import date, datetime
-from typing import List, Dict, Optional
+from datetime import date
+from typing import Dict, List, Optional
 
-from houndcogs.models.inventory import InventoryDataset
 from houndcogs.models.cogs import (
-    COGSSummary,
     CategoryCOGS,
-    PourCostResult,
-    VarianceResult,
+    COGSSummary,
     ItemVariance,
     PourCostBenchmarks,
+    PourCostResult,
+    VarianceResult,
 )
+from houndcogs.models.inventory import InventoryDataset
 
 logger = logging.getLogger(__name__)
 

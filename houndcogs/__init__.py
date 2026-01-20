@@ -7,10 +7,10 @@ No framework dependencies (Streamlit, FastAPI) in this package.
 
 __version__ = "1.0.0"
 
-from houndcogs.models.inventory import Item, WeeklyRecord, InventoryDataset
-from houndcogs.models.orders import OrderTargets, OrderConstraints, Recommendation
 from houndcogs.models.cogs import COGSSummary, PourCostResult
-from houndcogs.models.voice import VoiceSession, VoiceCountRecord
+from houndcogs.models.inventory import InventoryDataset, Item, WeeklyRecord
+from houndcogs.models.orders import OrderConstraints, OrderTargets, Recommendation
+from houndcogs.models.voice import VoiceCountRecord, VoiceSession
 
 __all__ = [
     "Item",

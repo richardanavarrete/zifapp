@@ -11,20 +11,20 @@ Orchestrates the order recommendation process:
 import logging
 import uuid
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
-from houndcogs.models.inventory import InventoryDataset, ItemFeatures
+from houndcogs.models.common import Confidence, ReasonCode
+from houndcogs.models.inventory import InventoryDataset
 from houndcogs.models.orders import (
-    OrderTargets,
-    OrderConstraints,
-    Recommendation,
     AgentRun,
     AgentRunSummary,
+    OrderConstraints,
+    OrderTargets,
+    Recommendation,
     VendorSummary,
 )
-from houndcogs.models.common import ReasonCode, Confidence
 from houndcogs.services.feature_engine import compute_features
-from houndcogs.services.policy_engine import apply_policies, PolicyResult
+from houndcogs.services.policy_engine import apply_policies
 
 logger = logging.getLogger(__name__)
 

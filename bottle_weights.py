@@ -4,8 +4,7 @@ Bottle Weight Utilities - Default weights and fill level calculations.
 Provides standard bottle/keg weights for calculating fill levels from scale readings.
 """
 
-from typing import Dict, Tuple, Optional
-
+from typing import Dict, Optional, Tuple
 
 # Standard bottle weights (in grams)
 # Format: {unit_of_measure: (full_weight, empty_weight)}

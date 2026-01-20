@@ -6,12 +6,12 @@ Each rule evaluates an item and returns a decision.
 """
 
 import logging
-from typing import List, Dict, Optional
 from dataclasses import dataclass, field
+from typing import Dict, List
 
+from houndcogs.models.common import Confidence, ReasonCode
 from houndcogs.models.inventory import InventoryDataset, ItemFeatures
-from houndcogs.models.orders import OrderTargets, OrderConstraints
-from houndcogs.models.common import ReasonCode, Confidence
+from houndcogs.models.orders import OrderConstraints, OrderTargets
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ def _evaluate_item(
             original = quantity
             quantity = int(quantity * 1.1)
             if quantity > original:
-                adjustments.append(f"Increased 10% for upward trend")
+                adjustments.append("Increased 10% for upward trend")
 
         return PolicyResult(
             item_id=item.item_id,

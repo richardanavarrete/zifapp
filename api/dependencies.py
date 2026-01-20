@@ -9,8 +9,8 @@ from functools import lru_cache
 
 from smallcogs.services import (
     InventoryService,
-    VoiceService,
     OrderService,
+    VoiceService,
 )
 
 

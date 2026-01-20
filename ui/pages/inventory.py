@@ -1,8 +1,8 @@
 """Inventory Management Page."""
 
-import streamlit as st
+
 import pandas as pd
-from datetime import datetime
+import streamlit as st
 
 from ui.api_client import get_client
 

@@ -6,11 +6,11 @@ All business rules (targets, constraints) are user-configurable.
 """
 
 from datetime import datetime
-from typing import Optional, Dict, List, Any
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
-from houndcogs.models.common import ReasonCode, Confidence
-
+from houndcogs.models.common import Confidence, ReasonCode
 
 # ============================================================================
 # Configuration Models (User-Defined)

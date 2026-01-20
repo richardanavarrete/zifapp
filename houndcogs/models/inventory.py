@@ -5,13 +5,13 @@ Generic inventory models that work with any structured spreadsheet.
 No hardcoded categories, vendors, or business-specific logic.
 """
 
-from datetime import datetime, date
-from typing import Optional, Dict, List, Any
-from pydantic import BaseModel, Field, field_validator, computed_field
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional
+
 import pandas as pd
+from pydantic import BaseModel, Field, field_validator
 
 from houndcogs.models.common import TrendDirection
-
 
 # ============================================================================
 # Core Data Models

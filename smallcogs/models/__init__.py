@@ -1,40 +1,40 @@
 """smallCOGS Data Models"""
 
 from smallcogs.models.common import (
-    TrendDirection,
     DateRange,
     PaginationParams,
+    TrendDirection,
 )
 from smallcogs.models.inventory import (
-    Item,
-    Record,
-    ItemStats,
     Dataset,
     DatasetSummary,
-    UploadResult,
+    Item,
     ItemFilter,
-)
-from smallcogs.models.voice import (
-    SessionStatus,
-    VoiceSession,
-    CountRecord,
-    TranscriptionResult,
-    MatchCandidate,
-    ParsedVoiceInput,
-    VoiceMatchRequest,
-    VoiceMatchResponse,
-    SessionExport,
+    ItemStats,
+    Record,
+    UploadResult,
 )
 from smallcogs.models.orders import (
-    ReasonCode,
+    ApprovalRequest,
     Confidence,
-    OrderTargets,
     OrderConstraints,
+    OrderExport,
+    OrderTargets,
+    ReasonCode,
     Recommendation,
     RecommendationRun,
     RecommendRequest,
-    ApprovalRequest,
-    OrderExport,
+)
+from smallcogs.models.voice import (
+    CountRecord,
+    MatchCandidate,
+    ParsedVoiceInput,
+    SessionExport,
+    SessionStatus,
+    TranscriptionResult,
+    VoiceMatchRequest,
+    VoiceMatchResponse,
+    VoiceSession,
 )
 
 __all__ = [

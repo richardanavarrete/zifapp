@@ -5,6 +5,7 @@ Agentic ordering - smart recommendations based on usage patterns.
 """
 
 import streamlit as st
+
 from ui.api_client import APIClient
 
 

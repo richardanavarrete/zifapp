@@ -4,14 +4,11 @@ Stats Service - Computes usage statistics and trends
 Pure functions for computing analytics from inventory data.
 """
 
-from datetime import date
-from typing import List, Optional, Dict
 import statistics
+from typing import Dict, List, Optional
 
-from smallcogs.models.inventory import (
-    Dataset, Item, Record, ItemStats, UsageTrend, ItemDetail
-)
 from smallcogs.models.common import TrendDirection
+from smallcogs.models.inventory import Dataset, Item, ItemDetail, ItemStats, Record, UsageTrend
 
 
 class StatsService:
@@ -37,7 +34,7 @@ class StatsService:
 
         # Basic stats
         usages = [r.usage for r in sorted_records if r.usage is not None]
-        on_hands = [r.on_hand for r in sorted_records]
+        [r.on_hand for r in sorted_records]
 
         current_on_hand = sorted_records[-1].on_hand
         last_count_date = sorted_records[-1].record_date

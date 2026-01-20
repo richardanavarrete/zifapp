@@ -4,22 +4,21 @@ Order Recommendation Service
 Agentic ordering - generates smart recommendations based on usage patterns.
 """
 
-import uuid
 import logging
-from datetime import datetime
-from typing import Optional, List, Dict, Any
+import uuid
+from typing import Any, Dict, List, Optional
 
+from smallcogs.models.inventory import Dataset, ItemStats
 from smallcogs.models.orders import (
-    OrderTargets,
+    Confidence,
     OrderConstraints,
+    OrderExport,
+    OrderTargets,
+    ReasonCode,
     Recommendation,
     RecommendationRun,
     RecommendRequest,
-    OrderExport,
-    ReasonCode,
-    Confidence,
 )
-from smallcogs.models.inventory import Dataset, ItemStats
 from smallcogs.services.stats_service import StatsService
 
 logger = logging.getLogger(__name__)

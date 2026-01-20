@@ -5,20 +5,19 @@ Parses Excel and CSV inventory files into InventoryDataset models.
 """
 
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
-import re
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from houndcogs.models.common import Category, Vendor
 from houndcogs.models.inventory import (
+    InventoryDataset,
     Item,
     WeeklyRecord,
-    InventoryDataset,
-    UploadResult,
 )
-from houndcogs.models.common import Category, Vendor
 
 logger = logging.getLogger(__name__)
 
