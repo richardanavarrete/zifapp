@@ -1,0 +1,47 @@
+# HoundCOGS Docker Compose
+# Run with: docker-compose -f docker/docker-compose.yml up
+
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: houndcogs-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=false
+      - API_KEYS=${API_KEYS:-dev-key-123}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DATABASE_URL=sqlite:///./data/db/houndcogs.db
+      - CORS_ORIGINS=http://localhost:8501,http://ui:8501
+    volumes:
+      - api-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ui
+    container_name: houndcogs-ui
+    ports:
+      - "8501:8501"
+    environment:
+      - UI_API_BASE_URL=http://api:8000
+      - UI_API_KEY=${API_KEYS:-dev-key-123}
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  api-data:
+    driver: local
