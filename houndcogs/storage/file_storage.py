@@ -219,8 +219,10 @@ class LocalFileStorage:
                     try:
                         file_path.unlink()
                         logger.debug(f"Cleaned up temp file: {file_path}")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        # Silently continue cleanup even if individual file deletion fails
+                        # (e.g., file already deleted, permission issues, or file in use)
+                        logger.debug(f"Failed to delete temp file {file_path}: {e}")
 
     def _guess_content_type(self, filename: str) -> str:
         """Guess content type from filename."""
