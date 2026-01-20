@@ -291,32 +291,61 @@ def render_browser_voice_input(session, dataset):
                 # Process audio: remove silence and chunk
                 chunks = process_audio_for_transcription(audio)
 
-            with st.spinner(f"Transcribing {len(chunks)} audio chunk{'s' if len(chunks) > 1 else ''}..."):
-                try:
-                    transcript = transcribe_with_openai_api(chunks, api_key)
-                    if transcript:
-                        # Store transcript for editing
-                        st.session_state.pending_transcript = transcript
-                        st.session_state.transcript_ready_to_map = False
-                        st.rerun()
-                    else:
-                        st.error("Could not transcribe audio. Please try again.")
-                except Exception as e:
-                    st.error(f"Transcription error: {str(e)}")
+            try:
+                if len(chunks) > 3:
+                    # Long recording - show progress bar
+                    progress_bar = st.progress(0, text=f"Transcribing 0/{len(chunks)} chunks...")
+                    def update_progress(completed, total):
+                        progress_bar.progress(completed / total, text=f"Transcribing {completed}/{total} chunks...")
+                    transcript = transcribe_with_openai_api(chunks, api_key, progress_callback=update_progress)
+                    progress_bar.empty()
+                else:
+                    # Short recording - just spinner
+                    with st.spinner(f"Transcribing {len(chunks)} audio chunk{'s' if len(chunks) > 1 else ''}..."):
+                        transcript = transcribe_with_openai_api(chunks, api_key)
+
+                if transcript:
+                    # Store transcript for editing
+                    st.session_state.pending_transcript = transcript
+                    st.session_state.transcript_ready_to_map = False
+                    st.rerun()
+                else:
+                    st.error("Could not transcribe audio. Please try again.")
+            except Exception as e:
+                st.error(f"Transcription error: {str(e)}")
+
+
+def format_transcript_with_newlines(transcript: str) -> str:
+    """Format transcript with newlines after each number for easier reading/editing."""
+    import re
+    # Insert newline after numbers (but not before weight units)
+    # Pattern: number followed by space and a letter (start of next item)
+    formatted = re.sub(
+        r'(\d+\.?\d*)\s*,?\s*(?!(?:grams?|g|pounds?|lbs?|lb|oz|ounces?)\b)([A-Za-z])',
+        r'\1\n\2',
+        transcript,
+        flags=re.IGNORECASE
+    )
+    # Also handle period followed by space and capital letter (sentence boundary)
+    formatted = re.sub(r'\.\s+([A-Z])', r'.\n\1', formatted)
+    return formatted.strip()
 
 
 def render_transcript_editor(session, dataset):
     """Render the editable transcript text box and mapping controls."""
     st.markdown("### 📝 Review & Edit Transcript")
-    st.info("💡 Edit the transcript below if needed, then click 'Map Items' to match to your inventory.")
+    st.info("💡 Edit the transcript below if needed (one item per line), then click 'Map Items' to match to your inventory.")
 
-    # Editable text area for transcript
+    # Format transcript with newlines for easier editing
+    display_transcript = format_transcript_with_newlines(st.session_state.pending_transcript)
+
+    # Editable text area for transcript - larger size
     edited_transcript = st.text_area(
         "Transcription",
-        value=st.session_state.pending_transcript,
-        height=150,
+        value=display_transcript,
+        height=600,
         key="transcript_editor",
-        help="Edit the transcript to fix any transcription errors before mapping to items"
+        help="Edit the transcript to fix any transcription errors before mapping to items. One item per line."
     )
 
     # Action buttons
@@ -423,18 +452,28 @@ def render_audio_file_input(session, dataset):
                     st.error(f"Could not load audio file: {str(e)}")
                     return
 
-            with st.spinner(f"Transcribing {len(chunks)} audio chunk{'s' if len(chunks) > 1 else ''}..."):
-                try:
-                    transcript = transcribe_with_openai_api(chunks, api_key)
-                    if transcript:
-                        # Store transcript for editing
-                        st.session_state.pending_transcript = transcript
-                        st.session_state.transcript_ready_to_map = False
-                        st.rerun()
-                    else:
-                        st.error("Could not transcribe audio. Please try again.")
-                except Exception as e:
-                    st.error(f"Transcription error: {str(e)}")
+            try:
+                if len(chunks) > 3:
+                    # Long recording - show progress bar
+                    progress_bar = st.progress(0, text=f"Transcribing 0/{len(chunks)} chunks...")
+                    def update_progress(completed, total):
+                        progress_bar.progress(completed / total, text=f"Transcribing {completed}/{total} chunks...")
+                    transcript = transcribe_with_openai_api(chunks, api_key, progress_callback=update_progress)
+                    progress_bar.empty()
+                else:
+                    # Short recording - just spinner
+                    with st.spinner(f"Transcribing {len(chunks)} audio chunk{'s' if len(chunks) > 1 else ''}..."):
+                        transcript = transcribe_with_openai_api(chunks, api_key)
+
+                if transcript:
+                    # Store transcript for editing
+                    st.session_state.pending_transcript = transcript
+                    st.session_state.transcript_ready_to_map = False
+                    st.rerun()
+                else:
+                    st.error("Could not transcribe audio. Please try again.")
+            except Exception as e:
+                st.error(f"Transcription error: {str(e)}")
 
 
 def process_transcript(session, transcript, dataset):
@@ -781,20 +820,18 @@ def process_with_ai_assistant(session, transcript, dataset):
         dataset: InventoryDataset
 
     Returns:
-        Tuple of (items_processed, ai_feedback_message)
+        Tuple of (items_processed, ai_feedback_message) or None if AI fails (to trigger fallback)
     """
     # Check if OpenAI is available
     try:
         from openai import OpenAI
         import json
     except ImportError:
-        st.error("⚠️ AI Assistant requires OpenAI package. Install with: `pip install openai`")
-        return 0, "AI Assistant not available - using free tier instead."
+        return None  # Signal to use fallback
 
     # Check for API key
     if "openai" not in st.secrets or "api_key" not in st.secrets["openai"]:
-        st.error("⚠️ AI Assistant requires API key configuration")
-        return 0, "AI Assistant not configured - using free tier instead."
+        return None  # Signal to use fallback
 
     try:
         client = OpenAI(api_key=st.secrets["openai"]["api_key"])
@@ -836,11 +873,16 @@ If you can't extract any items, return empty items array with helpful message.""
                 }
             ],
             temperature=0.3,
-            max_tokens=300
+            max_tokens=500,
+            response_format={"type": "json_object"}  # Force JSON output
         )
 
         # Parse AI response
         ai_content = response.choices[0].message.content
+
+        if not ai_content or not ai_content.strip():
+            return None  # Signal to use fallback
+
         result = json.loads(ai_content)
 
         # Process each item
@@ -848,7 +890,10 @@ If you can't extract any items, return empty items array with helpful message.""
         matcher = st.session_state.voice_matcher
 
         for item in result.get("items", []):
-            item_name = item["name"]
+            item_name = item.get("name")
+            if not item_name:
+                continue
+
             count_value = item.get("count")
             unit = item.get("unit")
 
@@ -893,9 +938,12 @@ If you can't extract any items, return empty items array with helpful message.""
         # Return with AI feedback
         return items_processed, result.get("confirmation", "Items processed!")
 
+    except json.JSONDecodeError as e:
+        st.warning(f"⚠️ AI response parsing failed, using standard matching...")
+        return None  # Signal to use fallback
     except Exception as e:
-        st.error(f"❌ AI Assistant error: {str(e)}")
-        return 0, f"Error: {str(e)}"
+        st.warning(f"⚠️ AI Assistant unavailable ({str(e)[:50]}...), using standard matching...")
+        return None  # Signal to use fallback
 
 
 def clean_transcript_smart(transcript: str) -> str:
@@ -973,9 +1021,14 @@ def process_multi_item_transcript(session, transcript, dataset, use_ai=False):
     """
     # Check if AI mode is enabled and available
     if use_ai:
-        return process_with_ai_assistant(session, transcript, dataset)
+        ai_result = process_with_ai_assistant(session, transcript, dataset)
+        # If AI succeeded (returned tuple), return the result
+        if ai_result is not None:
+            return ai_result
+        # If AI failed (returned None), fall through to standard parsing
+        st.info("Using standard matching...")
 
-    # Free tier: Smart cleaning + regular parsing
+    # Standard parsing: Smart cleaning + regular parsing
     transcript = clean_transcript_smart(transcript)
     matcher = st.session_state.voice_matcher
 
@@ -994,8 +1047,8 @@ def process_multi_item_transcript(session, transcript, dataset, use_ai=False):
         flags=re.IGNORECASE
     )
 
-    # Split transcript by common separators (comma, "and", semicolon, now includes |)
-    separators = [',', ' and ', ';', '|']
+    # Split transcript by common separators (comma, "and", semicolon, newline, now includes |)
+    separators = ['\n', ',', ' and ', ';', '|']
 
     # Replace all separators with a common delimiter
     normalized = transcript
