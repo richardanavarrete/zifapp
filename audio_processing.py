@@ -129,22 +129,24 @@ def process_audio_for_transcription(audio: AudioSegment) -> List[AudioSegment]:
     if audio_len < 25000:
         return [audio]
 
-    # Step 1: Remove silence
+    # For very long audio (> 10 min), skip silence removal entirely
+    # (too slow/memory intensive) and just chunk directly
+    if audio_len > 600000:  # > 10 minutes
+        # Use 60-second chunks with 2s overlap
+        return chunk_audio(audio, chunk_duration_ms=60000, overlap_ms=2000)
+
+    # For medium-length audio, do silence removal
     cleaned_audio = remove_silence(audio)
 
-    # Step 2: Choose chunk size based on audio length
-    # Longer audio = larger chunks to reduce API calls
+    # Choose chunk size based on cleaned audio length
     cleaned_len = len(cleaned_audio)
     if cleaned_len > 300000:  # > 5 minutes
-        # Use 60-second chunks with 2s overlap for very long audio
         chunk_duration = 60000
         overlap = 2000
     elif cleaned_len > 120000:  # > 2 minutes
-        # Use 45-second chunks with 1.5s overlap
         chunk_duration = 45000
         overlap = 1500
     else:
-        # Standard 30-second chunks with 1s overlap
         chunk_duration = 30000
         overlap = 1000
 
@@ -323,19 +325,25 @@ def get_chunk_info(audio: AudioSegment) -> Tuple[int, float]:
     Returns:
         Tuple of (num_chunks, total_duration_seconds)
     """
+    audio_len = len(audio)
+
     # For short audio, return 1 chunk
-    if len(audio) < 25000:
+    if audio_len < 25000:
         return 1, get_audio_duration_seconds(audio)
 
-    # First remove silence to get accurate estimate
+    # For very long audio (> 10 min), skip silence removal estimate
+    if audio_len > 600000:
+        chunks = chunk_audio(audio, 60000, 2000)
+        return len(chunks), get_audio_duration_seconds(audio)
+
+    # For medium-length, do silence removal estimate
     cleaned = remove_silence(audio)
     cleaned_len = len(cleaned)
 
-    # Use same adaptive chunk sizing
-    if cleaned_len > 300000:  # > 5 minutes
+    if cleaned_len > 300000:
         chunk_duration = 60000
         overlap = 2000
-    elif cleaned_len > 120000:  # > 2 minutes
+    elif cleaned_len > 120000:
         chunk_duration = 45000
         overlap = 1500
     else:
