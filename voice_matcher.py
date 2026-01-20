@@ -182,7 +182,6 @@ class VoiceItemMatcher:
             return []
 
         transcript = transcript.strip()
-        self._clean_for_matching(transcript)
         results = []
 
         # Strategy 1: Exact match (case-insensitive)

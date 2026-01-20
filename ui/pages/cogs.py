@@ -187,7 +187,5 @@ def render_reports_section():
     """Render historical reports section."""
     st.subheader("Historical Reports")
 
-    get_client()
-
     # Placeholder - would load from API
     st.info("No historical reports yet. Run an analysis to generate reports.")

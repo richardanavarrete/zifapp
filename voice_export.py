@@ -129,9 +129,6 @@ def export_voice_count_to_excel(
     header_font = Font(bold=True, color="FFFFFF")
     header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-    PatternFill(start_color="B8CCE4", end_color="B8CCE4", fill_type="solid")
-    Font(bold=True)
-
     high_conf_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")  # Light green
     med_conf_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")   # Light yellow
     low_conf_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")   # Light red

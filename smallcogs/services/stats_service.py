@@ -34,7 +34,6 @@ class StatsService:
 
         # Basic stats
         usages = [r.usage for r in sorted_records if r.usage is not None]
-        [r.on_hand for r in sorted_records]
 
         current_on_hand = sorted_records[-1].on_hand
         last_count_date = sorted_records[-1].record_date

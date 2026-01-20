@@ -999,7 +999,6 @@ def clean_transcript_smart(transcript: str) -> str:
         if i < len(words) - 2:
             # Check if we have "word word number" pattern
             potential_dup = ' '.join(words[i:i+2])
-            ' '.join(words[i+2:i+4]) if i+3 < len(words) else words[i+2] if i+2 < len(words) else ''
 
             # If the first two words appear again, and the second mention has a number, skip first mention
             if i+4 < len(words) and ' '.join(words[i+2:i+4]) == potential_dup:
