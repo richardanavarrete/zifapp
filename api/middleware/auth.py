@@ -11,7 +11,6 @@ import hashlib
 
 def generate_api_key(prefix: str = "hc") -> str:
     """Generate a new API key."""
-    random_bytes = secrets.token_bytes(24)
     key = f"{prefix}_{secrets.token_urlsafe(24)}"
     return key
 
