@@ -333,7 +333,7 @@ def render_transcript_editor(session, dataset):
     edited_transcript = st.text_area(
         "Transcription",
         value=display_transcript,
-        height=300,
+        height=600,
         key="transcript_editor",
         help="Edit the transcript to fix any transcription errors before mapping to items. One item per line."
     )
