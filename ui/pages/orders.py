@@ -1,256 +1,289 @@
-"""Order Recommendations Page."""
+"""
+Order Recommendations Page
+
+Agentic ordering - smart recommendations based on usage patterns.
+"""
 
 import streamlit as st
-import pandas as pd
-
-from ui.api_client import get_client
+from ui.api_client import APIClient
 
 
-def render():
+def render_orders_page(client: APIClient):
     """Render the order recommendations page."""
-    st.title("Order Recommendations")
+    st.header("Order Recommendations")
+    st.markdown("Generate smart order suggestions based on your usage patterns.")
 
     # Tabs
-    tab1, tab2, tab3 = st.tabs(["Generate", "History", "Settings"])
+    tab_generate, tab_history, tab_export = st.tabs(["Generate", "History", "Export"])
 
-    with tab1:
-        render_generate_section()
+    with tab_generate:
+        render_generate_tab(client)
 
-    with tab2:
-        render_history_section()
+    with tab_history:
+        render_history_tab(client)
 
-    with tab3:
-        render_settings_section()
+    with tab_export:
+        render_export_tab(client)
 
 
-def render_generate_section():
-    """Render the recommendation generation section."""
-    st.subheader("Generate Order Recommendations")
-
-    client = get_client()
-
-    # Get datasets
-    datasets_result = client.list_datasets()
-    if not datasets_result.success or not datasets_result.data:
-        st.info("No datasets available. Upload an inventory file first.")
-        return
-
-    datasets = datasets_result.data if isinstance(datasets_result.data, list) else []
+def render_generate_tab(client: APIClient):
+    """Generate recommendations tab."""
+    st.subheader("Generate Recommendations")
 
     # Dataset selection
-    selected_dataset = st.selectbox(
-        "Select Dataset",
-        options=[d.get('dataset_id', '') for d in datasets],
-        format_func=lambda x: next(
-            (d.get('name', x) for d in datasets if d.get('dataset_id') == x),
-            x
-        )
-    )
+    datasets = client.get("/inventory/datasets") or []
 
-    # Optional constraints
-    with st.expander("Constraints (Optional)"):
-        col1, col2 = st.columns(2)
+    if not datasets:
+        st.warning("Upload inventory data first to generate recommendations.")
+        return
 
-        with col1:
-            max_spend = st.number_input(
-                "Max Total Spend ($)",
-                min_value=0,
-                value=0,
-                help="Set to 0 for no limit"
-            )
+    dataset_options = {d["name"]: d["dataset_id"] for d in datasets}
+    selected_dataset = st.selectbox("Select Dataset", options=list(dataset_options.keys()))
 
-        with col2:
-            max_cases = st.number_input(
-                "Max Total Cases",
-                min_value=0,
-                value=0,
-                help="Set to 0 for no limit"
-            )
-
-    # Generate button
-    if st.button("Generate Recommendations", type="primary", disabled=not selected_dataset):
-        constraints = {}
-        if max_spend > 0:
-            constraints["max_total_spend"] = max_spend
-        if max_cases > 0:
-            constraints["max_total_cases"] = max_cases
-
-        with st.spinner("Generating recommendations..."):
-            result = client.get_recommendations(
-                dataset_id=selected_dataset,
-                constraints=constraints if constraints else None,
-            )
-
-            if result.success:
-                st.session_state['current_run'] = result.data
-                st.success("Recommendations generated!")
-            else:
-                st.error(f"Failed to generate recommendations: {result.error}")
-
-    # Display current run
-    if 'current_run' in st.session_state and st.session_state['current_run']:
-        display_run(st.session_state['current_run'])
-
-
-def display_run(run_data: dict):
-    """Display a run's recommendations."""
     st.divider()
-    st.subheader("Results")
 
-    # Summary metrics
-    summary = run_data.get('summary', {})
-    col1, col2, col3, col4 = st.columns(4)
+    # Configuration
+    st.subheader("Targets")
+    col1, col2 = st.columns(2)
 
     with col1:
-        st.metric("Total Items", summary.get('total_items', 0))
-    with col2:
-        st.metric("Total Spend", f"${summary.get('total_spend', 0):,.2f}")
-    with col3:
-        st.metric("With Warnings", summary.get('items_with_warnings', 0))
-    with col4:
-        st.metric("Run ID", run_data.get('run_id', 'N/A')[:12])
+        default_weeks = st.number_input(
+            "Default target weeks",
+            min_value=0.5,
+            max_value=12.0,
+            value=2.0,
+            step=0.5,
+            help="How many weeks of inventory to maintain"
+        )
 
-    # Vendor breakdown
-    by_vendor = summary.get('by_vendor', {})
-    if by_vendor:
-        st.subheader("By Vendor")
-        vendor_df = pd.DataFrame([
-            {
-                "Vendor": v,
-                "Items": data.get('items_count', 0),
-                "Spend": f"${data.get('total_spend', 0):,.2f}"
+    with col2:
+        low_stock_weeks = st.number_input(
+            "Low stock threshold",
+            min_value=0.1,
+            max_value=4.0,
+            value=1.0,
+            step=0.1,
+            help="Alert when below this many weeks"
+        )
+
+    # Category-specific targets
+    with st.expander("Category-specific targets (optional)"):
+        st.markdown("Set different targets for specific categories:")
+        cat_targets = {}
+
+        # Get categories from dataset
+        if selected_dataset:
+            ds = client.get(f"/inventory/datasets/{dataset_options[selected_dataset]}")
+            if ds and ds.get("categories"):
+                for cat in ds["categories"][:10]:  # Limit to 10
+                    val = st.number_input(
+                        cat,
+                        min_value=0.5,
+                        max_value=12.0,
+                        value=default_weeks,
+                        step=0.5,
+                        key=f"cat_{cat}"
+                    )
+                    if val != default_weeks:
+                        cat_targets[cat] = val
+
+    # Constraints
+    st.subheader("Constraints")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        max_spend = st.number_input(
+            "Max total spend ($)",
+            min_value=0,
+            value=0,
+            step=100,
+            help="0 = no limit"
+        )
+
+    with col2:
+        max_items = st.number_input(
+            "Max items",
+            min_value=0,
+            value=0,
+            step=10,
+            help="0 = no limit"
+        )
+
+    st.divider()
+
+    # Generate button
+    if st.button("Generate Recommendations", type="primary", use_container_width=True):
+        with st.spinner("Analyzing usage patterns..."):
+            request = {
+                "dataset_id": dataset_options[selected_dataset],
+                "targets": {
+                    "default_weeks": default_weeks,
+                    "by_category": cat_targets,
+                },
+                "constraints": {
+                    "low_stock_weeks": low_stock_weeks,
+                    "max_spend": max_spend if max_spend > 0 else None,
+                    "max_items": max_items if max_items > 0 else None,
+                },
             }
-            for v, data in by_vendor.items()
-        ])
-        st.dataframe(vendor_df, use_container_width=True, hide_index=True)
+
+            result = client.post("/orders/recommend", json=request)
+
+            if result:
+                st.session_state["recommendations"] = result
+                st.success(f"Generated {result.get('total_items', 0)} recommendations!")
+            else:
+                st.error("Failed to generate recommendations")
+
+    # Show results
+    if "recommendations" in st.session_state:
+        render_recommendations(st.session_state["recommendations"])
+
+
+def render_recommendations(run: dict):
+    """Render recommendation results."""
+    st.divider()
+    st.subheader("Recommendations")
+
+    # Summary metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Items", run.get("total_items", 0))
+    with col2:
+        st.metric("Total Spend", f"${run.get('total_spend', 0):.2f}")
+    with col3:
+        st.metric("Low Stock", run.get("low_stock_count", 0))
+    with col4:
+        st.metric("Data Issues", len(run.get("data_issues", [])))
+
+    # Breakdown by reason
+    if run.get("by_reason"):
+        st.write("**By Reason:**")
+        for reason, count in run["by_reason"].items():
+            st.write(f"  - {reason}: {count}")
+
+    st.divider()
 
     # Recommendations table
-    recommendations = run_data.get('recommendations', [])
-    if recommendations:
-        st.subheader("Recommendations")
+    recommendations = run.get("recommendations", [])
 
-        # Filter to items with suggested orders
-        recs_with_orders = [r for r in recommendations if r.get('suggested_order', 0) > 0]
-
-        if recs_with_orders:
-            df = pd.DataFrame(recs_with_orders)
-
-            # Select and order columns
-            columns = [
-                'display_name', 'category', 'vendor',
-                'current_on_hand', 'weeks_on_hand', 'avg_weekly_usage',
-                'suggested_order', 'total_cost',
-                'reason_code', 'confidence'
-            ]
-            available_cols = [c for c in columns if c in df.columns]
-            df = df[available_cols]
-
-            # Format
-            if 'total_cost' in df.columns:
-                df['total_cost'] = df['total_cost'].apply(lambda x: f"${x:,.2f}")
-            if 'weeks_on_hand' in df.columns:
-                df['weeks_on_hand'] = df['weeks_on_hand'].apply(lambda x: f"{x:.1f}")
-
-            st.dataframe(df, use_container_width=True, hide_index=True)
-
-            # Approval actions
-            st.divider()
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("Approve All"):
-                    client = get_client()
-                    result = client.approve_run(run_data.get('run_id'))
-                    if result.success:
-                        st.success("Recommendations approved!")
-                    else:
-                        st.error(f"Approval failed: {result.error}")
-
-        # Show warnings
-        warnings = run_data.get('warnings', [])
-        if warnings:
-            with st.expander(f"Warnings ({len(warnings)})"):
-                for w in warnings:
-                    st.warning(f"{w.get('item_id', 'Unknown')}: {w.get('message', 'No message')}")
-
-
-def render_history_section():
-    """Render past runs history."""
-    st.subheader("Run History")
-
-    client = get_client()
-    result = client.list_runs()
-
-    if not result.success:
-        st.error(f"Failed to load history: {result.error}")
+    if not recommendations:
+        st.info("No recommendations at this time.")
         return
 
-    runs = result.data if isinstance(result.data, list) else []
+    # Group by vendor option
+    group_by = st.radio("Group by", ["None", "Vendor", "Category"], horizontal=True)
+
+    if group_by == "Vendor":
+        for vendor, data in run.get("by_vendor", {}).items():
+            with st.expander(f"{vendor} - {data['items']} items (${data['spend']:.2f})"):
+                vendor_recs = [r for r in recommendations if r.get("vendor") == vendor]
+                render_rec_table(vendor_recs)
+
+    elif group_by == "Category":
+        for category, data in run.get("by_category", {}).items():
+            with st.expander(f"{category} - {data['items']} items (${data['spend']:.2f})"):
+                cat_recs = [r for r in recommendations if r.get("category") == category]
+                render_rec_table(cat_recs)
+    else:
+        render_rec_table(recommendations)
+
+
+def render_rec_table(recommendations: list):
+    """Render a table of recommendations."""
+    for rec in recommendations:
+        col1, col2, col3, col4 = st.columns([3, 1, 1, 2])
+
+        with col1:
+            st.write(f"**{rec['item_name']}**")
+            if rec.get("warnings"):
+                st.warning(rec["warnings"][0])
+
+        with col2:
+            st.write(f"On hand: {rec['on_hand']:.1f}")
+            st.write(f"Avg use: {rec['avg_usage']:.1f}/wk")
+
+        with col3:
+            st.write(f"**Order: {rec['suggested_qty']}**")
+            if rec.get("total_cost"):
+                st.write(f"${rec['total_cost']:.2f}")
+
+        with col4:
+            confidence_color = {
+                "high": "green",
+                "medium": "orange",
+                "low": "red"
+            }.get(rec.get("confidence"), "gray")
+
+            st.markdown(f":{confidence_color}[{rec.get('confidence', 'unknown')}]")
+            st.caption(rec.get("reason_text", ""))
+
+        st.divider()
+
+
+def render_history_tab(client: APIClient):
+    """History tab."""
+    st.subheader("Recommendation History")
+
+    runs = client.get("/orders/runs") or []
 
     if not runs:
-        st.info("No past runs found.")
+        st.info("No recommendation runs yet.")
         return
 
-    df = pd.DataFrame(runs)
-    if 'created_at' in df.columns:
-        df['created_at'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
+    for run in runs[:10]:  # Show last 10
+        with st.expander(f"{run['created_at'][:10]} - {run['total_items']} items (${run['total_spend']:.2f})"):
+            st.write(f"**Run ID:** {run['run_id']}")
+            st.write(f"**Dataset:** {run['dataset_id']}")
+            st.write(f"**Status:** {run['status']}")
 
-    st.dataframe(df, use_container_width=True, hide_index=True)
-
-    # Load specific run
-    selected_run = st.selectbox(
-        "View run details",
-        options=[r.get('run_id', '') for r in runs]
-    )
-
-    if selected_run and st.button("Load Run"):
-        result = client.get_run(selected_run)
-        if result.success:
-            st.session_state['current_run'] = result.data
-            st.rerun()
-        else:
-            st.error(f"Failed to load run: {result.error}")
+            if st.button("Load Details", key=f"load_{run['run_id']}"):
+                full_run = client.get(f"/orders/runs/{run['run_id']}")
+                if full_run:
+                    st.session_state["recommendations"] = full_run
+                    st.rerun()
 
 
-def render_settings_section():
-    """Render order settings."""
-    st.subheader("Order Targets")
+def render_export_tab(client: APIClient):
+    """Export tab."""
+    st.subheader("Export Recommendations")
 
-    client = get_client()
-    result = client.get_targets()
-
-    if not result.success:
-        st.error(f"Failed to load targets: {result.error}")
+    if "recommendations" not in st.session_state:
+        st.info("Generate recommendations first.")
         return
 
-    targets = result.data if result.data else {}
-    weeks_by_category = targets.get('weeks_by_category', {})
+    run = st.session_state["recommendations"]
+    run_id = run.get("run_id")
 
-    st.write("Target weeks of inventory by category:")
+    col1, col2 = st.columns(2)
+    with col1:
+        group_by_vendor = st.checkbox("Group by vendor", value=True)
 
-    # Edit targets
-    edited_targets = {}
-    cols = st.columns(3)
+    if st.button("Generate Export", type="primary"):
+        export = client.get(f"/orders/runs/{run_id}/export", params={
+            "group_by_vendor": group_by_vendor,
+        })
 
-    categories = list(weeks_by_category.keys())
-    for i, category in enumerate(categories):
-        with cols[i % 3]:
-            edited_targets[category] = st.number_input(
-                category,
-                min_value=0.0,
-                max_value=12.0,
-                value=float(weeks_by_category.get(category, 4.0)),
-                step=0.5,
-                key=f"target_{category}"
-            )
+        if export:
+            st.session_state["order_export"] = export
 
-    if st.button("Save Targets"):
-        new_targets = {
-            "weeks_by_category": edited_targets,
-            "item_overrides": targets.get('item_overrides', {}),
-            "never_order": targets.get('never_order', []),
-        }
-        result = client.update_targets(new_targets)
-        if result.success:
-            st.success("Targets saved!")
-        else:
-            st.error(f"Failed to save: {result.error}")
+    if "order_export" in st.session_state:
+        export = st.session_state["order_export"]
+
+        st.subheader("Export Result")
+
+        # CSV
+        st.write("**CSV (copy/paste to spreadsheet):**")
+        st.code(export.get("csv_text", ""), language=None)
+
+        # Summary
+        st.write("**Summary:**")
+        st.text(export.get("summary_text", ""))
+
+        # Download
+        st.download_button(
+            "Download CSV",
+            export.get("csv_text", ""),
+            file_name="order_recommendations.csv",
+            mime="text/csv",
+        )

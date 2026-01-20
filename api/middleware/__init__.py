@@ -1,1 +1,1 @@
-"""API Middleware."""
+"""API Middleware"""

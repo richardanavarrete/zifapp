@@ -1,1 +1,1 @@
-"""HoundCOGS FastAPI Application."""
+"""smallCOGS API"""

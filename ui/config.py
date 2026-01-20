@@ -1,33 +1,18 @@
-"""UI Configuration."""
+"""UI Configuration - loads from environment variables."""
 
 import os
-from functools import lru_cache
-from pydantic_settings import BaseSettings
 
 
-class UISettings(BaseSettings):
-    """UI settings loaded from environment variables."""
+class UIConfig:
+    """UI configuration from environment."""
 
     # API connection
-    api_base_url: str = "http://localhost:8000"
-    api_key: str = ""
+    API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
+    API_KEY = os.environ.get("API_KEY", "")
 
     # UI settings
-    page_title: str = "HoundCOGS"
-    page_icon: str = ""
-    debug: bool = False
+    PAGE_TITLE = "smallCOGS"
+    PAGE_ICON = "📦"
 
-    # Timeouts (seconds)
-    request_timeout: int = 30
-    upload_timeout: int = 120
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        env_prefix = "UI_"
-
-
-@lru_cache()
-def get_settings() -> UISettings:
-    """Get cached settings instance."""
-    return UISettings()
+    # Feature flags
+    SHOW_DEBUG = os.environ.get("DEBUG", "false").lower() == "true"

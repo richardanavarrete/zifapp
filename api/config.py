@@ -1,67 +1,65 @@
-"""API Configuration."""
+"""
+API Configuration
+
+All secrets loaded from environment variables.
+NEVER hardcode API keys, passwords, or secrets.
+"""
 
 import os
-from functools import lru_cache
 from typing import List, Optional
+from functools import lru_cache
+
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
+    """Application settings loaded from environment."""
 
     # App info
-    app_name: str = "HoundCOGS API"
-    app_version: str = "1.0.0"
+    app_name: str = "smallCOGS API"
+    app_version: str = "0.1.0"
     debug: bool = False
 
     # Server
     host: str = "0.0.0.0"
     port: int = 8000
 
-    # API Keys (comma-separated list)
-    api_keys: str = ""
-
-    # Database
-    database_url: str = "sqlite:///./data/db/houndcogs.db"
-
-    # File storage
-    upload_dir: str = "./data/uploads"
-    export_dir: str = "./data/exports"
-    cache_dir: str = "./data/cache"
-    max_upload_size_mb: int = 50
-
-    # OpenAI (for Whisper API)
-    openai_api_key: Optional[str] = None
+    # Security - API Keys (comma-separated list)
+    api_keys: str = ""  # Loaded from API_KEYS env var
 
     # CORS
-    cors_origins: str = "*"  # Comma-separated, or "*" for all
+    cors_origins: str = "http://localhost:8501,http://localhost:3000"
 
-    # Rate limiting (requests per minute)
-    rate_limit_rpm: int = 60
+    # Storage
+    data_dir: str = "./data"
+    upload_dir: str = "./data/uploads"
+    max_upload_size_mb: int = 50
 
-    # Background jobs (optional Redis URL)
-    redis_url: Optional[str] = None
+    # Database (for future use)
+    database_url: Optional[str] = None  # e.g., sqlite:///./data/smallcogs.db
+
+    # OpenAI (for voice transcription)
+    openai_api_key: Optional[str] = None  # Loaded from OPENAI_API_KEY env var
 
     # Logging
     log_level: str = "INFO"
 
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        case_sensitive = False
+
     @property
-    def api_keys_list(self) -> List[str]:
-        """Parse API keys from comma-separated string."""
+    def api_key_list(self) -> List[str]:
+        """Parse comma-separated API keys."""
         if not self.api_keys:
             return []
         return [k.strip() for k in self.api_keys.split(",") if k.strip()]
 
     @property
-    def cors_origins_list(self) -> List[str]:
-        """Parse CORS origins from comma-separated string."""
-        if self.cors_origins == "*":
-            return ["*"]
+    def cors_origin_list(self) -> List[str]:
+        """Parse comma-separated CORS origins."""
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
 
 
 @lru_cache()

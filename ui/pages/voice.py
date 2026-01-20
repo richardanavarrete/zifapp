@@ -1,261 +1,223 @@
-"""Voice Counting Page."""
+"""
+Voice Counting Page
+
+Transcribe audio, match to items, and export for copy/paste.
+"""
 
 import streamlit as st
-import pandas as pd
-from datetime import datetime
-
-from ui.api_client import get_client
+from ui.api_client import APIClient
 
 
-def render():
+def render_voice_page(client: APIClient):
     """Render the voice counting page."""
-    st.title("Voice Counting")
+    st.header("Voice Counting")
+    st.markdown("Transcribe audio, match to inventory items, and export counts.")
 
-    # Tabs
-    tab1, tab2, tab3 = st.tabs(["Count", "Sessions", "Export"])
+    # Tabs for workflow
+    tab_record, tab_sessions, tab_export = st.tabs(["Record/Upload", "Sessions", "Export"])
 
-    with tab1:
-        render_counting_section()
+    with tab_record:
+        render_recording_tab(client)
 
-    with tab2:
-        render_sessions_section()
+    with tab_sessions:
+        render_sessions_tab(client)
 
-    with tab3:
-        render_export_section()
+    with tab_export:
+        render_export_tab(client)
 
 
-def render_counting_section():
-    """Render the main counting interface."""
-    st.subheader("Voice Inventory Count")
-
-    client = get_client()
-
-    # Session management
-    col1, col2 = st.columns([2, 1])
-
-    with col1:
-        # Load or create session
-        sessions_result = client.list_sessions(status="in_progress")
-        sessions = sessions_result.data if sessions_result.success and sessions_result.data else []
-
-        session_options = ["Create New Session"] + [
-            f"{s.get('session_name', s.get('session_id', ''))}"
-            for s in sessions
-        ]
-
-        selected_session = st.selectbox(
-            "Session",
-            options=session_options,
-            index=0,
-        )
-
-    with col2:
-        if selected_session == "Create New Session":
-            new_session_name = st.text_input(
-                "Session Name",
-                value=f"Count {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-            )
-            location = st.text_input("Location (optional)")
-
-            if st.button("Create Session"):
-                result = client.create_session(
-                    session_name=new_session_name,
-                    location=location if location else None,
-                )
-                if result.success:
-                    st.session_state['current_session'] = result.data
-                    st.success("Session created!")
-                    st.rerun()
-                else:
-                    st.error(f"Failed to create session: {result.error}")
-        else:
-            # Load selected session
-            session_idx = session_options.index(selected_session) - 1
-            if 0 <= session_idx < len(sessions):
-                st.session_state['current_session'] = sessions[session_idx]
-                st.info(f"Session: {sessions[session_idx].get('session_name', 'Unknown')}")
-
-    # Audio recording/upload
-    st.divider()
+def render_recording_tab(client: APIClient):
+    """Recording and transcription tab."""
     st.subheader("Record or Upload Audio")
 
+    # Session selection/creation
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        session_name = st.text_input("Session Name", value="Count Session")
+    with col2:
+        if st.button("Create Session", type="primary"):
+            result = client.post("/voice/sessions", params={"name": session_name})
+            if result.get("session_id"):
+                st.session_state["current_session"] = result
+                st.success(f"Created session: {result['session_id']}")
+
+    st.divider()
+
+    # Audio upload
+    st.subheader("Upload Audio")
     audio_file = st.file_uploader(
         "Upload audio file",
         type=["webm", "mp3", "wav", "m4a", "ogg"],
-        help="Upload a recording of your inventory count"
+        help="Record on your phone or upload existing audio"
     )
 
     if audio_file:
         st.audio(audio_file)
 
-        col1, col2 = st.columns(2)
-        with col1:
-            remove_silence = st.checkbox("Remove silence", value=True)
-        with col2:
-            language = st.selectbox("Language", options=["en", "es"], index=0)
-
         if st.button("Transcribe", type="primary"):
-            with st.spinner("Transcribing audio..."):
-                result = client.transcribe_audio(
-                    file_content=audio_file,
-                    filename=audio_file.name,
-                    language=language,
-                    remove_silence=remove_silence,
-                )
+            with st.spinner("Transcribing..."):
+                result = client.upload_file("/voice/transcribe", audio_file)
 
-                if result.success:
-                    st.session_state['transcription'] = result.data
+                if result and result.get("text"):
+                    st.session_state["transcription"] = result
                     st.success("Transcription complete!")
                 else:
-                    st.error(f"Transcription failed: {result.error}")
+                    st.error("Transcription failed")
 
-    # Manual text entry
-    st.divider()
-    st.subheader("Manual Entry")
+    # Show transcription result
+    if "transcription" in st.session_state:
+        st.subheader("Transcription Result")
+        result = st.session_state["transcription"]
 
-    manual_text = st.text_area(
-        "Enter count text",
-        value=st.session_state.get('transcription', {}).get('text', ''),
-        placeholder="e.g., buffalo trace 2 bottles, titos 3 bottles, jameson 1 bottle",
-        height=100,
-    )
+        text = st.text_area(
+            "Transcribed Text (edit if needed)",
+            value=result.get("text", ""),
+            height=150
+        )
 
-    if st.button("Match Items"):
-        if manual_text:
-            with st.spinner("Matching items..."):
-                session_id = st.session_state.get('current_session', {}).get('session_id')
-                result = client.match_text(
-                    text=manual_text,
-                    session_id=session_id,
-                )
+        # Dataset selection for matching
+        datasets = client.get("/inventory/datasets") or []
+        dataset_options = {d["name"]: d["dataset_id"] for d in datasets}
 
-                if result.success:
-                    st.session_state['matches'] = result.data
+        selected_dataset = st.selectbox(
+            "Match against dataset (optional)",
+            options=["None"] + list(dataset_options.keys())
+        )
+
+        if st.button("Match Items", type="primary"):
+            with st.spinner("Matching..."):
+                dataset_id = dataset_options.get(selected_dataset) if selected_dataset != "None" else None
+                match_result = client.post("/voice/match", json={
+                    "text": text,
+                    "dataset_id": dataset_id,
+                    "confidence_threshold": 0.7,
+                })
+
+                if match_result:
+                    st.session_state["matches"] = match_result
+                    st.success(f"Found {len(match_result.get('parsed_items', []))} items")
+
+    # Show matches
+    if "matches" in st.session_state:
+        st.subheader("Matched Items")
+        matches = st.session_state["matches"]
+
+        for i, item in enumerate(matches.get("parsed_items", [])):
+            with st.expander(f"{item.get('item_text', 'Unknown')} - {item.get('quantity', 1)} {item.get('unit', 'units')}"):
+                if item.get("best_match"):
+                    match = item["best_match"]
+                    st.write(f"**Matched to:** {match['item_name']}")
+                    st.write(f"**Confidence:** {match['confidence']:.0%}")
+                    st.write(f"**Category:** {match.get('category', 'N/A')}")
                 else:
-                    st.error(f"Matching failed: {result.error}")
+                    st.warning("No match found - needs manual entry")
 
-    # Display matches
-    if 'matches' in st.session_state and st.session_state['matches']:
-        display_matches(st.session_state['matches'])
+                if item.get("alternatives"):
+                    st.write("**Alternatives:**")
+                    for alt in item["alternatives"]:
+                        st.write(f"  - {alt['item_name']} ({alt['confidence']:.0%})")
 
-
-def display_matches(match_data: dict):
-    """Display matched items."""
-    st.divider()
-    st.subheader("Matched Items")
-
-    matches = match_data.get('matches', [])
-    unmatched = match_data.get('unmatched', [])
-
-    if matches:
-        for i, match in enumerate(matches):
-            with st.container():
-                col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
-
-                with col1:
-                    matched_item = match.get('matched_item', {})
-                    if matched_item:
-                        st.write(f"**{matched_item.get('display_name', 'Unknown')}**")
-                        st.caption(f"Confidence: {matched_item.get('confidence', 0):.0%}")
-                    else:
-                        st.write(f"*{match.get('raw_text', '')}*")
-                        st.caption("No match found")
-
-                with col2:
-                    quantity = match.get('parsed_quantity', 1)
-                    st.metric("Qty", quantity)
-
-                with col3:
-                    unit = match.get('parsed_unit', 'bottles')
-                    st.write(unit)
-
-                with col4:
-                    if matched_item and match.get('is_confident_match'):
-                        if st.button("Confirm", key=f"confirm_{i}"):
-                            # Add to session
-                            session_id = st.session_state.get('current_session', {}).get('session_id')
-                            if session_id:
-                                client = get_client()
-                                client.add_record(
-                                    session_id=session_id,
-                                    raw_text=match.get('raw_text', ''),
-                                    quantity=quantity,
-                                    item_id=matched_item.get('item_id'),
-                                    unit=unit,
-                                    confirmed=True,
-                                )
-                                st.success("Added!")
-                    else:
-                        st.button("Review", key=f"review_{i}")
-
-                st.divider()
-
-    if unmatched:
-        st.warning(f"Could not match {len(unmatched)} items")
-        for item in unmatched:
-            st.write(f"- {item}")
+        # Add to session button
+        if st.session_state.get("current_session"):
+            if st.button("Add All to Session"):
+                session_id = st.session_state["current_session"]["session_id"]
+                for item in matches.get("parsed_items", []):
+                    client.post(f"/voice/sessions/{session_id}/records", params={
+                        "raw_text": item.get("raw_text", ""),
+                        "quantity": item.get("quantity", 1),
+                        "item_name": item.get("best_match", {}).get("item_name") or item.get("item_text"),
+                        "item_id": item.get("best_match", {}).get("item_id"),
+                        "match_confidence": item.get("best_match", {}).get("confidence", 0),
+                    })
+                st.success("Added all items to session!")
 
 
-def render_sessions_section():
-    """Render sessions list."""
-    st.subheader("Counting Sessions")
+def render_sessions_tab(client: APIClient):
+    """Sessions list tab."""
+    st.subheader("Voice Counting Sessions")
 
-    client = get_client()
-    result = client.list_sessions()
-
-    if not result.success:
-        st.error(f"Failed to load sessions: {result.error}")
-        return
-
-    sessions = result.data if isinstance(result.data, list) else []
+    sessions = client.get("/voice/sessions") or []
 
     if not sessions:
-        st.info("No counting sessions yet. Start a new count above.")
+        st.info("No sessions yet. Create one in the Record/Upload tab.")
         return
 
-    df = pd.DataFrame(sessions)
-    if 'created_at' in df.columns:
-        df['created_at'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M')
+    for session in sessions:
+        with st.expander(f"{session['name']} - {session['status']}", expanded=session['status'] == 'in_progress'):
+            st.write(f"**ID:** {session['session_id']}")
+            st.write(f"**Created:** {session['created_at']}")
+            st.write(f"**Items:** {session['items_counted']}")
+            st.write(f"**Total Units:** {session['total_units']}")
 
-    columns = ['session_name', 'status', 'items_counted', 'total_units', 'created_at']
-    available_cols = [c for c in columns if c in df.columns]
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("View Records", key=f"view_{session['session_id']}"):
+                    records = client.get(f"/voice/sessions/{session['session_id']}/records")
+                    st.session_state[f"records_{session['session_id']}"] = records
 
-    st.dataframe(df[available_cols], use_container_width=True, hide_index=True)
+            with col2:
+                if session['status'] == 'in_progress':
+                    if st.button("Complete", key=f"complete_{session['session_id']}"):
+                        client.post(f"/voice/sessions/{session['session_id']}/complete")
+                        st.rerun()
+
+            # Show records if loaded
+            records_key = f"records_{session['session_id']}"
+            if records_key in st.session_state:
+                st.write("**Records:**")
+                for rec in st.session_state[records_key]:
+                    st.write(f"  - {rec['item_name'] or rec['raw_text']}: {rec['quantity']} {rec['unit']}")
 
 
-def render_export_section():
-    """Render export section."""
-    st.subheader("Export Session Data")
+def render_export_tab(client: APIClient):
+    """Export tab."""
+    st.subheader("Export Session")
 
-    client = get_client()
+    sessions = client.get("/voice/sessions") or []
+    completed = [s for s in sessions if s.get("status") == "completed"]
 
-    # Get sessions
-    result = client.list_sessions(status="completed")
-    sessions = result.data if result.success and result.data else []
-
-    if not sessions:
-        st.info("No completed sessions to export.")
+    if not completed:
+        st.info("Complete a session first to export.")
         return
 
-    selected_session = st.selectbox(
-        "Select Session",
-        options=[s.get('session_id', '') for s in sessions],
-        format_func=lambda x: next(
-            (s.get('session_name', x) for s in sessions if s.get('session_id') == x),
-            x
-        )
-    )
+    session_options = {s["name"]: s["session_id"] for s in completed}
+    selected = st.selectbox("Select Session", options=list(session_options.keys()))
 
-    export_format = st.radio("Format", options=["JSON", "CSV"], horizontal=True)
+    if selected:
+        session_id = session_options[selected]
 
-    if st.button("Export"):
-        result = client.export_session(
-            session_id=selected_session,
-            format=export_format.lower(),
-        )
+        col1, col2 = st.columns(2)
+        with col1:
+            format_type = st.selectbox("Format", ["csv", "summary"])
+        with col2:
+            group_by = st.checkbox("Group by category")
 
-        if result.success:
-            st.json(result.data)
-            # TODO: Add download button
-        else:
-            st.error(f"Export failed: {result.error}")
+        if st.button("Generate Export", type="primary"):
+            export = client.get(f"/voice/sessions/{session_id}/export", params={
+                "format": format_type,
+                "group_by_category": group_by,
+            })
+
+            if export:
+                st.session_state["export"] = export
+
+        if "export" in st.session_state:
+            export = st.session_state["export"]
+
+            st.subheader("Export Result")
+
+            # CSV for copy/paste
+            st.write("**CSV (copy/paste to spreadsheet):**")
+            st.code(export.get("csv_text", ""), language=None)
+
+            # Summary
+            st.write("**Summary:**")
+            st.text(export.get("summary_text", ""))
+
+            # Copy buttons
+            st.download_button(
+                "Download CSV",
+                export.get("csv_text", ""),
+                file_name="inventory_count.csv",
+                mime="text/csv",
+            )

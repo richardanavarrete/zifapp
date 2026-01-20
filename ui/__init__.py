@@ -1,1 +1,1 @@
-"""HoundCOGS Streamlit UI."""
+"""smallCOGS UI"""
