@@ -1,1 +1,1 @@
-"""HoundCOGS Test Suite."""
+"""smallCOGS Tests"""

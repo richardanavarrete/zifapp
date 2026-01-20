@@ -1,1 +1,1 @@
-"""UI Pages."""
+"""UI Pages"""

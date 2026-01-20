@@ -1,185 +1,182 @@
-"""Inventory management endpoints."""
+"""Inventory API endpoints."""
 
+import os
 import uuid
-from datetime import datetime
-from typing import List, Optional
+import shutil
+from typing import Optional, List
 
-from fastapi import APIRouter, Depends, File, UploadFile, Query, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
 
-from api.dependencies import get_api_key, get_file_storage
-from api.middleware.errors import NotFoundError, ProcessingError
-from houndcogs.models.inventory import (
-    InventoryDataset,
-    DatasetSummary,
-    UploadResult,
-    Item,
-    ItemFeatures,
-)
+from api.config import get_settings
+from api.middleware.auth import verify_api_key
+from smallcogs.services.inventory_service import InventoryService
 
-router = APIRouter()
+router = APIRouter(prefix="/inventory", tags=["Inventory"])
+
+# Service instance (in production, use dependency injection)
+_service: Optional[InventoryService] = None
 
 
-@router.post("/upload", response_model=UploadResult)
+def get_service() -> InventoryService:
+    global _service
+    if _service is None:
+        settings = get_settings()
+        _service = InventoryService(storage_path=settings.data_dir)
+    return _service
+
+
+# =============================================================================
+# Dataset Endpoints
+# =============================================================================
+
+@router.post("/upload", dependencies=[Depends(verify_api_key)])
 async def upload_inventory(
-    file: UploadFile = File(..., description="Excel inventory file (.xlsx)"),
-    name: Optional[str] = Query(None, description="Optional dataset name"),
-    api_key: str = Depends(get_api_key),
-    file_storage = Depends(get_file_storage),
+    file: UploadFile = File(...),
+    name: Optional[str] = Query(None, description="Dataset name"),
+    skip_rows: int = Query(0, ge=0, description="Rows to skip"),
+    service: InventoryService = Depends(get_service),
 ):
-    """
-    Upload an inventory Excel file.
+    """Upload an inventory spreadsheet (Excel or CSV)."""
+    settings = get_settings()
 
-    Parses the file and creates a new dataset. Returns dataset ID and summary.
-
-    **File format**: Excel (.xlsx) with weekly inventory data.
-    Expected columns: Item, Category, End Inventory, Usage, Week Date.
-    """
     # Validate file type
-    if not file.filename.endswith(('.xlsx', '.xls')):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+
+    ext = file.filename.split(".")[-1].lower()
+    if ext not in ["xlsx", "xls", "csv"]:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": {
-                    "code": "VALIDATION_ERROR",
-                    "message": "Invalid file format. Expected .xlsx or .xls",
-                    "details": {"filename": file.filename}
-                }
-            }
+            status_code=400,
+            detail=f"Unsupported file type: {ext}. Use .xlsx, .xls, or .csv"
         )
 
-    # Generate dataset ID
-    dataset_id = f"ds_{uuid.uuid4().hex[:12]}"
-    dataset_name = name or file.filename
+    # Save uploaded file temporarily
+    upload_dir = settings.upload_dir
+    os.makedirs(upload_dir, exist_ok=True)
+
+    temp_path = os.path.join(upload_dir, f"{uuid.uuid4().hex}_{file.filename}")
 
     try:
-        # Save uploaded file
-        file_path = await file_storage.save_upload(
-            file=file,
-            dataset_id=dataset_id,
-            filename=file.filename
+        with open(temp_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+
+        # Parse file
+        result = service.upload_file(
+            file_path=temp_path,
+            name=name or file.filename.rsplit(".", 1)[0],
+            skip_rows=skip_rows,
         )
 
-        # Parse inventory file
-        # TODO: Implement with houndcogs.services.inventory_parser
-        # from houndcogs.services.inventory_parser import parse_inventory_file
-        # dataset = parse_inventory_file(file_path, dataset_id, dataset_name)
+        return result.model_dump()
 
-        # Placeholder response
-        return UploadResult(
-            dataset_id=dataset_id,
-            filename=file.filename,
-            items_count=0,  # Will be populated by parser
-            weeks_count=0,
-            date_range=None,
-            created_at=datetime.utcnow(),
-            warnings=["Parser not yet implemented - file saved but not processed"]
-        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    except Exception as e:
-        raise ProcessingError(
-            message=f"Failed to process inventory file: {str(e)}",
-            details={"filename": file.filename}
-        )
+    finally:
+        # Clean up temp file
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
-@router.get("/datasets", response_model=List[DatasetSummary])
+@router.get("/datasets", dependencies=[Depends(verify_api_key)])
 async def list_datasets(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
-    api_key: str = Depends(get_api_key),
+    service: InventoryService = Depends(get_service),
 ):
-    """
-    List all uploaded inventory datasets.
-
-    Returns paginated list of dataset summaries.
-    """
-    # TODO: Implement with houndcogs.storage.sqlite_repo
-    # from houndcogs.storage.sqlite_repo import list_datasets
-    # return list_datasets(page=page, page_size=page_size)
-
-    return []  # Placeholder
+    """List all uploaded datasets."""
+    datasets = service.list_datasets()
+    return {"datasets": [d.model_dump() for d in datasets]}
 
 
-@router.get("/datasets/{dataset_id}", response_model=InventoryDataset)
+@router.get("/datasets/{dataset_id}", dependencies=[Depends(verify_api_key)])
 async def get_dataset(
     dataset_id: str,
-    api_key: str = Depends(get_api_key),
+    service: InventoryService = Depends(get_service),
 ):
-    """
-    Get a specific dataset by ID.
+    """Get dataset details."""
+    dataset = service.get_dataset(dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
 
-    Returns full dataset with items and records.
-    """
-    # TODO: Implement with houndcogs.storage.sqlite_repo
-    # from houndcogs.storage.sqlite_repo import get_dataset
-    # dataset = get_dataset(dataset_id)
-    # if not dataset:
-    #     raise NotFoundError("Dataset", dataset_id)
-    # return dataset
+    return {
+        "dataset_id": dataset.dataset_id,
+        "name": dataset.name,
+        "created_at": dataset.created_at.isoformat(),
+        "items_count": dataset.items_count,
+        "records_count": dataset.records_count,
+        "periods_count": dataset.periods_count,
+        "date_range_start": str(dataset.date_range_start) if dataset.date_range_start else None,
+        "date_range_end": str(dataset.date_range_end) if dataset.date_range_end else None,
+        "categories": dataset.categories,
+        "vendors": dataset.vendors,
+    }
 
-    raise NotFoundError("Dataset", dataset_id)
 
-
-@router.delete("/datasets/{dataset_id}")
+@router.delete("/datasets/{dataset_id}", dependencies=[Depends(verify_api_key)])
 async def delete_dataset(
     dataset_id: str,
-    api_key: str = Depends(get_api_key),
-    file_storage = Depends(get_file_storage),
+    service: InventoryService = Depends(get_service),
 ):
-    """
-    Delete a dataset and its associated files.
-    """
-    # TODO: Implement
-    # 1. Delete from database
-    # 2. Delete files from storage
-
-    return {"status": "deleted", "dataset_id": dataset_id}
+    """Delete a dataset."""
+    deleted = service.delete_dataset(dataset_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    return {"deleted": True}
 
 
-@router.get("/items", response_model=List[Item])
-async def list_items(
-    dataset_id: str = Query(..., description="Dataset to list items from"),
-    category: Optional[str] = Query(None, description="Filter by category"),
-    vendor: Optional[str] = Query(None, description="Filter by vendor"),
-    search: Optional[str] = Query(None, description="Search by item name"),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
-    api_key: str = Depends(get_api_key),
+# =============================================================================
+# Item Endpoints
+# =============================================================================
+
+@router.get("/datasets/{dataset_id}/items", dependencies=[Depends(verify_api_key)])
+async def get_items(
+    dataset_id: str,
+    search: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    vendor: Optional[str] = Query(None),
+    include_stats: bool = Query(True),
+    service: InventoryService = Depends(get_service),
 ):
-    """
-    List items in a dataset with optional filters.
-    """
-    # TODO: Implement
-    return []
+    """Get items in a dataset with optional filtering."""
+    from smallcogs.models.inventory import ItemFilter
+
+    filters = ItemFilter(
+        search=search,
+        categories=[category] if category else None,
+        vendors=[vendor] if vendor else None,
+    )
+
+    items = service.get_items(dataset_id, filters, include_stats)
+    if not items and not service.get_dataset(dataset_id):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    return {"items": items, "count": len(items)}
 
 
-@router.get("/items/{item_id}", response_model=Item)
-async def get_item(
+@router.get("/datasets/{dataset_id}/items/{item_id}", dependencies=[Depends(verify_api_key)])
+async def get_item_detail(
+    dataset_id: str,
     item_id: str,
-    dataset_id: str = Query(..., description="Dataset containing the item"),
-    api_key: str = Depends(get_api_key),
+    service: InventoryService = Depends(get_service),
 ):
-    """
-    Get item details including historical records.
-    """
-    # TODO: Implement
-    raise NotFoundError("Item", item_id)
+    """Get detailed view of a single item including history and trends."""
+    detail = service.get_item_detail(dataset_id, item_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return detail
 
 
-@router.post("/analyze", response_model=List[ItemFeatures])
-async def analyze_dataset(
-    dataset_id: str = Query(..., description="Dataset to analyze"),
-    api_key: str = Depends(get_api_key),
+# =============================================================================
+# Analytics Endpoints
+# =============================================================================
+
+@router.get("/datasets/{dataset_id}/dashboard", dependencies=[Depends(verify_api_key)])
+async def get_dashboard(
+    dataset_id: str,
+    service: InventoryService = Depends(get_service),
 ):
-    """
-    Run feature analysis on a dataset.
-
-    Computes rolling averages, trends, volatility, and other metrics
-    for all items in the dataset.
-    """
-    # TODO: Implement with houndcogs.services.feature_engine
-    # from houndcogs.services.feature_engine import compute_features
-    # features = compute_features(dataset_id)
-    # return features
-
-    return []
+    """Get dashboard summary with key metrics and alerts."""
+    stats = service.get_dashboard_stats(dataset_id)
+    if not stats:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    return stats

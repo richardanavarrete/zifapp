@@ -1,315 +1,220 @@
-"""Voice counting endpoints."""
+"""
+Voice Counting API Routes
 
-import uuid
-from datetime import datetime
-from typing import List, Optional
+Endpoints for transcription, matching, and session management.
+"""
 
-from fastapi import APIRouter, Depends, Query, Body, File, UploadFile, BackgroundTasks
-from pydantic import BaseModel
+from typing import Optional, List
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 
-from api.dependencies import get_api_key, get_file_storage
-from api.middleware.errors import NotFoundError, ProcessingError
-from houndcogs.models.voice import (
+from smallcogs.models.voice import (
     VoiceSession,
-    VoiceCountRecord,
+    CountRecord,
     TranscriptionResult,
     VoiceMatchRequest,
     VoiceMatchResponse,
     SessionExport,
+    SessionStatus,
 )
-from houndcogs.models.common import SessionStatus
+from smallcogs.services import VoiceService, InventoryService
+from api.dependencies import get_voice_service, get_inventory_service
 
-router = APIRouter()
-
-
-class CreateSessionRequest(BaseModel):
-    """Request to create a new voice counting session."""
-    session_name: str
-    location: Optional[str] = None
-    notes: Optional[str] = None
+router = APIRouter(prefix="/voice", tags=["Voice Counting"])
 
 
-class UpdateSessionRequest(BaseModel):
-    """Request to update a session."""
-    status: Optional[SessionStatus] = None
-    notes: Optional[str] = None
-
-
-class AddRecordRequest(BaseModel):
-    """Request to add a count record to a session."""
-    raw_text: str
-    item_id: Optional[str] = None
-    quantity: float
-    unit: str = "bottles"
-    confirmed: bool = False
-
+# =============================================================================
+# Sessions
+# =============================================================================
 
 @router.post("/sessions", response_model=VoiceSession)
 async def create_session(
-    request: CreateSessionRequest = Body(...),
-    api_key: str = Depends(get_api_key),
+    name: str,
+    dataset_id: Optional[str] = None,
+    location: Optional[str] = None,
+    voice_svc: VoiceService = Depends(get_voice_service),
 ):
-    """
-    Create a new voice counting session.
-
-    A session groups count records for a single counting event
-    (e.g., weekly inventory count for a specific location).
-    """
-    session_id = f"sess_{uuid.uuid4().hex[:12]}"
-
-    session = VoiceSession(
-        session_id=session_id,
-        session_name=request.session_name,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
-        status=SessionStatus.IN_PROGRESS,
-        location=request.location,
-        notes=request.notes,
-    )
-
-    # TODO: Save to database
-    # from houndcogs.storage.sqlite_repo import save_session
-    # save_session(session)
-
-    return session
+    """Create a new voice counting session."""
+    return voice_svc.create_session(name, dataset_id, location)
 
 
 @router.get("/sessions", response_model=List[VoiceSession])
 async def list_sessions(
-    status: Optional[SessionStatus] = Query(None, description="Filter by status"),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
-    api_key: str = Depends(get_api_key),
+    status: Optional[SessionStatus] = None,
+    voice_svc: VoiceService = Depends(get_voice_service),
 ):
-    """
-    List voice counting sessions.
-    """
-    # TODO: Implement with storage
-    return []
+    """List all voice counting sessions."""
+    return voice_svc.list_sessions(status)
 
 
 @router.get("/sessions/{session_id}", response_model=VoiceSession)
 async def get_session(
     session_id: str,
-    api_key: str = Depends(get_api_key),
+    voice_svc: VoiceService = Depends(get_voice_service),
 ):
-    """
-    Get a specific session with its count records.
-    """
-    # TODO: Implement
-    raise NotFoundError("Session", session_id)
+    """Get a specific session."""
+    session = voice_svc.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
 
 
-@router.put("/sessions/{session_id}", response_model=VoiceSession)
-async def update_session(
+@router.post("/sessions/{session_id}/complete", response_model=VoiceSession)
+async def complete_session(
     session_id: str,
-    request: UpdateSessionRequest = Body(...),
-    api_key: str = Depends(get_api_key),
+    voice_svc: VoiceService = Depends(get_voice_service),
 ):
-    """
-    Update a session (status, notes).
-    """
-    # TODO: Implement
-    raise NotFoundError("Session", session_id)
+    """Mark a session as completed."""
+    session = voice_svc.complete_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
 
 
-@router.delete("/sessions/{session_id}")
-async def delete_session(
-    session_id: str,
-    api_key: str = Depends(get_api_key),
-):
-    """
-    Delete a session and all its records.
-    """
-    # TODO: Implement
-    return {"status": "deleted", "session_id": session_id}
-
+# =============================================================================
+# Transcription
+# =============================================================================
 
 @router.post("/transcribe", response_model=TranscriptionResult)
 async def transcribe_audio(
-    file: UploadFile = File(..., description="Audio file (webm, mp3, wav, m4a)"),
-    language: str = Query("en", description="Language code"),
-    remove_silence: bool = Query(True, description="Remove silence from audio"),
-    api_key: str = Depends(get_api_key),
-    file_storage = Depends(get_file_storage),
-    background_tasks: BackgroundTasks = None,
+    audio: UploadFile = File(...),
+    language: str = Form(default="en"),
+    voice_svc: VoiceService = Depends(get_voice_service),
 ):
     """
     Transcribe an audio file to text.
 
-    Uses OpenAI Whisper API for transcription. Long files are
-    chunked and processed in parallel.
-
-    **Supported formats**: webm, mp3, wav, m4a, ogg, flac
-
-    **For long files (>30 minutes)**: Consider using background processing.
+    Supports: webm, mp3, wav, m4a, ogg
     """
-    import time
-    start_time = time.perf_counter()
-    transcription_id = f"tr_{uuid.uuid4().hex[:12]}"
+    # Save temp file
+    import tempfile
+    import os
 
-    # Validate file type
-    valid_extensions = ('.webm', '.mp3', '.wav', '.m4a', '.ogg', '.flac')
-    if not file.filename.lower().endswith(valid_extensions):
-        raise ProcessingError(
-            message=f"Invalid audio format. Supported: {', '.join(valid_extensions)}",
-            details={"filename": file.filename}
-        )
+    suffix = os.path.splitext(audio.filename)[1] if audio.filename else ".webm"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        content = await audio.read()
+        tmp.write(content)
+        tmp_path = tmp.name
 
     try:
-        # Save file temporarily
-        file_path = await file_storage.save_temp(file, prefix=transcription_id)
+        result = await voice_svc.transcribe_audio(tmp_path, language)
+        return result
+    finally:
+        os.unlink(tmp_path)
 
-        # TODO: Implement with houndcogs.services.audio_processor
-        # from houndcogs.services.audio_processor import transcribe_audio_file
-        # result = transcribe_audio_file(
-        #     file_path=file_path,
-        #     language=language,
-        #     remove_silence=remove_silence
-        # )
 
-        processing_time = time.perf_counter() - start_time
-
-        # Placeholder
-        return TranscriptionResult(
-            transcription_id=transcription_id,
-            text="",  # Will be populated by transcriber
-            duration_seconds=0.0,
-            confidence=0.0,
-            chunks_processed=1,
-            processing_time_seconds=processing_time,
-            warnings=["Transcription not yet implemented"]
-        )
-
-    except Exception as e:
-        raise ProcessingError(
-            message=f"Failed to transcribe audio: {str(e)}",
-            details={"filename": file.filename}
-        )
-
+# =============================================================================
+# Matching
+# =============================================================================
 
 @router.post("/match", response_model=VoiceMatchResponse)
-async def match_text_to_items(
-    request: VoiceMatchRequest = Body(...),
-    api_key: str = Depends(get_api_key),
+async def match_text(
+    request: VoiceMatchRequest,
+    voice_svc: VoiceService = Depends(get_voice_service),
+    inv_svc: InventoryService = Depends(get_inventory_service),
 ):
     """
-    Match transcribed text to inventory items.
+    Parse voice text and match to inventory items.
 
-    Parses the text to extract item names and quantities,
-    then fuzzy-matches to inventory items.
-
-    **Example input**: "buffalo trace 2 bottles titos 3 bottles"
-
-    **Returns**: Matched items with confidence scores and alternatives.
+    Input formats supported:
+    - "buffalo trace 2 bottles"
+    - "2 titos"
+    - "jameson, 3"
     """
-    import time
-    start_time = time.perf_counter()
+    dataset = None
+    if request.dataset_id:
+        dataset = inv_svc.get_dataset(request.dataset_id)
 
-    try:
-        # TODO: Implement with houndcogs.services.fuzzy_matcher
-        # from houndcogs.services.fuzzy_matcher import match_voice_text
-        # matches = match_voice_text(
-        #     text=request.text,
-        #     confidence_threshold=request.confidence_threshold,
-        #     max_alternatives=request.max_alternatives
-        # )
-
-        processing_time = (time.perf_counter() - start_time) * 1000
-
-        # Placeholder
-        return VoiceMatchResponse(
-            matches=[],
-            unmatched=[request.text],
-            processing_time_ms=processing_time
-        )
-
-    except Exception as e:
-        raise ProcessingError(
-            message=f"Failed to match text: {str(e)}"
-        )
-
-
-@router.post("/sessions/{session_id}/records", response_model=VoiceCountRecord)
-async def add_record(
-    session_id: str,
-    request: AddRecordRequest = Body(...),
-    api_key: str = Depends(get_api_key),
-):
-    """
-    Add a count record to a session.
-
-    Records can be added with or without a matched item_id.
-    Unmatched records can be reviewed and matched later.
-    """
-    record_id = f"rec_{uuid.uuid4().hex[:12]}"
-
-    record = VoiceCountRecord(
-        record_id=record_id,
-        session_id=session_id,
-        created_at=datetime.utcnow(),
-        raw_text=request.raw_text,
-        item_id=request.item_id,
-        quantity=request.quantity,
-        unit=request.unit,
-        confirmed=request.confirmed,
+    return voice_svc.match_text(
+        text=request.text,
+        dataset=dataset,
+        confidence_threshold=request.confidence_threshold,
+        max_alternatives=request.max_alternatives,
     )
 
-    # TODO: Save to database
+
+# =============================================================================
+# Records
+# =============================================================================
+
+@router.post("/sessions/{session_id}/records", response_model=CountRecord)
+async def add_record(
+    session_id: str,
+    raw_text: str,
+    quantity: float,
+    item_id: Optional[str] = None,
+    item_name: Optional[str] = None,
+    unit: str = "units",
+    match_confidence: float = 0.0,
+    voice_svc: VoiceService = Depends(get_voice_service),
+):
+    """Add a count record to a session."""
+    record = voice_svc.add_record(
+        session_id=session_id,
+        raw_text=raw_text,
+        item_id=item_id,
+        item_name=item_name,
+        quantity=quantity,
+        unit=unit,
+        match_confidence=match_confidence,
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Session not found")
     return record
 
 
-@router.get("/sessions/{session_id}/records", response_model=List[VoiceCountRecord])
-async def list_records(
+@router.get("/sessions/{session_id}/records", response_model=List[CountRecord])
+async def get_records(
     session_id: str,
-    confirmed_only: bool = Query(False, description="Only return confirmed records"),
-    api_key: str = Depends(get_api_key),
+    voice_svc: VoiceService = Depends(get_voice_service),
 ):
-    """
-    List records in a session.
-    """
-    # TODO: Implement
-    return []
+    """Get all records for a session."""
+    return voice_svc.get_records(session_id)
 
 
-@router.put("/sessions/{session_id}/records/{record_id}", response_model=VoiceCountRecord)
+@router.post("/sessions/{session_id}/records/{record_id}/confirm")
+async def confirm_record(
+    session_id: str,
+    record_id: str,
+    voice_svc: VoiceService = Depends(get_voice_service),
+):
+    """Confirm a record as correct."""
+    if not voice_svc.confirm_record(session_id, record_id):
+        raise HTTPException(status_code=404, detail="Record not found")
+    return {"status": "confirmed"}
+
+
+@router.patch("/sessions/{session_id}/records/{record_id}", response_model=CountRecord)
 async def update_record(
     session_id: str,
     record_id: str,
-    item_id: Optional[str] = Body(None),
-    quantity: Optional[float] = Body(None),
-    confirmed: Optional[bool] = Body(None),
-    api_key: str = Depends(get_api_key),
+    item_name: Optional[str] = None,
+    quantity: Optional[float] = None,
+    voice_svc: VoiceService = Depends(get_voice_service),
 ):
-    """
-    Update a count record (correct item match, quantity, or confirm).
-    """
-    # TODO: Implement
-    raise NotFoundError("Record", record_id)
+    """Update a record (manual edit)."""
+    record = voice_svc.update_record(session_id, record_id, item_name, quantity)
+    if not record:
+        raise HTTPException(status_code=404, detail="Record not found")
+    return record
 
 
-@router.delete("/sessions/{session_id}/records/{record_id}")
-async def delete_record(
-    session_id: str,
-    record_id: str,
-    api_key: str = Depends(get_api_key),
-):
-    """
-    Delete a count record.
-    """
-    return {"status": "deleted", "record_id": record_id}
-
+# =============================================================================
+# Export
+# =============================================================================
 
 @router.get("/sessions/{session_id}/export", response_model=SessionExport)
 async def export_session(
     session_id: str,
-    format: str = Query("json", description="Export format: json, csv"),
-    api_key: str = Depends(get_api_key),
+    format: str = "csv",
+    group_by_category: bool = False,
+    voice_svc: VoiceService = Depends(get_voice_service),
 ):
     """
-    Export session data.
+    Export session data for copy/paste.
 
-    Returns all confirmed records with summaries by category.
+    Returns CSV text and summary text ready for clipboard.
     """
-    # TODO: Implement
-    raise NotFoundError("Session", session_id)
+    export = voice_svc.export_session(session_id, format, group_by_category)
+    if not export:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return export
