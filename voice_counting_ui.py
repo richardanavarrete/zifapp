@@ -43,6 +43,13 @@ except ImportError:
 from models import VoiceCountSession, VoiceCountRecord
 from voice_matcher import VoiceItemMatcher
 from voice_export import export_voice_count_to_excel, get_inventory_order_from_template, get_default_inventory_order
+from audio_processing import (
+    process_audio_for_transcription,
+    transcribe_with_openai_api,
+    get_chunk_info,
+    get_audio_duration_seconds,
+    remove_silence
+)
 import storage
 
 
@@ -65,6 +72,10 @@ def render_voice_counting_tab(dataset, inventory_layout=None):
         st.session_state.pending_match = None
     if 'inventory_order' not in st.session_state:
         st.session_state.inventory_order = None
+    if 'pending_transcript' not in st.session_state:
+        st.session_state.pending_transcript = None
+    if 'transcript_ready_to_map' not in st.session_state:
+        st.session_state.transcript_ready_to_map = False
 
     # Top section: Session management
     col1, col2, col3 = st.columns([2, 2, 1])
@@ -229,7 +240,7 @@ def render_manual_input(session, dataset):
 
 
 def render_browser_voice_input(session, dataset):
-    """Render browser-based voice recording interface."""
+    """Render browser-based voice recording interface with two-step transcription flow."""
     if not AUDIO_RECORDER_AVAILABLE:
         st.warning("⚠️ Audio recorder not available. Install with: `pip install streamlit-audiorecorder`")
         st.info("💡 Use Manual Entry or Upload Audio File instead")
@@ -237,6 +248,11 @@ def render_browser_voice_input(session, dataset):
 
     st.markdown("**🎤 Continuous Recording Mode**")
     st.info("💡 Click Start to record. Say multiple items: 'Buffalo Trace 3, Titos 5, Makers 850 grams...'. Click Stop when done.")
+
+    # Check if we have a pending transcript to display
+    if st.session_state.pending_transcript:
+        render_transcript_editor(session, dataset)
+        return
 
     # Record audio with better UI and visualizer
     audio = audiorecorder(
@@ -249,49 +265,115 @@ def render_browser_voice_input(session, dataset):
 
     # Check if audio was recorded (AudioSegment has length > 0)
     if len(audio) > 0:
+        # Show original audio duration
+        original_duration = get_audio_duration_seconds(audio)
+        st.caption(f"Recorded: {original_duration:.1f} seconds")
+
         # Play back the recorded audio
         st.audio(audio.export().read(), format="audio/wav")
 
-        if st.button("🔄 Transcribe & Process All Items", key="transcribe_btn", type="primary"):
-            with st.spinner("Transcribing..."):
-                # Convert AudioSegment to bytes for transcription
-                audio_bytes = audio.export(format="wav").read()
-                transcript = transcribe_audio_bytes(audio_bytes)
-                if transcript:
-                    st.success(f"📝 Transcribed: {transcript}")
+        # Show processing info
+        num_chunks, cleaned_duration = get_chunk_info(audio)
+        if cleaned_duration < original_duration:
+            st.caption(f"After silence removal: {cleaned_duration:.1f}s ({num_chunks} chunk{'s' if num_chunks > 1 else ''})")
 
-                    # Process multiple items from single transcript
-                    use_ai = st.session_state.get('use_ai_assistant', False)
-                    result = process_multi_item_transcript(session, transcript, dataset, use_ai=use_ai)
+        if st.button("🔄 Transcribe Audio", key="transcribe_btn", type="primary"):
+            # Check for OpenAI API key
+            api_key = None
+            if "openai" in st.secrets and "api_key" in st.secrets["openai"]:
+                api_key = st.secrets["openai"]["api_key"]
 
-                    # Handle AI vs regular response
-                    if use_ai and isinstance(result, tuple):
-                        items_processed, ai_feedback = result
-                        if items_processed > 0:
-                            st.success(f"✅ {ai_feedback}")
-                            st.rerun()
-                        else:
-                            st.info(ai_feedback)
+            if not api_key:
+                st.error("⚠️ OpenAI API key required. Add it to your Streamlit secrets.")
+                return
+
+            with st.spinner("Processing audio (removing silences, chunking)..."):
+                # Process audio: remove silence and chunk
+                chunks = process_audio_for_transcription(audio)
+
+            with st.spinner(f"Transcribing {len(chunks)} audio chunk{'s' if len(chunks) > 1 else ''}..."):
+                try:
+                    transcript = transcribe_with_openai_api(chunks, api_key)
+                    if transcript:
+                        # Store transcript for editing
+                        st.session_state.pending_transcript = transcript
+                        st.session_state.transcript_ready_to_map = False
+                        st.rerun()
                     else:
-                        items_processed = result
-                        if items_processed > 0:
-                            st.success(f"✅ Added {items_processed} items to session!")
-                            st.rerun()
-                        else:
-                            st.warning("⚠️ No items could be matched. Try speaking more clearly.")
+                        st.error("Could not transcribe audio. Please try again.")
+                except Exception as e:
+                    st.error(f"Transcription error: {str(e)}")
+
+
+def render_transcript_editor(session, dataset):
+    """Render the editable transcript text box and mapping controls."""
+    st.markdown("### 📝 Review & Edit Transcript")
+    st.info("💡 Edit the transcript below if needed, then click 'Map Items' to match to your inventory.")
+
+    # Editable text area for transcript
+    edited_transcript = st.text_area(
+        "Transcription",
+        value=st.session_state.pending_transcript,
+        height=150,
+        key="transcript_editor",
+        help="Edit the transcript to fix any transcription errors before mapping to items"
+    )
+
+    # Action buttons
+    col1, col2, col3 = st.columns([2, 2, 1])
+
+    with col1:
+        if st.button("✅ Map Items", key="map_items_btn", type="primary", use_container_width=True):
+            if edited_transcript.strip():
+                use_ai = st.session_state.get('use_ai_assistant', False)
+                result = process_multi_item_transcript(session, edited_transcript, dataset, use_ai=use_ai)
+
+                # Handle AI vs regular response
+                if use_ai and isinstance(result, tuple):
+                    items_processed, ai_feedback = result
+                    if items_processed > 0:
+                        st.success(f"✅ {ai_feedback}")
+                        # Clear pending transcript
+                        st.session_state.pending_transcript = None
+                        st.session_state.transcript_ready_to_map = False
+                        st.rerun()
+                    else:
+                        st.warning(ai_feedback)
                 else:
-                    st.error("Could not transcribe audio. Please try again.")
+                    items_processed = result
+                    if items_processed > 0:
+                        st.success(f"✅ Added {items_processed} items to session!")
+                        # Clear pending transcript
+                        st.session_state.pending_transcript = None
+                        st.session_state.transcript_ready_to_map = False
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ No items could be matched. Try editing the transcript.")
+            else:
+                st.warning("Please enter some text to map.")
+
+    with col2:
+        if st.button("🔄 Record New", key="record_new_btn", use_container_width=True):
+            st.session_state.pending_transcript = None
+            st.session_state.transcript_ready_to_map = False
+            st.rerun()
+
+    with col3:
+        if st.button("❌ Cancel", key="cancel_transcript_btn", use_container_width=True):
+            st.session_state.pending_transcript = None
+            st.session_state.transcript_ready_to_map = False
+            st.rerun()
 
 
 def render_audio_file_input(session, dataset):
-    """Render audio file upload interface."""
-    if not WHISPER_AVAILABLE and not SPEECH_RECOGNITION_AVAILABLE:
-        st.warning("⚠️ Speech recognition not available. Install with: `pip install openai-whisper`")
-        st.info("💡 Use Manual Entry or Browser Voice Recording instead")
-        return
-
+    """Render audio file upload interface with two-step transcription flow."""
     st.markdown("**📁 Upload Audio File**")
     st.info("💡 Upload a recording with multiple items: 'Buffalo Trace 3, Titos 5, Makers 850 grams...'")
+
+    # Check if we have a pending transcript to display
+    if st.session_state.pending_transcript:
+        render_transcript_editor(session, dataset)
+        return
 
     audio_file = st.file_uploader(
         "Upload Audio",
@@ -302,22 +384,57 @@ def render_audio_file_input(session, dataset):
     if audio_file:
         st.audio(audio_file)
 
-        if st.button("🔄 Transcribe & Process All Items", key="file_transcribe_btn", type="primary"):
-            with st.spinner("Transcribing..."):
-                transcript = transcribe_audio_file(audio_file)
-                if transcript:
-                    st.success(f"📝 Transcribed: {transcript}")
+        if st.button("🔄 Transcribe Audio", key="file_transcribe_btn", type="primary"):
+            # Check for OpenAI API key
+            api_key = None
+            if "openai" in st.secrets and "api_key" in st.secrets["openai"]:
+                api_key = st.secrets["openai"]["api_key"]
 
-                    # Process multiple items from single transcript
-                    items_processed = process_multi_item_transcript(session, transcript, dataset)
+            if not api_key:
+                st.error("⚠️ OpenAI API key required. Add it to your Streamlit secrets.")
+                return
 
-                    if items_processed > 0:
-                        st.success(f"✅ Added {items_processed} items to session!")
+            with st.spinner("Loading and processing audio..."):
+                try:
+                    # Load audio file with pydub
+                    from pydub import AudioSegment
+                    audio_file.seek(0)
+
+                    # Determine format from file extension
+                    file_ext = audio_file.name.split('.')[-1].lower()
+                    if file_ext == 'm4a':
+                        file_ext = 'mp4'  # pydub uses mp4 for m4a
+
+                    audio = AudioSegment.from_file(audio_file, format=file_ext)
+
+                    # Show original duration
+                    original_duration = get_audio_duration_seconds(audio)
+                    st.caption(f"Audio length: {original_duration:.1f} seconds")
+
+                    # Process audio: remove silence and chunk
+                    chunks = process_audio_for_transcription(audio)
+
+                    # Show processing info
+                    cleaned_duration = sum(len(c) for c in chunks) / 1000.0
+                    if cleaned_duration < original_duration:
+                        st.caption(f"After silence removal: {cleaned_duration:.1f}s ({len(chunks)} chunk{'s' if len(chunks) > 1 else ''})")
+
+                except Exception as e:
+                    st.error(f"Could not load audio file: {str(e)}")
+                    return
+
+            with st.spinner(f"Transcribing {len(chunks)} audio chunk{'s' if len(chunks) > 1 else ''}..."):
+                try:
+                    transcript = transcribe_with_openai_api(chunks, api_key)
+                    if transcript:
+                        # Store transcript for editing
+                        st.session_state.pending_transcript = transcript
+                        st.session_state.transcript_ready_to_map = False
                         st.rerun()
                     else:
-                        st.warning("⚠️ No items could be matched. Try speaking more clearly.")
-                else:
-                    st.error("Could not transcribe audio. Please try speaking more clearly.")
+                        st.error("Could not transcribe audio. Please try again.")
+                except Exception as e:
+                    st.error(f"Transcription error: {str(e)}")
 
 
 def process_transcript(session, transcript, dataset):
