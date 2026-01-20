@@ -112,11 +112,11 @@ def main():
         print("-" * 60)
         for vendor, info in result['vendor_keg_info'].items():
             if info['total_kegs'] > 0:
-                status = "✅ At discount" if info['at_discount_level'] else f"⚠️ Need {info['kegs_to_add']} more"
+                status = "✅ At discount" if not info['needs_rebalancing'] else f"⚠️ Need {info['kegs_to_add']} more"
                 print(f"   {vendor}: {info['total_kegs']} kegs ({status})")
-                if not info['at_discount_level'] and info.get('adjustment_suggestions'):
+                if info['needs_rebalancing'] and info.get('rebalancing_suggestions'):
                     print("   Suggestions:")
-                    for sug in info['adjustment_suggestions']:
+                    for sug in info['rebalancing_suggestions']:
                         print(f"      - {sug['item_id']}: Add {sug['suggested_add']} ({sug['reason']})")
 
     # Display summary stats
