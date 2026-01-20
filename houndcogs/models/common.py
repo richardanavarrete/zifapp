@@ -1,4 +1,4 @@
-"""Common types and enums used across HoundCOGS."""
+"""Common types used across the inventory system."""
 
 from enum import Enum
 from datetime import datetime
@@ -6,35 +6,9 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 
-class Category(str, Enum):
-    """Product categories."""
-    WHISKEY = "Whiskey"
-    VODKA = "Vodka"
-    GIN = "Gin"
-    TEQUILA = "Tequila"
-    RUM = "Rum"
-    SCOTCH = "Scotch"
-    BRANDY = "Brandy"
-    WELL = "Well"
-    LIQUEUR = "Liqueur"
-    CORDIALS = "Cordials"
-    WINE = "Wine"
-    DRAFT_BEER = "Draft Beer"
-    BOTTLED_BEER = "Bottled Beer"
-    JUICE = "Juice"
-    BAR_CONSUMABLES = "Bar Consumables"
-    UNKNOWN = "Unknown"
-
-
-class Vendor(str, Enum):
-    """Known vendors."""
-    BREAKTHRU = "Breakthru"
-    SOUTHERN = "Southern"
-    RNDC = "RNDC"
-    CRESCENT = "Crescent"
-    HENSLEY = "Hensley"
-    UNKNOWN = "Unknown"
-
+# ============================================================================
+# Status Enums (these are system states, not business data)
+# ============================================================================
 
 class ReasonCode(str, Enum):
     """Order recommendation reason codes."""
@@ -65,6 +39,17 @@ class SessionStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class TrendDirection(str, Enum):
+    """Usage trend direction."""
+    UP = "up"
+    DOWN = "down"
+    STABLE = "stable"
+
+
+# ============================================================================
+# Common Value Objects
+# ============================================================================
+
 class DateRange(BaseModel):
     """A date range."""
     start: datetime
@@ -76,8 +61,22 @@ class PaginationParams(BaseModel):
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=50, ge=1, le=200)
 
+    @property
+    def offset(self) -> int:
+        return (self.page - 1) * self.page_size
+
 
 class SortParams(BaseModel):
     """Sorting parameters."""
     sort_by: str = "created_at"
     sort_order: str = Field(default="desc", pattern="^(asc|desc)$")
+
+
+class PaginatedResponse(BaseModel):
+    """Base class for paginated responses."""
+    page: int
+    page_size: int
+    total_items: int
+    total_pages: int
+    has_next: bool
+    has_prev: bool
