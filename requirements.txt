@@ -1,14 +1,8 @@
-# smallCOGS Dependencies
-# smallCOGS API Dependencies
+# HoundCOGS/ZifApp Dependencies
 
-# Web framework
-fastapi>=0.109.0
-uvicorn[standard]>=0.27.0
-starlette>=0.35.0
-
-# Settings
-pydantic>=2.0.0
-pydantic-settings>=2.0.0
+# Streamlit app
+streamlit>=1.30.0
+streamlit-audiorecorder>=0.0.5
 
 # Data processing
 pandas>=2.0.0
@@ -18,13 +12,8 @@ plotly>=5.18.0
 
 # Audio processing
 pydub>=0.25.0
-pyaudioop>=0.0.1  # Required for pydub on Python 3.13+ (audioop removed from stdlib)
 
-# Streamlit app
-streamlit>=1.30.0
-streamlit-audiorecorder>=0.0.5
-
-# Voice counting
+# Voice counting & AI
 openai>=1.0.0
 rapidfuzz>=3.0.0
 
@@ -34,5 +23,5 @@ requests>=2.31.0
 # Image processing
 Pillow>=9.0.0
 
-# HTTP client (for health checks)
-requests>=2.31.0
+# Document processing
+python-docx>=0.8.11
