@@ -1,14 +1,34 @@
-streamlit>=1.28.0
+# smallCOGS Dependencies
+
+# Web framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+starlette>=0.35.0
+
+# Settings
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Data processing
 pandas>=2.0.0
 openpyxl>=3.1.0
-python-docx>=0.8.11
-statsmodels
-plotly>=5.0.0
-requests>=2.31.0
-rapidfuzz>=3.0.0
-SpeechRecognition>=3.10.0
-pydub>=0.25.1
-openai-whisper>=20231117
-openai>=1.0.0
+statsmodels>=0.14.0
+plotly>=5.18.0
+
+# Audio processing
+pydub>=0.25.0
+pyaudioop>=0.0.1  # Required for pydub on Python 3.13+ (audioop removed from stdlib)
+
+# Streamlit app
+streamlit>=1.30.0
 streamlit-audiorecorder>=0.0.5
+
+# Voice counting
+openai>=1.0.0
+rapidfuzz>=3.0.0
+
+# HTTP client
+requests>=2.31.0
+
+# Image processing
 Pillow>=9.0.0
