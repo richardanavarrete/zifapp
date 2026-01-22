@@ -17,6 +17,7 @@ plotly>=5.18.0
 
 # Audio processing
 pydub>=0.25.0
+pyaudioop>=0.1.0  # Required for Python 3.13+ (audioop removed from stdlib)
 
 # Streamlit app
 streamlit>=1.30.0
