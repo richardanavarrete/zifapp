@@ -12,6 +12,10 @@ pydantic-settings>=2.0.0
 pandas>=2.0.0
 openpyxl>=3.1.0
 statsmodels>=0.14.0
+plotly>=5.18.0
+
+# Streamlit app
+streamlit>=1.30.0
 
 # HTTP client (for health checks)
 requests>=2.31.0
