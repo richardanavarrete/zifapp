@@ -1,3 +1,4 @@
+# smallCOGS Dependencies
 # smallCOGS API Dependencies
 
 # Web framework
@@ -21,6 +22,17 @@ pyaudioop>=0.0.1  # Required for pydub on Python 3.13+ (audioop removed from std
 
 # Streamlit app
 streamlit>=1.30.0
+streamlit-audiorecorder>=0.0.5
+
+# Voice counting
+openai>=1.0.0
+rapidfuzz>=3.0.0
+
+# HTTP client
+requests>=2.31.0
+
+# Image processing
+Pillow>=9.0.0
 
 # HTTP client (for health checks)
 requests>=2.31.0
