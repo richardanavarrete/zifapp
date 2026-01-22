@@ -1,0 +1,13 @@
+# smallCOGS UI Dependencies
+
+# Streamlit
+streamlit>=1.30.0
+
+# Charts
+plotly>=5.18.0
+
+# HTTP client
+requests>=2.31.0
+
+# Data
+pandas>=2.0.0

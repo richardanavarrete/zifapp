@@ -5,10 +5,12 @@ This is the "agent brain v0" - makes intelligent ordering decisions
 without requiring an LLM.
 """
 
-import pandas as pd
 import math
-from typing import Dict, List, Optional
 from dataclasses import dataclass, field
+from typing import Dict, List, Optional
+
+import pandas as pd
+
 from models import InventoryDataset
 
 # Constants for keg adjustment scoring

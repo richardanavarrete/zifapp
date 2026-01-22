@@ -1,8 +1,9 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+import io
+
+import pandas as pd
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-import pandas as pd
-import io
 from sales_mix_processor import process_data
 
 app = FastAPI(title="Sales Mix API", version="1.0.0")

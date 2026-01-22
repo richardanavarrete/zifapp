@@ -8,10 +8,11 @@ This module provides functions for:
 - Shrinkage reports
 """
 
-import pandas as pd
-from typing import Dict, Tuple, Optional
-from models import InventoryDataset
+from typing import Dict, Optional
 
+import pandas as pd
+
+from models import InventoryDataset
 
 # Category mapping - maps item-level categories to spreadsheet-level categories
 CATEGORY_CONSOLIDATION = {

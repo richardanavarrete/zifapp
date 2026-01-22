@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=false
+      - API_KEYS=${API_KEYS}
+      - CORS_ORIGINS=http://localhost:8501
+      - DATA_DIR=/app/data
+    volumes:
+      - smallcogs-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ui:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ui
+    ports:
+      - "8501:8501"
+    environment:
+      - API_BASE_URL=http://api:8000
+      - API_KEY=${API_KEYS}
+    depends_on:
+      - api
+
+volumes:
+  smallcogs-data:

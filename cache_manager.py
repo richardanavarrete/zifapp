@@ -7,14 +7,12 @@ spreadsheets across sessions. Uses Parquet format for efficient storage.
 
 import hashlib
 import json
-import os
 import pickle
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
-
 
 # Cache directory structure
 CACHE_DIR = Path(__file__).parent / "data" / "cache"

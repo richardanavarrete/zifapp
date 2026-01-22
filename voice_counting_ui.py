@@ -8,12 +8,11 @@ This module provides the complete voice counting user interface including:
 - Excel export
 """
 
-import streamlit as st
-import pandas as pd
 import uuid
 from datetime import datetime
-from io import BytesIO
-import json
+
+import pandas as pd
+import streamlit as st
 
 # Audio recording component
 try:
@@ -25,7 +24,16 @@ except ImportError:
 # Speech recognition - using OpenAI Whisper for better accuracy
 try:
     import whisper
-    import torch
+
+    # torch is required by whisper but we only import it to check availability
+    try:
+        import importlib.util
+        torch_spec = importlib.util.find_spec("torch")
+        if torch_spec is None:
+            raise ImportError("torch not found")
+    except ImportError:
+        raise ImportError("torch not available")
+
     WHISPER_AVAILABLE = True
     # Load Whisper model once (base model is fast and accurate enough)
     # Model sizes: tiny, base, small, medium, large (larger = more accurate but slower)
@@ -40,17 +48,20 @@ try:
 except ImportError:
     SPEECH_RECOGNITION_AVAILABLE = False
 
-from models import VoiceCountSession, VoiceCountRecord
-from voice_matcher import VoiceItemMatcher
-from voice_export import export_voice_count_to_excel, get_inventory_order_from_template, get_default_inventory_order
+import storage
 from audio_processing import (
+    get_audio_duration_seconds,
+    get_chunk_info,
     process_audio_for_transcription,
     transcribe_with_openai_api,
-    get_chunk_info,
-    get_audio_duration_seconds,
-    remove_silence
 )
-import storage
+from models import VoiceCountRecord, VoiceCountSession
+from voice_export import (
+    export_voice_count_to_excel,
+    get_default_inventory_order,
+    get_inventory_order_from_template,
+)
+from voice_matcher import VoiceItemMatcher
 
 
 def render_voice_counting_tab(dataset, inventory_layout=None):
@@ -824,8 +835,9 @@ def process_with_ai_assistant(session, transcript, dataset):
     """
     # Check if OpenAI is available
     try:
-        from openai import OpenAI
         import json
+
+        from openai import OpenAI
     except ImportError:
         return None  # Signal to use fallback
 
@@ -938,8 +950,8 @@ If you can't extract any items, return empty items array with helpful message.""
         # Return with AI feedback
         return items_processed, result.get("confirmation", "Items processed!")
 
-    except json.JSONDecodeError as e:
-        st.warning(f"⚠️ AI response parsing failed, using standard matching...")
+    except json.JSONDecodeError:
+        st.warning("⚠️ AI response parsing failed, using standard matching...")
         return None  # Signal to use fallback
     except Exception as e:
         st.warning(f"⚠️ AI Assistant unavailable ({str(e)[:50]}...), using standard matching...")
@@ -987,7 +999,6 @@ def clean_transcript_smart(transcript: str) -> str:
         if i < len(words) - 2:
             # Check if we have "word word number" pattern
             potential_dup = ' '.join(words[i:i+2])
-            potential_with_count = ' '.join(words[i+2:i+4]) if i+3 < len(words) else words[i+2] if i+2 < len(words) else ''
 
             # If the first two words appear again, and the second mention has a number, skip first mention
             if i+4 < len(words) and ' '.join(words[i+2:i+4]) == potential_dup:
@@ -1191,7 +1202,6 @@ def transcribe_audio_file(audio_file):
     """
     Transcribe audio from uploaded file using OpenAI Whisper (preferred) or Google Speech as fallback.
     """
-    import io
     import tempfile
 
     # Read audio file
