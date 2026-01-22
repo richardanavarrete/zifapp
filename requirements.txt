@@ -12,6 +12,7 @@ plotly>=5.18.0
 
 # Audio processing
 pydub>=0.25.0
+audioop-lts>=0.2.1  # Provides audioop for Python 3.13+ (fallback if runtime.txt not respected)
 
 # Voice counting & AI
 openai>=1.0.0
