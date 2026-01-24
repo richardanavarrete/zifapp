@@ -3,7 +3,7 @@ Audio Processing Module - Optimized silence removal and chunking for voice count
 
 This module provides:
 - Fast silence removal from audio recordings
-- Chunking audio into 30-second segments with 1-second overlaps
+- Chunking audio into 60-second (1-minute) segments with 2-second overlaps
 - Parallel OpenAI Whisper API transcription for speed
 """
 
@@ -74,15 +74,15 @@ def remove_silence(audio: AudioSegment,
 
 
 def chunk_audio(audio: AudioSegment,
-                chunk_duration_ms: int = 30000,
-                overlap_ms: int = 1000) -> List[AudioSegment]:
+                chunk_duration_ms: int = 60000,
+                overlap_ms: int = 2000) -> List[AudioSegment]:
     """
     Split audio into chunks with overlap for better transcription.
 
     Args:
         audio: AudioSegment to chunk
-        chunk_duration_ms: Duration of each chunk in milliseconds (default 30s)
-        overlap_ms: Overlap between chunks in milliseconds (default 1s)
+        chunk_duration_ms: Duration of each chunk in milliseconds (default 60s / 1 minute)
+        overlap_ms: Overlap between chunks in milliseconds (default 2s)
 
     Returns:
         List of AudioSegment chunks
@@ -115,8 +115,7 @@ def chunk_audio(audio: AudioSegment,
 
 def process_audio_for_transcription(audio: AudioSegment) -> List[AudioSegment]:
     """
-    Process audio: remove silence and chunk into segments.
-    Automatically adjusts chunk size based on audio length.
+    Process audio: remove silence and chunk into 60-second (1-minute) segments.
 
     Args:
         audio: Raw AudioSegment from recording
@@ -126,32 +125,20 @@ def process_audio_for_transcription(audio: AudioSegment) -> List[AudioSegment]:
     """
     audio_len = len(audio)
 
-    # For short audio (< 25s), skip silence removal - just send directly
-    if audio_len < 25000:
+    # For short audio (< 60s), skip processing - just send directly
+    if audio_len < 60000:
         return [audio]
 
     # For very long audio (> 10 min), skip silence removal entirely
-    # (too slow/memory intensive) and just chunk directly
+    # (too slow/memory intensive) and just chunk directly with 60s chunks
     if audio_len > 600000:  # > 10 minutes
-        # Use 60-second chunks with 2s overlap
-        return chunk_audio(audio, chunk_duration_ms=60000, overlap_ms=2000)
+        return chunk_audio(audio)  # Uses default 60s chunks, 2s overlap
 
-    # For medium-length audio, do silence removal
+    # For medium-length audio, do silence removal first, then chunk
     cleaned_audio = remove_silence(audio)
 
-    # Choose chunk size based on cleaned audio length
-    cleaned_len = len(cleaned_audio)
-    if cleaned_len > 300000:  # > 5 minutes
-        chunk_duration = 60000
-        overlap = 2000
-    elif cleaned_len > 120000:  # > 2 minutes
-        chunk_duration = 45000
-        overlap = 1500
-    else:
-        chunk_duration = 30000
-        overlap = 1000
-
-    chunks = chunk_audio(cleaned_audio, chunk_duration_ms=chunk_duration, overlap_ms=overlap)
+    # Use 60-second chunks with 2-second overlap (the defaults)
+    chunks = chunk_audio(cleaned_audio)
 
     return chunks
 
@@ -318,7 +305,7 @@ def get_audio_duration_seconds(audio: AudioSegment) -> float:
 def get_chunk_info(audio: AudioSegment) -> Tuple[int, float]:
     """
     Get information about how audio will be chunked.
-    Uses same adaptive logic as process_audio_for_transcription.
+    Uses same logic as process_audio_for_transcription.
 
     Args:
         audio: AudioSegment to analyze
@@ -328,30 +315,18 @@ def get_chunk_info(audio: AudioSegment) -> Tuple[int, float]:
     """
     audio_len = len(audio)
 
-    # For short audio, return 1 chunk
-    if audio_len < 25000:
+    # For short audio (< 60s), return 1 chunk
+    if audio_len < 60000:
         return 1, get_audio_duration_seconds(audio)
 
     # For very long audio (> 10 min), skip silence removal estimate
     if audio_len > 600000:
-        chunks = chunk_audio(audio, 60000, 2000)
+        chunks = chunk_audio(audio)  # Uses default 60s chunks, 2s overlap
         return len(chunks), get_audio_duration_seconds(audio)
 
-    # For medium-length, do silence removal estimate
+    # For medium-length, do silence removal then chunk with 60s default
     cleaned = remove_silence(audio)
-    cleaned_len = len(cleaned)
-
-    if cleaned_len > 300000:
-        chunk_duration = 60000
-        overlap = 2000
-    elif cleaned_len > 120000:
-        chunk_duration = 45000
-        overlap = 1500
-    else:
-        chunk_duration = 30000
-        overlap = 1000
-
-    chunks = chunk_audio(cleaned, chunk_duration, overlap)
+    chunks = chunk_audio(cleaned)  # Uses default 60s chunks, 2s overlap
     return len(chunks), get_audio_duration_seconds(cleaned)
 
 
