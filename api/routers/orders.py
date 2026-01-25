@@ -4,22 +4,44 @@ Order Recommendations API Routes
 Endpoints for agentic ordering - smart recommendations based on usage.
 """
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from api.dependencies import get_inventory_service, get_order_service
 from smallcogs.models.orders import (
     ApprovalRequest,
+    ForecastSummary,
     OrderConstraints,
     OrderExport,
     OrderTargets,
     RecommendationRun,
     RecommendRequest,
+    SalesForecast,
 )
 from smallcogs.services import InventoryService, OrderService
 
 router = APIRouter(prefix="/orders", tags=["Order Recommendations"])
+
+
+# =============================================================================
+# Forecast Models
+# =============================================================================
+
+class HistoricalSalesResponse(BaseModel):
+    """Historical sales data for forecasting."""
+    weeks_analyzed: int = Field(..., description="Number of weeks of data analyzed")
+    avg_total_sales: Optional[float] = Field(None, description="Average total weekly sales")
+    by_category: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Average weekly sales by category"
+    )
+    data_quality: str = Field(
+        default="good",
+        description="Data quality indicator: good, partial, insufficient"
+    )
+    notes: List[str] = Field(default_factory=list, description="Any data quality notes")
 
 
 # =============================================================================
@@ -128,3 +150,69 @@ async def get_default_targets():
 async def get_default_constraints():
     """Get default order constraints (user can customize)."""
     return OrderConstraints()
+
+
+# =============================================================================
+# Forecasting
+# =============================================================================
+
+@router.get("/forecast/historical-sales", response_model=HistoricalSalesResponse)
+async def get_historical_sales(
+    weeks: int = Query(default=4, ge=1, le=52, description="Number of weeks to average"),
+    inv_svc: InventoryService = Depends(get_inventory_service),
+):
+    """
+    Get historical average sales data for forecasting.
+
+    Returns average weekly sales (total and by category) based on
+    COGS summaries from the bevweekly sheet. Use this data to populate
+    the SalesForecast when generating order recommendations.
+
+    Example workflow:
+    1. Call this endpoint to get historical_avg_total_sales and historical_by_category
+    2. Input your expected sales (based on events, seasonality, etc.)
+    3. Call /orders/recommend with a SalesForecast containing both values
+    """
+    # Try to get COGS summaries from the most recent dataset
+    # In a real implementation, you might pass a dataset_id
+    try:
+        from models import InventoryDataset, create_dataset_from_excel
+
+        # For now, return guidance - in production this would load actual data
+        notes = []
+        notes.append("Upload a bevweekly file to compute actual historical sales")
+
+        return HistoricalSalesResponse(
+            weeks_analyzed=0,
+            avg_total_sales=None,
+            by_category={},
+            data_quality="insufficient",
+            notes=notes,
+        )
+
+    except Exception as e:
+        return HistoricalSalesResponse(
+            weeks_analyzed=0,
+            avg_total_sales=None,
+            by_category={},
+            data_quality="insufficient",
+            notes=[f"Could not load historical data: {str(e)}"],
+        )
+
+
+@router.get("/forecast/default", response_model=SalesForecast)
+async def get_default_forecast():
+    """
+    Get a default/example SalesForecast structure.
+
+    Shows the structure for submitting a sales forecast with order recommendations.
+    """
+    return SalesForecast(
+        percent_change=None,
+        expected_total_sales=None,
+        historical_avg_total_sales=None,
+        by_category={},
+        historical_by_category={},
+        forecast_weeks=1.0,
+        notes=None,
+    )
