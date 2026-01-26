@@ -8,7 +8,7 @@ import logging
 import re
 import uuid
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from smallcogs.models.inventory import Dataset
 from smallcogs.models.voice import (
@@ -86,58 +86,42 @@ class VoiceService:
         """
         Transcribe audio file to text.
 
-        Uses OpenAI Whisper API if available, otherwise falls back to local.
+        Uses advanced audio processor with chunking, parallel processing,
+        and silence removal for long recordings.
         """
-        import time
-        start = time.time()
+        if not self.openai_api_key:
+            logger.warning("No OpenAI key - transcription will fail")
+            return TranscriptionResult(
+                transcription_id=f"tr_{uuid.uuid4().hex[:12]}",
+                text="",
+                duration_seconds=0.0,
+                confidence=0.0,
+                language=language,
+                processing_time_ms=0.0,
+                warnings=["No OpenAI API key configured"],
+            )
 
-        transcription_id = f"tr_{uuid.uuid4().hex[:12]}"
+        # Use the advanced audio processor with chunking and parallel processing
+        from houndcogs.services.audio_processor import transcribe_audio as advanced_transcribe
 
-        # Try OpenAI Whisper API
-        if self.openai_api_key:
-            text, confidence = await self._transcribe_openai(audio_path, language)
-        else:
-            # Fallback - would use local whisper or speech_recognition
-            text, confidence = await self._transcribe_fallback(audio_path)
-
-        processing_time = (time.time() - start) * 1000
-
-        return TranscriptionResult(
-            transcription_id=transcription_id,
-            text=text,
-            duration_seconds=0.0,  # TODO: get from audio file
-            confidence=confidence,
+        result = advanced_transcribe(
+            file_path=audio_path,
             language=language,
-            processing_time_ms=processing_time,
+            remove_silence=remove_silence,
+            api_key=self.openai_api_key,
         )
 
-    async def _transcribe_openai(
-        self,
-        audio_path: str,
-        language: str
-    ) -> Tuple[str, float]:
-        """Transcribe using OpenAI Whisper API."""
-        try:
-            from openai import OpenAI
-            client = OpenAI(api_key=self.openai_api_key)
-
-            with open(audio_path, "rb") as audio_file:
-                response = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file,
-                    language=language,
-                )
-
-            return response.text, 0.9  # Whisper doesn't return confidence
-        except Exception as e:
-            logger.error(f"OpenAI transcription failed: {e}")
-            return "", 0.0
-
-    async def _transcribe_fallback(self, audio_path: str) -> Tuple[str, float]:
-        """Fallback transcription using local methods."""
-        # Placeholder - would use speech_recognition or local whisper
-        logger.warning("No OpenAI key - using fallback transcription")
-        return "", 0.0
+        # Convert houndcogs TranscriptionResult to smallcogs TranscriptionResult
+        return TranscriptionResult(
+            transcription_id=result.transcription_id,
+            text=result.text,
+            duration_seconds=result.duration_seconds,
+            confidence=result.confidence,
+            language=language,
+            chunks_processed=result.chunks_processed,
+            processing_time_ms=result.processing_time_seconds * 1000,  # Convert to ms
+            warnings=result.warnings,
+        )
 
     # =========================================================================
     # Matching
