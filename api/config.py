@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     # Database (for future use)
     database_url: Optional[str] = None  # e.g., sqlite:///./data/smallcogs.db
 
+    # Supabase
+    supabase_url: Optional[str] = None  # Loaded from SUPABASE_URL env var
+    supabase_anon_key: Optional[str] = None  # Loaded from SUPABASE_ANON_KEY env var
+    supabase_service_role_key: Optional[str] = None  # Loaded from SUPABASE_SERVICE_ROLE_KEY env var
+    supabase_jwt_secret: Optional[str] = None  # Loaded from SUPABASE_JWT_SECRET env var
+
     # OpenAI (for voice transcription)
     openai_api_key: Optional[str] = None  # Loaded from OPENAI_API_KEY env var
 
@@ -59,6 +65,11 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> List[str]:
         """Parse comma-separated CORS origins."""
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def supabase_enabled(self) -> bool:
+        """Check if Supabase is configured."""
+        return bool(self.supabase_url and self.supabase_anon_key)
 
 
 @lru_cache()

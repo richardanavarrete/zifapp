@@ -6,7 +6,12 @@ Dependency injection for services.
 
 import os
 from functools import lru_cache
+from typing import Optional
+from uuid import UUID
 
+from fastapi import Depends
+
+from api.config import get_settings
 from smallcogs.services import (
     InventoryService,
     OrderService,
@@ -58,3 +63,43 @@ def get_voice_service() -> VoiceService:
 def get_order_service() -> OrderService:
     """Get singleton order service."""
     return OrderService()
+
+
+# =============================================================================
+# Supabase Dependencies
+# =============================================================================
+
+def get_supabase_repository(org_id: UUID):
+    """
+    Get Supabase repository scoped to an organization.
+
+    This is a factory function - call it with org_id to get a repo instance.
+    Use in endpoints like:
+        repo = get_supabase_repository(current_user.org_id)
+    """
+    from api.supabase.repository import SupabaseRepository
+    return SupabaseRepository(org_id)
+
+
+def get_repository_for_user(current_user):
+    """
+    Get repository for the current user's organization.
+
+    Convenience function for use in endpoints:
+        repo = get_repository_for_user(current_user)
+    """
+    if not current_user.org_id:
+        return None
+    return get_supabase_repository(current_user.org_id)
+
+
+@lru_cache()
+def get_auth_service():
+    """Get singleton auth service."""
+    settings = get_settings()
+
+    if not settings.supabase_enabled:
+        return None
+
+    from api.supabase.auth_service import AuthService
+    return AuthService()
