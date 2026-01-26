@@ -1,13 +1,14 @@
 """COGS (Cost of Goods Sold) analysis endpoints."""
 
 import uuid
+from dataclasses import dataclass
 from datetime import date, datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, File, Query, UploadFile
 from pydantic import BaseModel
 
-from api.dependencies import get_api_key, get_file_storage
+from api.dependencies import get_api_key, get_file_storage, get_inventory_service
 from api.middleware.errors import NotFoundError, ProcessingError
 from houndcogs.models.cogs import (
     COGSAnalysisRequest,
@@ -16,9 +17,86 @@ from houndcogs.models.cogs import (
     VarianceAnalysisRequest,
     VarianceResult,
 )
+from houndcogs.services import cogs_analyzer
+from smallcogs.services.inventory_service import InventoryService
 
 router = APIRouter()
 
+
+# =============================================================================
+# Adapter classes to convert Pydantic Dataset to service's expected interface
+# =============================================================================
+
+@dataclass
+class _AdaptedRecord:
+    """Adapter for Record that maps record_date -> week_date."""
+    item_id: str
+    week_date: date
+    on_hand: float
+    usage: float
+
+
+@dataclass
+class _AdaptedItem:
+    """Adapter for Item that maps name -> display_name."""
+    item_id: str
+    display_name: str
+    category: str
+    unit_cost: float
+
+
+class _DatasetAdapter:
+    """
+    Adapts a Pydantic Dataset to the interface expected by cogs_analyzer.
+
+    The service expects:
+    - dataset.records: iterable of objects with .item_id, .week_date, .usage
+    - dataset.items: dict of items with .display_name, .category, .unit_cost
+    - dataset.get_item(id): method returning item
+    """
+
+    def __init__(self, dataset):
+        self._dataset = dataset
+
+        # Convert records: record_date -> week_date
+        self.records = [
+            _AdaptedRecord(
+                item_id=r.item_id,
+                week_date=r.record_date,
+                on_hand=r.on_hand,
+                usage=r.usage if r.usage is not None else 0.0,
+            )
+            for r in dataset.records
+        ]
+
+        # Convert items: name -> display_name, handle None values
+        self.items: Dict[str, _AdaptedItem] = {}
+        for item_id, item in dataset.items.items():
+            self.items[item_id] = _AdaptedItem(
+                item_id=item_id,
+                display_name=item.name,
+                category=item.category or "Unknown",
+                unit_cost=item.unit_cost if item.unit_cost is not None else 0.0,
+            )
+
+    def get_item(self, item_id: str) -> Optional[_AdaptedItem]:
+        return self.items.get(item_id)
+
+
+def _get_adapted_dataset(
+    dataset_id: str,
+    service: InventoryService,
+) -> _DatasetAdapter:
+    """Fetch dataset and adapt it for the cogs_analyzer service."""
+    dataset = service.get_dataset(dataset_id)
+    if not dataset:
+        raise NotFoundError("Dataset", dataset_id)
+    return _DatasetAdapter(dataset)
+
+
+# =============================================================================
+# Response Models
+# =============================================================================
 
 class ReportListItem(BaseModel):
     """Summary item for listing reports."""
@@ -29,10 +107,15 @@ class ReportListItem(BaseModel):
     created_at: datetime
 
 
+# =============================================================================
+# Endpoints
+# =============================================================================
+
 @router.post("/analyze", response_model=COGSSummary)
 async def analyze_cogs(
     request: COGSAnalysisRequest = Body(...),
     api_key: str = Depends(get_api_key),
+    service: InventoryService = Depends(get_inventory_service),
 ):
     """
     Run COGS analysis for a period.
@@ -48,29 +131,19 @@ async def analyze_cogs(
     **Optional:**
     - `sales_data`: Sales amounts by category (if not using uploaded sales mix)
     """
-    report_id = f"cogs_{uuid.uuid4().hex[:12]}"
-
     try:
-        # TODO: Implement with houndcogs.services.cogs_analyzer
-        # from houndcogs.services.cogs_analyzer import analyze_cogs
-        # return analyze_cogs(
-        #     dataset_id=request.dataset_id,
-        #     period_start=request.period_start,
-        #     period_end=request.period_end,
-        #     sales_data=request.sales_data
-        # )
+        adapted = _get_adapted_dataset(request.dataset_id, service)
 
-        # Placeholder
-        return COGSSummary(
-            report_id=report_id,
+        result = cogs_analyzer.analyze_cogs(
+            dataset=adapted,
             period_start=request.period_start,
             period_end=request.period_end,
-            total_cogs=0.0,
-            total_sales=0.0,
-            overall_pour_cost_percent=0.0,
-            by_category=[]
+            sales_data=request.sales_data,
         )
+        return result
 
+    except NotFoundError:
+        raise
     except Exception as e:
         raise ProcessingError(
             message=f"Failed to analyze COGS: {str(e)}",
@@ -83,6 +156,7 @@ async def calculate_pour_costs(
     dataset_id: str = Query(..., description="Dataset with item costs"),
     category: Optional[str] = Query(None, description="Filter by category"),
     api_key: str = Depends(get_api_key),
+    service: InventoryService = Depends(get_inventory_service),
 ):
     """
     Calculate pour costs for items.
@@ -90,14 +164,29 @@ async def calculate_pour_costs(
     Returns cost per pour based on bottle cost and pour size,
     along with comparison to benchmarks.
     """
-    # TODO: Implement with houndcogs.services.cogs_analyzer
-    return []
+    try:
+        adapted = _get_adapted_dataset(dataset_id, service)
+
+        result = cogs_analyzer.calculate_pour_costs(
+            dataset=adapted,
+            category_filter=category,
+        )
+        return result
+
+    except NotFoundError:
+        raise
+    except Exception as e:
+        raise ProcessingError(
+            message=f"Failed to calculate pour costs: {str(e)}",
+            details={"dataset_id": dataset_id}
+        )
 
 
 @router.post("/variance", response_model=VarianceResult)
 async def analyze_variance(
     request: VarianceAnalysisRequest = Body(...),
     api_key: str = Depends(get_api_key),
+    service: InventoryService = Depends(get_inventory_service),
 ):
     """
     Run variance analysis (theoretical vs actual usage).
@@ -110,21 +199,24 @@ async def analyze_variance(
     - `period_start` / `period_end`: Analysis period
     - `sales_mix_file_id`: Uploaded sales mix CSV (or sales_data in body)
     """
-    report_id = f"var_{uuid.uuid4().hex[:12]}"
-
     try:
-        # TODO: Implement with houndcogs.services.cogs_analyzer
-        return VarianceResult(
-            report_id=report_id,
+        adapted = _get_adapted_dataset(request.dataset_id, service)
+
+        # For variance analysis, we need theoretical_usage data.
+        # This would normally come from parsing the sales_mix_file.
+        # For now, we pass an empty dict if no sales mix is provided.
+        theoretical_usage: Dict[str, float] = {}
+
+        result = cogs_analyzer.calculate_variance(
+            dataset=adapted,
             period_start=request.period_start,
             period_end=request.period_end,
-            total_theoretical_cost=0.0,
-            total_actual_cost=0.0,
-            total_variance_cost=0.0,
-            overall_variance_percent=0.0,
-            items=[]
+            theoretical_usage=theoretical_usage,
         )
+        return result
 
+    except NotFoundError:
+        raise
     except Exception as e:
         raise ProcessingError(
             message=f"Failed to analyze variance: {str(e)}"
@@ -177,7 +269,7 @@ async def list_reports(
     """
     List historical COGS/variance reports.
     """
-    # TODO: Implement with storage
+    # Skipped - needs database persistence
     return []
 
 
@@ -191,5 +283,5 @@ async def get_report(
 
     Returns the full report (COGS summary, variance result, etc.)
     """
-    # TODO: Implement
+    # Skipped - needs database persistence
     raise NotFoundError("Report", report_id)
