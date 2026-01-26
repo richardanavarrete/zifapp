@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.config import get_settings
-from api.routers import health, inventory, orders, voice
+from api.routers import billing, health, inventory, orders, voice
 
 # Configure logging
 logging.basicConfig(
@@ -62,6 +62,7 @@ def create_app() -> FastAPI:
     app.include_router(inventory.router, prefix="/api/v1")
     app.include_router(voice.router, prefix="/api/v1")
     app.include_router(orders.router, prefix="/api/v1")
+    app.include_router(billing.router, prefix="/api/v1")
 
     return app
 

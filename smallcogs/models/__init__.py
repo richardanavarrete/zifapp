@@ -1,5 +1,16 @@
 """smallCOGS Data Models"""
 
+from smallcogs.models.billing import (
+    CheckoutRequest,
+    CheckoutResponse,
+    Organization,
+    PlanTier,
+    PortalRequest,
+    PortalResponse,
+    Subscription,
+    SubscriptionResponse,
+    SubscriptionStatus,
+)
 from smallcogs.models.common import (
     DateRange,
     PaginationParams,
@@ -40,6 +51,9 @@ from smallcogs.models.voice import (
 __all__ = [
     # Common
     "TrendDirection", "DateRange", "PaginationParams",
+    # Billing
+    "PlanTier", "SubscriptionStatus", "Organization", "Subscription",
+    "CheckoutRequest", "CheckoutResponse", "PortalRequest", "PortalResponse", "SubscriptionResponse",
     # Inventory
     "Item", "Record", "ItemStats", "Dataset", "DatasetSummary", "UploadResult", "ItemFilter",
     # Voice

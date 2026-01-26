@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     # OpenAI (for voice transcription)
     openai_api_key: Optional[str] = None  # Loaded from OPENAI_API_KEY env var
 
+    # Stripe (for billing)
+    stripe_secret_key: Optional[str] = None  # Loaded from STRIPE_SECRET_KEY env var
+    stripe_webhook_secret: Optional[str] = None  # Loaded from STRIPE_WEBHOOK_SECRET env var
+    stripe_price_id_pro: Optional[str] = None  # Stripe Price ID for Pro tier ($49/mo)
+    stripe_price_id_enterprise: Optional[str] = None  # Stripe Price ID for Enterprise tier ($199/mo)
+
     # Logging
     log_level: str = "INFO"
 
