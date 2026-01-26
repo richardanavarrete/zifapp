@@ -13,6 +13,9 @@ openpyxl>=3.1.0
 
 # Database
 # SQLite is built-in, no extra package needed
+# Supabase (PostgreSQL, Auth, Storage)
+supabase>=2.0.0
+PyJWT>=2.8.0
 
 # Audio processing (for voice counting)
 pydub>=0.25.1
@@ -32,5 +35,5 @@ python-multipart>=0.0.6
 pytest>=7.4.0
 pytest-asyncio>=0.23.0
 
-# Optional: JWT support (uncomment when needed)
-# python-jose[cryptography]>=3.3.0
+# JWT support for Supabase auth
+# Using PyJWT instead of python-jose (simpler, maintained)
