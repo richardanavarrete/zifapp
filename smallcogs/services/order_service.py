@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 from smallcogs.models.inventory import Dataset, ItemStats
 from smallcogs.models.orders import (
     Confidence,
+    ForecastSummary,
     OrderConstraints,
     OrderExport,
     OrderTargets,
@@ -18,6 +19,7 @@ from smallcogs.models.orders import (
     Recommendation,
     RecommendationRun,
     RecommendRequest,
+    SalesForecast,
 )
 from smallcogs.services.stats_service import StatsService
 
@@ -40,13 +42,22 @@ class OrderService:
         Generate order recommendations for a dataset.
 
         Analyzes usage patterns and generates suggestions based on targets.
+        If a sales forecast is provided, adjusts quantities accordingly.
         """
         # Use defaults if not provided
         targets = request.targets if request and request.targets else OrderTargets()
         constraints = request.constraints if request and request.constraints else OrderConstraints()
+        forecast = request.forecast if request else None
 
         # Compute stats for all items
         all_stats = self.stats_service.compute_all_stats(dataset)
+
+        # Build forecast summary if forecast provided
+        forecast_summary = self._build_forecast_summary(forecast) if forecast else None
+        if forecast_summary and forecast_summary.forecast_applied:
+            logger.info(
+                f"Applying sales forecast: {forecast_summary.overall_multiplier:.2f}x multiplier"
+            )
 
         # Generate recommendations
         recommendations = []
@@ -76,8 +87,8 @@ class OrderService:
             if target_weeks <= 0:
                 continue
 
-            # Generate recommendation
-            rec = self._evaluate_item(item, stats, target_weeks, constraints)
+            # Generate recommendation (with forecast adjustment)
+            rec = self._evaluate_item(item, stats, target_weeks, constraints, forecast)
 
             if rec:
                 recommendations.append(rec)
@@ -102,10 +113,41 @@ class OrderService:
         )
 
         # Build summary
-        run = self._build_run(dataset, recommendations, targets, constraints, warnings, data_issues)
+        run = self._build_run(
+            dataset, recommendations, targets, constraints, warnings, data_issues,
+            forecast=forecast, forecast_summary=forecast_summary
+        )
         self._runs[run.run_id] = run
 
         return run
+
+    def _build_forecast_summary(self, forecast: SalesForecast) -> ForecastSummary:
+        """Build a summary of the forecast being applied."""
+        # Get the overall multiplier
+        overall_multiplier = forecast.get_multiplier()
+
+        # Build category multipliers if category data provided
+        by_category_multipliers = {}
+        if forecast.by_category and forecast.historical_by_category:
+            for category in forecast.by_category:
+                mult = forecast.get_multiplier(category)
+                by_category_multipliers[category] = mult
+
+        # Determine if forecast is actually applied
+        forecast_applied = (
+            forecast.percent_change is not None or
+            (forecast.expected_total_sales is not None and forecast.historical_avg_total_sales is not None) or
+            bool(by_category_multipliers)
+        )
+
+        return ForecastSummary(
+            forecast_applied=forecast_applied,
+            historical_avg_sales=forecast.historical_avg_total_sales,
+            expected_sales=forecast.expected_total_sales,
+            overall_multiplier=overall_multiplier,
+            by_category_multipliers=by_category_multipliers,
+            notes=forecast.notes,
+        )
 
     def _evaluate_item(
         self,
@@ -113,6 +155,7 @@ class OrderService:
         stats: ItemStats,
         target_weeks: float,
         constraints: OrderConstraints,
+        forecast: Optional[SalesForecast] = None,
     ) -> Optional[Recommendation]:
         """Evaluate a single item and generate recommendation if needed."""
 
@@ -136,14 +179,35 @@ class OrderService:
 
         weeks_needed = target_weeks - weeks_on_hand
         suggested_qty = max(1, round(weeks_needed * stats.avg_usage))
+        base_suggested_qty = suggested_qty  # Store before adjustments
 
         # Adjust for trends
-        if stats.trend_direction.value == "up" and stats.trend_pct_change > 10:
+        if stats.trend_direction.value == "up" and stats.trend_percent_change > 10:
             suggested_qty = round(suggested_qty * 1.1)
             reason_text += " (adjusted +10% for upward trend)"
-        elif stats.trend_direction.value == "down" and stats.trend_pct_change < -10:
+        elif stats.trend_direction.value == "down" and stats.trend_percent_change < -10:
             suggested_qty = max(1, round(suggested_qty * 0.9))
             reason_text += " (adjusted -10% for downward trend)"
+
+        # Apply forecast adjustment
+        forecast_multiplier = None
+        if forecast:
+            multiplier = forecast.get_multiplier(item.category)
+            if multiplier != 1.0:
+                forecast_multiplier = multiplier
+                pre_forecast_qty = suggested_qty
+                suggested_qty = max(1, round(suggested_qty * multiplier))
+
+                # Update reason if forecast significantly changes the order
+                pct_change = (multiplier - 1.0) * 100
+                if abs(pct_change) >= 5:
+                    direction = "increase" if pct_change > 0 else "decrease"
+                    reason_text += f" (forecast: {direction} {abs(pct_change):.0f}%)"
+
+                logger.debug(
+                    f"Forecast adjustment for {item.name}: {pre_forecast_qty} -> {suggested_qty} "
+                    f"({multiplier:.2f}x multiplier)"
+                )
 
         # Calculate cost
         unit_cost = item.unit_cost
@@ -164,7 +228,9 @@ class OrderService:
             reason_text=reason_text,
             confidence=confidence,
             trend_direction=stats.trend_direction.value,
-            trend_pct=stats.trend_pct_change,
+            trend_pct=stats.trend_percent_change,
+            forecast_multiplier=forecast_multiplier,
+            base_suggested_qty=base_suggested_qty if forecast_multiplier else None,
             warnings=self._describe_issues(stats) if stats.has_negative_usage or stats.has_gaps else [],
         )
 
@@ -201,16 +267,18 @@ class OrderService:
             )
 
         # Trending up - may need more
-        if stats.trend_direction.value == "up" and stats.trend_pct_change > 15:
+        if stats.trend_direction.value == "up" and stats.trend_percent_change > 15:
             return (
                 ReasonCode.TRENDING_UP,
-                f"Usage trending up {stats.trend_pct_change:.0f}%",
+                f"Usage trending up {stats.trend_percent_change:.0f}%",
                 Confidence.MEDIUM
             )
 
         # Below target
         if weeks_on_hand < target_weeks:
-            confidence = Confidence.HIGH if stats.data_quality_score > 0.8 else Confidence.MEDIUM
+            # Determine confidence based on data quality indicators
+            has_quality_issues = stats.has_negative_usage or stats.has_gaps or stats.coefficient_of_variation > 1.0
+            confidence = Confidence.MEDIUM if has_quality_issues else Confidence.HIGH
             return (
                 ReasonCode.BELOW_TARGET,
                 f"Below target: {weeks_on_hand:.1f} weeks (target: {target_weeks})",
@@ -272,6 +340,8 @@ class OrderService:
         constraints: OrderConstraints,
         warnings: List[str],
         data_issues: List[Dict],
+        forecast: Optional[SalesForecast] = None,
+        forecast_summary: Optional[ForecastSummary] = None,
     ) -> RecommendationRun:
         """Build the recommendation run with summary stats."""
 
@@ -311,6 +381,8 @@ class OrderService:
             dataset_id=dataset.dataset_id,
             targets=targets,
             constraints=constraints,
+            forecast=forecast,
+            forecast_summary=forecast_summary,
             recommendations=recommendations,
             total_items=len(recommendations),
             total_spend=total_spend,
@@ -392,8 +464,16 @@ class OrderService:
             f"Order Recommendations - {run.created_at.strftime('%Y-%m-%d')}",
             f"Total Items: {run.total_items}",
             f"Total Spend: ${run.total_spend:.2f}",
-            "",
         ]
+
+        # Add forecast info if present
+        if run.forecast_summary and run.forecast_summary.forecast_applied:
+            fs = run.forecast_summary
+            summary_lines.append(f"Forecast Applied: {fs.overall_multiplier:.0%} of normal")
+            if fs.notes:
+                summary_lines.append(f"Forecast Notes: {fs.notes}")
+
+        summary_lines.append("")
 
         if group_by_vendor:
             for vendor, vendor_items in by_vendor.items():

@@ -23,6 +23,86 @@ class ReasonCode(str, Enum):
     REORDER_POINT = "reorder_point"
     MANUAL = "manual"
     DATA_QUALITY = "data_quality"
+    FORECAST_ADJUSTED = "forecast_adjusted"
+
+
+class SalesForecast(BaseModel):
+    """
+    Sales forecast for order recommendations.
+
+    Users can input expected sales to adjust ordering quantities.
+    Three ways to use:
+    1. percent_change: Simply say "+20%" and all orders scale up 20%
+    2. expected_total_sales + historical_avg_total_sales: Compare expected vs historical
+    3. by_category + historical_by_category: Category-level comparison
+
+    The system computes a multiplier and applies it to order quantities.
+    """
+    # Option 1: Simple percentage change (easiest to use)
+    # Positive = expect more sales, Negative = expect less
+    percent_change: Optional[float] = Field(
+        default=None,
+        description="Expected % change from historical average (e.g., 20 for +20%, -10 for -10%)"
+    )
+
+    # Option 2: Expected total sales with historical comparison
+    expected_total_sales: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Expected total sales for the forecast period"
+    )
+    historical_avg_total_sales: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Historical average total sales per week (for computing multiplier)"
+    )
+
+    # Option 3: Expected sales by category (more granular control)
+    by_category: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Expected sales by category name (e.g., {'Liquor': 15000, 'Wine': 5000})"
+    )
+    historical_by_category: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Historical average sales by category (e.g., {'Liquor': 12000, 'Wine': 4000})"
+    )
+
+    # Forecast period in weeks (how far ahead are we forecasting)
+    forecast_weeks: float = Field(
+        default=1.0,
+        gt=0,
+        description="Number of weeks the forecast covers"
+    )
+
+    # Notes for tracking
+    notes: Optional[str] = Field(
+        default=None,
+        description="Optional notes (e.g., 'Holiday weekend expected')"
+    )
+
+    def get_multiplier(self, category: Optional[str] = None) -> float:
+        """
+        Compute the forecast multiplier for ordering.
+
+        Returns a value like 1.2 for +20% expected sales.
+        """
+        # Priority 1: Direct percent change
+        if self.percent_change is not None:
+            return 1.0 + (self.percent_change / 100.0)
+
+        # Priority 2: Category-specific comparison
+        if category and category in self.by_category and category in self.historical_by_category:
+            historical = self.historical_by_category[category]
+            if historical > 0:
+                return self.by_category[category] / historical
+
+        # Priority 3: Total sales comparison
+        if self.expected_total_sales is not None and self.historical_avg_total_sales:
+            if self.historical_avg_total_sales > 0:
+                return self.expected_total_sales / self.historical_avg_total_sales
+
+        # No forecast adjustment
+        return 1.0
 
 
 class Confidence(str, Enum):
@@ -109,8 +189,28 @@ class Recommendation(BaseModel):
     trend_direction: Optional[str] = None  # up, down, stable
     trend_pct: Optional[float] = None
 
+    # Forecast adjustment
+    forecast_multiplier: Optional[float] = Field(
+        default=None,
+        description="Multiplier applied due to sales forecast (e.g., 1.2 = +20%)"
+    )
+    base_suggested_qty: Optional[int] = Field(
+        default=None,
+        description="Suggested qty before forecast adjustment"
+    )
+
     # Issues
     warnings: List[str] = Field(default_factory=list)
+
+
+class ForecastSummary(BaseModel):
+    """Summary of forecast applied to recommendations."""
+    forecast_applied: bool = False
+    historical_avg_sales: Optional[float] = None
+    expected_sales: Optional[float] = None
+    overall_multiplier: float = 1.0
+    by_category_multipliers: Dict[str, float] = Field(default_factory=dict)
+    notes: Optional[str] = None
 
 
 class RecommendationRun(BaseModel):
@@ -122,6 +222,10 @@ class RecommendationRun(BaseModel):
     # Config used
     targets: OrderTargets
     constraints: OrderConstraints
+
+    # Sales Forecast
+    forecast: Optional[SalesForecast] = None
+    forecast_summary: Optional[ForecastSummary] = None
 
     # Results
     recommendations: List[Recommendation]
@@ -150,6 +254,12 @@ class RecommendRequest(BaseModel):
     dataset_id: str
     targets: Optional[OrderTargets] = None
     constraints: Optional[OrderConstraints] = None
+
+    # Sales Forecast - adjust orders based on expected sales
+    forecast: Optional[SalesForecast] = Field(
+        default=None,
+        description="Sales forecast to adjust order quantities"
+    )
 
     # Filters
     categories: Optional[List[str]] = None
