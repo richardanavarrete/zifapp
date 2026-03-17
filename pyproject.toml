@@ -37,9 +37,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ui = [
-    "streamlit>=1.30.0",
-]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.23.0",
@@ -48,13 +45,12 @@ dev = [
     "black>=23.0.0",
     "mypy>=1.7.0",
 ]
-all = ["houndcogs[ui,dev]"]
 
 [project.scripts]
 houndcogs-api = "api.main:app"
 
 [tool.setuptools.packages.find]
-include = ["houndcogs*", "api*", "ui*"]
+include = ["houndcogs*", "api*", "smallcogs*"]
 
 [tool.ruff]
 line-length = 100

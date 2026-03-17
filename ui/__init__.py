@@ -1,1 +1,0 @@
-"""smallCOGS UI"""
