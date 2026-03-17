@@ -54,17 +54,17 @@ export function Sidebar() {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed left-0 top-0 z-40 h-screen w-64 transform border-r bg-card transition-transform duration-200 ease-in-out lg:translate-x-0",
+          "fixed left-0 top-0 z-40 h-screen w-64 transform border-r bg-card transition-transform duration-300 ease-in-out lg:translate-x-0",
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
         <div className="flex h-full flex-col">
           {/* Logo */}
-          <div className="flex h-16 items-center gap-2 border-b px-6">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
+          <div className="flex h-16 items-center gap-3 border-b px-6">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm shadow-sm">
               Z
             </div>
-            <span className="text-lg font-semibold">Zif</span>
+            <span className="text-lg font-semibold tracking-tight">Zif</span>
           </div>
 
           {/* Dataset selector */}
@@ -96,13 +96,16 @@ export function Sidebar() {
                   href={item.href}
                   onClick={() => setSidebarOpen(false)}
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                    "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
                     isActive
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-primary/10 text-primary"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
                 >
-                  <item.icon className="h-5 w-5" />
+                  {isActive && (
+                    <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-primary" />
+                  )}
+                  <item.icon className={cn("h-5 w-5 transition-colors", isActive ? "text-primary" : "group-hover:text-foreground")} />
                   {item.name}
                 </Link>
               )

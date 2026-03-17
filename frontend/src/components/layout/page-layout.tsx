@@ -13,7 +13,7 @@ export function PageLayout({ children, title }: PageLayoutProps) {
       <Sidebar />
       <div className="lg:pl-64">
         <Header title={title} />
-        <main className="p-4 lg:p-6">{children}</main>
+        <main className="mx-auto max-w-7xl p-4 lg:p-8 animate-fade-in">{children}</main>
       </div>
     </div>
   )
