@@ -1,5 +1,15 @@
 """smallCOGS Data Models"""
 
+from smallcogs.models.cogs import (
+    CategoryCOGS,
+    COGSAnalysisRequest,
+    COGSSummary,
+    ItemVariance,
+    PourCostBenchmarks,
+    PourCostResult,
+    VarianceAnalysisRequest,
+    VarianceResult,
+)
 from smallcogs.models.common import (
     DateRange,
     PaginationParams,
@@ -40,6 +50,9 @@ from smallcogs.models.voice import (
 __all__ = [
     # Common
     "TrendDirection", "DateRange", "PaginationParams",
+    # COGS
+    "CategoryCOGS", "COGSSummary", "PourCostBenchmarks", "ItemVariance",
+    "VarianceResult", "PourCostResult", "COGSAnalysisRequest", "VarianceAnalysisRequest",
     # Inventory
     "Item", "Record", "ItemStats", "Dataset", "DatasetSummary", "UploadResult", "ItemFilter",
     # Voice

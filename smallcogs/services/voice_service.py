@@ -101,26 +101,13 @@ class VoiceService:
                 warnings=["No OpenAI API key configured"],
             )
 
-        # Use the advanced audio processor with chunking and parallel processing
-        from houndcogs.services.audio_processor import transcribe_audio as advanced_transcribe
+        from smallcogs.services.audio_processor import transcribe_audio as advanced_transcribe
 
-        result = advanced_transcribe(
+        return advanced_transcribe(
             file_path=audio_path,
             language=language,
             remove_silence=remove_silence,
             api_key=self.openai_api_key,
-        )
-
-        # Convert houndcogs TranscriptionResult to smallcogs TranscriptionResult
-        return TranscriptionResult(
-            transcription_id=result.transcription_id,
-            text=result.text,
-            duration_seconds=result.duration_seconds,
-            confidence=result.confidence,
-            language=language,
-            chunks_processed=result.chunks_processed,
-            processing_time_ms=result.processing_time_seconds * 1000,  # Convert to ms
-            warnings=result.warnings,
         )
 
     # =========================================================================

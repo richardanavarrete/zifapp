@@ -10,14 +10,14 @@ from pydantic import BaseModel
 
 from api.dependencies import get_api_key, get_file_storage, get_inventory_service
 from api.middleware.errors import NotFoundError, ProcessingError
-from houndcogs.models.cogs import (
+from smallcogs.models.cogs import (
     COGSAnalysisRequest,
     COGSSummary,
     PourCostResult,
     VarianceAnalysisRequest,
     VarianceResult,
 )
-from houndcogs.services import cogs_analyzer
+from smallcogs.services import cogs_service as cogs_analyzer
 from smallcogs.services.inventory_service import InventoryService
 
 router = APIRouter()

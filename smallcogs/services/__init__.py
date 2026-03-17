@@ -1,5 +1,10 @@
 """smallCOGS Services - Business Logic"""
 
+from smallcogs.services.cogs_service import (
+    analyze_cogs,
+    calculate_pour_costs,
+    calculate_variance,
+)
 from smallcogs.services.inventory_service import InventoryService
 from smallcogs.services.order_service import OrderService
 from smallcogs.services.parser_service import ParserService
@@ -12,4 +17,7 @@ __all__ = [
     "ParserService",
     "VoiceService",
     "OrderService",
+    "analyze_cogs",
+    "calculate_pour_costs",
+    "calculate_variance",
 ]
