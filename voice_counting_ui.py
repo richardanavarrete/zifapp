@@ -78,7 +78,11 @@ def render_voice_counting_tab(dataset, inventory_layout=None):
     if 'voice_session' not in st.session_state:
         st.session_state.voice_session = None
     if 'voice_matcher' not in st.session_state:
-        st.session_state.voice_matcher = VoiceItemMatcher(dataset)
+        # Pass OpenAI API key from Streamlit secrets for LLM matching
+        api_key = None
+        if "openai" in st.secrets and "api_key" in st.secrets["openai"]:
+            api_key = st.secrets["openai"]["api_key"]
+        st.session_state.voice_matcher = VoiceItemMatcher(dataset, api_key=api_key)
     if 'pending_match' not in st.session_state:
         st.session_state.pending_match = None
     if 'inventory_order' not in st.session_state:
