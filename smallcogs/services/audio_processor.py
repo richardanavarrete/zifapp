@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Optional
 
-from houndcogs.models.voice import TranscriptionResult
+from smallcogs.models.voice import TranscriptionResult
 
 logger = logging.getLogger(__name__)
 
@@ -99,8 +99,9 @@ def transcribe_audio(
         text=full_text.strip(),
         duration_seconds=duration,
         confidence=0.9,  # Whisper doesn't return confidence
+        language=language,
         chunks_processed=len(chunks),
-        processing_time_seconds=processing_time,
+        processing_time_ms=processing_time * 1000,
         warnings=warnings,
     )
 

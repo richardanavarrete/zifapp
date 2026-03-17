@@ -2,14 +2,16 @@
 COGS Analyzer
 
 Calculates Cost of Goods Sold, pour costs, and variance analysis.
+Works with any object providing .records, .items, and .get_item() interface
+(e.g. Dataset or the _DatasetAdapter used by the API router).
 """
 
 import logging
 import uuid
 from datetime import date
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-from houndcogs.models.cogs import (
+from smallcogs.models.cogs import (
     CategoryCOGS,
     COGSSummary,
     ItemVariance,
@@ -17,7 +19,6 @@ from houndcogs.models.cogs import (
     PourCostResult,
     VarianceResult,
 )
-from houndcogs.models.inventory import InventoryDataset
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ BOTTLE_SIZES = {
 
 
 def analyze_cogs(
-    dataset: InventoryDataset,
+    dataset: Any,
     period_start: date,
     period_end: date,
     sales_data: Optional[Dict[str, float]] = None,
@@ -56,7 +57,7 @@ def analyze_cogs(
     Analyze COGS for a period.
 
     Args:
-        dataset: Inventory dataset with cost information
+        dataset: Object with .records, .items, .get_item() interface
         period_start: Start of analysis period
         period_end: End of analysis period
         sales_data: Optional sales amounts by category
@@ -67,10 +68,8 @@ def analyze_cogs(
     report_id = f"cogs_{uuid.uuid4().hex[:12]}"
     benchmarks = PourCostBenchmarks()
 
-    # Calculate COGS from inventory usage
     category_cogs = _calculate_category_cogs(dataset, period_start, period_end)
 
-    # If sales data provided, calculate pour costs
     by_category = []
     total_cogs = 0.0
     total_sales = 0.0
@@ -118,14 +117,13 @@ def analyze_cogs(
 
 
 def _calculate_category_cogs(
-    dataset: InventoryDataset,
+    dataset: Any,
     period_start: date,
     period_end: date,
 ) -> Dict[str, float]:
     """Calculate COGS by category from inventory usage."""
-    category_cogs = {}
+    category_cogs: Dict[str, float] = {}
 
-    # Filter records to period
     period_records = [
         r for r in dataset.records
         if period_start <= r.week_date <= period_end
@@ -145,7 +143,7 @@ def _calculate_category_cogs(
 
 
 def calculate_pour_costs(
-    dataset: InventoryDataset,
+    dataset: Any,
     category_filter: Optional[str] = None,
 ) -> List[PourCostResult]:
     """
@@ -165,7 +163,6 @@ def calculate_pour_costs(
         pour_size = POUR_SIZES.get(category, 1.5)
         bottle_size = BOTTLE_SIZES.get("Liquor", 25.4)
 
-        # Cost per pour
         cost_per_pour = (item.unit_cost / bottle_size) * pour_size if bottle_size > 0 else 0
 
         benchmark = benchmarks.benchmarks.get(category, 25.0)
@@ -184,7 +181,7 @@ def calculate_pour_costs(
 
 
 def calculate_variance(
-    dataset: InventoryDataset,
+    dataset: Any,
     period_start: date,
     period_end: date,
     theoretical_usage: Dict[str, float],
@@ -193,7 +190,7 @@ def calculate_variance(
     Calculate variance between theoretical and actual usage.
 
     Args:
-        dataset: Inventory dataset
+        dataset: Object with .records, .items, .get_item() interface
         period_start: Start of period
         period_end: End of period
         theoretical_usage: Expected usage by item_id (from sales mix)
@@ -203,7 +200,6 @@ def calculate_variance(
     """
     report_id = f"var_{uuid.uuid4().hex[:12]}"
 
-    # Calculate actual usage from inventory records
     actual_usage = _calculate_actual_usage(dataset, period_start, period_end)
 
     items = []
@@ -228,11 +224,10 @@ def calculate_variance(
         total_theoretical_cost += theoretical * item.unit_cost
         total_actual_cost += actual * item.unit_cost
 
-        # Classify variance
-        if variance_pct > 5:  # More than 5% over theoretical
+        if variance_pct > 5:
             status = "overpour"
             overpour_items += 1
-        elif variance_pct < -5:  # More than 5% under theoretical (potential theft/waste)
+        elif variance_pct < -5:
             status = "shrinkage"
             shrinkage_items += 1
             total_shrinkage_cost += abs(variance_cost)
@@ -275,12 +270,12 @@ def calculate_variance(
 
 
 def _calculate_actual_usage(
-    dataset: InventoryDataset,
+    dataset: Any,
     period_start: date,
     period_end: date,
 ) -> Dict[str, float]:
     """Calculate actual usage by item from inventory records."""
-    usage_by_item = {}
+    usage_by_item: Dict[str, float] = {}
 
     for record in dataset.records:
         if period_start <= record.week_date <= period_end:

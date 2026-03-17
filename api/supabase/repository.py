@@ -12,8 +12,8 @@ from typing import List, Optional
 from uuid import UUID
 
 from api.supabase.client import get_supabase_client
-from houndcogs.models.inventory import DatasetSummary, InventoryDataset, Item, WeeklyRecord
-from houndcogs.models.orders import AgentRun, AgentRunSummary, OrderConstraints, OrderTargets, Recommendation
+from smallcogs.models.inventory import Dataset, DatasetSummary, Item, Record
+from smallcogs.models.orders import OrderConstraints, OrderTargets, Recommendation, RecommendationRun
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class SupabaseRepository:
     # Dataset Operations
     # =========================================================================
 
-    def save_dataset(self, dataset: InventoryDataset) -> None:
+    def save_dataset(self, dataset: Dataset) -> None:
         """Save an inventory dataset to the database."""
         now = datetime.utcnow().isoformat()
 
@@ -54,7 +54,7 @@ class SupabaseRepository:
             "date_range_start": dataset.date_range_start.isoformat() if dataset.date_range_start else None,
             "date_range_end": dataset.date_range_end.isoformat() if dataset.date_range_end else None,
             "items_count": dataset.items_count,
-            "weeks_count": getattr(dataset, "weeks_count", len(set(r.week_date for r in dataset.records if hasattr(r, "week_date")))),
+            "weeks_count": dataset.periods_count,
             "metadata": "{}",
         }
 
@@ -68,10 +68,10 @@ class SupabaseRepository:
                     "item_id": item_id,
                     "dataset_id": dataset.dataset_id,
                     "org_id": str(self.org_id),
-                    "display_name": getattr(item, "display_name", item.name if hasattr(item, "name") else item_id),
-                    "category": item.category.value if hasattr(item.category, "value") else str(item.category) if item.category else None,
-                    "vendor": item.vendor.value if hasattr(item.vendor, "value") else str(item.vendor) if item.vendor else None,
-                    "location": getattr(item, "location", None),
+                    "display_name": item.name,
+                    "category": str(item.category) if item.category else None,
+                    "vendor": str(item.vendor) if item.vendor else None,
+                    "location": item.location,
                     "unit_cost": item.unit_cost if item.unit_cost else 0,
                     "unit_of_measure": item.unit_of_measure if item.unit_of_measure else "unit",
                     "metadata": "{}",
@@ -89,16 +89,15 @@ class SupabaseRepository:
         if dataset.records:
             records_data = []
             for record in dataset.records:
-                week_date = getattr(record, "week_date", None) or getattr(record, "record_date", None)
                 records_data.append({
                     "item_id": record.item_id,
                     "dataset_id": dataset.dataset_id,
                     "org_id": str(self.org_id),
-                    "week_date": week_date.isoformat() if week_date else None,
+                    "week_date": record.record_date.isoformat() if record.record_date else None,
                     "on_hand": record.on_hand,
                     "usage": record.usage if record.usage is not None else 0,
-                    "week_name": getattr(record, "week_name", getattr(record, "period_name", None)),
-                    "source_file": getattr(record, "source_file", None),
+                    "week_name": record.period_name,
+                    "source_file": record.source_file,
                 })
 
             # Delete existing records and insert new ones
@@ -111,7 +110,7 @@ class SupabaseRepository:
 
         logger.info(f"Saved dataset {dataset.dataset_id} for org {self.org_id}")
 
-    def get_dataset(self, dataset_id: str) -> Optional[InventoryDataset]:
+    def get_dataset(self, dataset_id: str) -> Optional[Dataset]:
         """Load a dataset from the database."""
         # Get dataset metadata
         result = self.client.table("datasets").select("*").eq("dataset_id", dataset_id).eq("org_id", str(self.org_id)).single().execute()
@@ -128,7 +127,7 @@ class SupabaseRepository:
         for item_row in items_result.data or []:
             items[item_row["item_id"]] = Item(
                 item_id=item_row["item_id"],
-                display_name=item_row["display_name"],
+                name=item_row["display_name"],
                 category=item_row["category"],
                 vendor=item_row["vendor"],
                 location=item_row["location"],
@@ -141,16 +140,16 @@ class SupabaseRepository:
 
         records = []
         for rec_row in records_result.data or []:
-            records.append(WeeklyRecord(
+            records.append(Record(
                 item_id=rec_row["item_id"],
-                week_date=rec_row["week_date"],
+                record_date=rec_row["week_date"],
                 on_hand=rec_row["on_hand"],
                 usage=rec_row["usage"],
-                week_name=rec_row["week_name"],
+                period_name=rec_row["week_name"],
                 source_file=rec_row["source_file"],
             ))
 
-        return InventoryDataset(
+        return Dataset(
             dataset_id=row["dataset_id"],
             name=row["name"],
             created_at=datetime.fromisoformat(row["created_at"]),
@@ -158,7 +157,7 @@ class SupabaseRepository:
             date_range_start=row["date_range_start"],
             date_range_end=row["date_range_end"],
             items_count=row["items_count"],
-            weeks_count=row["weeks_count"],
+            periods_count=row.get("weeks_count", 0),
             items=items,
             records=records,
         )
@@ -176,10 +175,10 @@ class SupabaseRepository:
                 name=row["name"],
                 created_at=datetime.fromisoformat(row["created_at"]),
                 items_count=row["items_count"],
-                weeks_count=row["weeks_count"],
+                records_count=0,
+                periods_count=row.get("weeks_count", 0),
                 date_range_start=row["date_range_start"],
                 date_range_end=row["date_range_end"],
-                source_files=json.loads(row["source_files"]) if row["source_files"] else [],
             ))
 
         return results
@@ -211,9 +210,20 @@ class SupabaseRepository:
     # Agent Run Operations
     # =========================================================================
 
-    def save_agent_run(self, run: AgentRun) -> None:
+    def save_agent_run(self, run: RecommendationRun) -> None:
         """Save an agent run to the database."""
         now = datetime.utcnow().isoformat()
+
+        # Build summary JSON from inline fields
+        summary = {
+            "total_items": run.total_items,
+            "total_spend": run.total_spend,
+            "low_stock_count": run.low_stock_count,
+            "overstock_count": run.overstock_count,
+            "by_vendor": run.by_vendor,
+            "by_category": run.by_category,
+            "by_reason": run.by_reason,
+        }
 
         run_data = {
             "run_id": run.run_id,
@@ -222,7 +232,7 @@ class SupabaseRepository:
             "created_at": run.created_at.isoformat() if run.created_at else now,
             "targets": run.targets.model_dump_json(),
             "constraints": run.constraints.model_dump_json(),
-            "summary": run.summary.model_dump_json(),
+            "summary": json.dumps(summary),
             "status": run.status,
         }
 
@@ -235,8 +245,8 @@ class SupabaseRepository:
                 recs_data.append({
                     "run_id": run.run_id,
                     "item_id": rec.item_id,
-                    "suggested_order": rec.suggested_order,
-                    "reason_code": rec.reason_code.value if hasattr(rec.reason_code, "value") else str(rec.reason_code),
+                    "suggested_order": rec.suggested_qty,
+                    "reason_code": rec.reason.value if hasattr(rec.reason, "value") else str(rec.reason),
                     "confidence": rec.confidence.value if hasattr(rec.confidence, "value") else str(rec.confidence),
                     "data": rec.model_dump_json(),
                 })
@@ -250,7 +260,7 @@ class SupabaseRepository:
 
         logger.info(f"Saved agent run {run.run_id} for org {self.org_id}")
 
-    def get_agent_run(self, run_id: str) -> Optional[AgentRun]:
+    def get_agent_run(self, run_id: str) -> Optional[RecommendationRun]:
         """Load an agent run from the database."""
         result = self.client.table("agent_runs").select("*").eq("run_id", run_id).eq("org_id", str(self.org_id)).single().execute()
 
@@ -266,14 +276,23 @@ class SupabaseRepository:
         for rec_row in recs_result.data or []:
             recommendations.append(Recommendation.model_validate_json(rec_row["data"]))
 
-        return AgentRun(
+        # Parse summary JSON back to inline fields
+        summary = json.loads(row["summary"]) if isinstance(row["summary"], str) else row["summary"]
+
+        return RecommendationRun(
             run_id=row["run_id"],
             dataset_id=row["dataset_id"],
             created_at=datetime.fromisoformat(row["created_at"]),
             targets=OrderTargets.model_validate_json(row["targets"]),
             constraints=OrderConstraints.model_validate_json(row["constraints"]),
-            summary=AgentRunSummary.model_validate_json(row["summary"]),
             recommendations=recommendations,
+            total_items=summary.get("total_items", 0),
+            total_spend=summary.get("total_spend", 0.0),
+            low_stock_count=summary.get("low_stock_count", 0),
+            overstock_count=summary.get("overstock_count", 0),
+            by_vendor=summary.get("by_vendor", {}),
+            by_category=summary.get("by_category", {}),
+            by_reason=summary.get("by_reason", {}),
             status=row["status"],
         )
 
@@ -282,7 +301,7 @@ class SupabaseRepository:
         dataset_id: Optional[str] = None,
         page: int = 1,
         page_size: int = 20,
-    ) -> List[AgentRun]:
+    ) -> List[RecommendationRun]:
         """List agent runs for the organization."""
         offset = (page - 1) * page_size
 
@@ -295,14 +314,22 @@ class SupabaseRepository:
 
         runs = []
         for row in result.data or []:
-            runs.append(AgentRun(
+            summary = json.loads(row["summary"]) if isinstance(row["summary"], str) else row["summary"]
+
+            runs.append(RecommendationRun(
                 run_id=row["run_id"],
                 dataset_id=row["dataset_id"],
                 created_at=datetime.fromisoformat(row["created_at"]),
                 targets=OrderTargets.model_validate_json(row["targets"]),
                 constraints=OrderConstraints.model_validate_json(row["constraints"]),
-                summary=AgentRunSummary.model_validate_json(row["summary"]),
                 recommendations=[],  # Don't load recommendations for list view
+                total_items=summary.get("total_items", 0),
+                total_spend=summary.get("total_spend", 0.0),
+                low_stock_count=summary.get("low_stock_count", 0),
+                overstock_count=summary.get("overstock_count", 0),
+                by_vendor=summary.get("by_vendor", {}),
+                by_category=summary.get("by_category", {}),
+                by_reason=summary.get("by_reason", {}),
                 status=row["status"],
             ))
 
