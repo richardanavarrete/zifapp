@@ -492,14 +492,14 @@ def process_transcript(session, transcript, dataset):
     matcher = st.session_state.voice_matcher
 
     # Parse item name, count, and optional weight unit
-    matches, count_value, weight_unit = matcher.match_with_count(transcript)
+    matches, count_value, weight_unit, needs_manual_mapping = matcher.match_with_count(transcript)
 
     # If weight was detected, we need to calculate fill percentage
     is_weight_input = weight_unit is not None
     actual_count = count_value
     notes = None
 
-    if not matches:
+    if not matches or needs_manual_mapping:
         # No match found
         record = VoiceCountRecord(
             record_id=str(uuid.uuid4()),
@@ -791,8 +791,8 @@ def rematch_all_records(session, dataset):
 
     for record in session.records:
         if not record.matched_item_id:  # Only re-match unmatched records
-            matches, count_value, weight_unit = matcher.match_with_count(record.raw_transcript)
-            if matches:
+            matches, count_value, weight_unit, needs_manual = matcher.match_with_count(record.raw_transcript)
+            if matches and not needs_manual:
                 top_match = matches[0]
                 item = dataset.items[top_match.item_id]
 
@@ -1077,9 +1077,9 @@ def process_multi_item_transcript(session, transcript, dataset, use_ai=False):
             continue
 
         # Process each segment through the existing transcript processor
-        matches, count_value, weight_unit = matcher.match_with_count(segment)
+        matches, count_value, weight_unit, needs_manual_mapping = matcher.match_with_count(segment)
 
-        if not matches:
+        if not matches or needs_manual_mapping:
             # No match found - add to log for manual review
             record = VoiceCountRecord(
                 record_id=str(uuid.uuid4()),

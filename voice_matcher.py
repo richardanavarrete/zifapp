@@ -1,45 +1,145 @@
 """
-Voice Item Matcher - Fuzzy matching for voice-to-text inventory counting.
+Voice Item Matcher - LLM-powered matching for voice-to-text inventory counting.
 
 This module provides intelligent matching between voice transcripts and inventory items.
-Uses rapidfuzz for fuzzy string matching with confidence scoring.
+Uses GPT-4o-mini for semantic understanding of bartender shorthand (e.g., "Goose" -> "VODKA Grey Goose"),
+with rapidfuzz as a fallback if the API call fails.
 """
 
+import json
+import logging
+import os
 import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from rapidfuzz import fuzz
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class MatchResult:
-    """Result of a fuzzy match operation."""
+    """Result of a match operation."""
     item_id: str
     matched_text: str  # What part of the item name matched
     confidence: float  # 0.0-1.0
-    method: str  # "exact", "fuzzy", "partial", "token_sort"
+    method: str  # "llm", "exact", "fuzzy", "partial", "token_sort"
+
+
+def _call_openai_for_matching(
+    transcript: str,
+    inventory_list: List[str],
+    api_key: str
+) -> Optional[Tuple[str, float]]:
+    """
+    Use GPT-4o-mini to match bartender shorthand to inventory items.
+
+    Args:
+        transcript: The voice transcript (e.g., "Tito's handle 8 and a half")
+        inventory_list: List of all inventory item names
+        api_key: OpenAI API key
+
+    Returns:
+        Tuple of (matched_item_name, count) or None if no match
+    """
+    from openai import OpenAI
+
+    client = OpenAI(api_key=api_key)
+
+    # Build the prompt with inventory list
+    inventory_str = "\n".join(f"- {item}" for item in inventory_list)
+
+    prompt = f"""You are helping match bartender voice input to inventory items.
+
+INVENTORY LIST:
+{inventory_str}
+
+VOICE INPUT: "{transcript}"
+
+Match the voice input to EXACTLY ONE item from the inventory list above.
+Bartenders use shorthand:
+- "Tito's" or "Titos" = VODKA Titos
+- "Goose" = VODKA Grey Goose
+- "Captain" = RUM Captain Morgan Spiced
+- "BT" = WHISKEY Buffalo Trace
+- "Jack fire" = WHISKEY Jack Daniels Tennessee Fire
+- "well vodka" = VODKA Well
+- "Patron" = TEQUILA Patron Silver
+- "Bud Light draft" or "BL draft" = BEER DFT Bud Light
+- "handle" just means a large bottle size, ignore it for matching
+
+Also extract the count from the input. Convert words to numbers:
+- "half" = 0.5
+- "and a half" = +0.5 to the number
+- "one", "two", "three", etc. = 1, 2, 3, etc.
+
+Respond with ONLY valid JSON in this exact format:
+{{"item": "EXACT ITEM NAME FROM LIST or null", "count": NUMBER_OR_NULL}}
+
+If no item in the list matches the voice input, return {{"item": null, "count": null}}
+If a count isn't specified, return null for count.
+
+Examples:
+- "Tito's handle 8 and a half" -> {{"item": "VODKA Titos", "count": 8.5}}
+- "Goose 3" -> {{"item": "VODKA Grey Goose", "count": 3}}
+- "some random thing" -> {{"item": null, "count": null}}"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=100
+        )
+
+        content = response.choices[0].message.content.strip()
+
+        # Parse JSON response
+        # Handle markdown code blocks if present
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+            content = content.strip()
+
+        result = json.loads(content)
+
+        item = result.get("item")
+        count = result.get("count")
+
+        # Validate item is actually in our inventory
+        if item and item in inventory_list:
+            return (item, count)
+
+        return None
+
+    except Exception as e:
+        logger.warning(f"OpenAI matching failed: {e}")
+        return None
 
 
 class VoiceItemMatcher:
     """
-    Intelligent fuzzy matcher for voice transcripts to inventory items.
+    Intelligent matcher for voice transcripts to inventory items.
 
     Features:
-    - Multiple matching strategies (exact, fuzzy, partial, token sort)
+    - LLM-based semantic matching (GPT-4o-mini) for bartender shorthand
+    - Fallback to rapidfuzz fuzzy matching if API fails
     - Confidence scoring (0.0-1.0)
     - Support for common variations and abbreviations
-    - Category-aware matching
     """
 
-    def __init__(self, inventory_dataset):
+    def __init__(self, inventory_dataset, api_key: Optional[str] = None):
         """
         Initialize the matcher with an inventory dataset.
 
         Args:
             inventory_dataset: InventoryDataset object with items dict
+            api_key: OpenAI API key for LLM matching (optional, falls back to env var)
         """
         self.items = inventory_dataset.items
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
         self.search_index = self._build_search_index()
 
     def _build_search_index(self) -> Dict[str, List[str]]:
@@ -362,18 +462,80 @@ class VoiceItemMatcher:
         # No count found, return transcript as item text with no count
         return (transcript, None, None)
 
-    def match_with_count(self, transcript: str, top_n: int = 3) -> Tuple[List[MatchResult], Optional[float], Optional[str]]:
+    def match_with_llm(self, transcript: str) -> Optional[Tuple[Optional[MatchResult], Optional[float], bool]]:
+        """
+        Use LLM to match transcript to inventory item and extract count.
+
+        Args:
+            transcript: Voice transcript (e.g., "Tito's handle 8 and a half")
+
+        Returns:
+            Tuple of (MatchResult or None, count, was_attempted)
+            - MatchResult is None if LLM couldn't find a match (item needs manual mapping)
+            - was_attempted is True if LLM was called (vs API failure)
+        """
+        if not self.api_key:
+            logger.debug("No OpenAI API key available for LLM matching")
+            return None
+
+        inventory_list = list(self.items.keys())
+        if not inventory_list:
+            return None
+
+        result = _call_openai_for_matching(transcript, inventory_list, self.api_key)
+
+        if result:
+            item_id, count = result
+            if item_id:
+                # Successful match
+                return (
+                    MatchResult(
+                        item_id=item_id,
+                        matched_text=transcript,
+                        confidence=0.95,  # High confidence for LLM matches
+                        method="llm"
+                    ),
+                    count,
+                    True  # LLM was called successfully
+                )
+            else:
+                # LLM responded but couldn't find a match - needs manual mapping
+                return (None, count, True)
+
+        # API call failed
+        return None
+
+    def match_with_count(self, transcript: str, top_n: int = 3) -> Tuple[List[MatchResult], Optional[float], Optional[str], bool]:
         """
         Parse and match a transcript that includes both item name and count.
 
+        Tries LLM matching first for semantic understanding of bartender shorthand,
+        then falls back to rapidfuzz if the API call fails.
+
         Args:
-            transcript: Voice transcript (e.g., "buffalo trace 3" or "buffalo trace 850 grams")
+            transcript: Voice transcript (e.g., "buffalo trace 3" or "Tito's handle 8 and a half")
             top_n: Number of top matches to return
 
         Returns:
-            Tuple of (match_results, count_value, weight_unit)
+            Tuple of (match_results, count_value, weight_unit, needs_manual_mapping)
             - weight_unit is "grams" or "pounds" if weight was detected, None otherwise
+            - needs_manual_mapping is True if LLM couldn't find a match (return to user)
         """
+        # Try LLM matching first (handles bartender shorthand like "Goose", "BT", etc.)
+        llm_result = self.match_with_llm(transcript)
+        if llm_result:
+            match_result, count, was_attempted = llm_result
+            if match_result:
+                # LLM found a match
+                return [match_result], count, None, False
+            else:
+                # LLM was called but couldn't find a match - needs manual mapping
+                # Return empty matches with the extracted count, flagged for manual mapping
+                return [], count, None, True
+
+        # Fallback to rapidfuzz-based matching (API failed)
+        logger.debug("Falling back to rapidfuzz matching")
+
         # First, try to parse out the count/weight
         parse_result = self.parse_count_from_transcript(transcript)
         item_text, count_value, weight_unit = parse_result
@@ -381,7 +543,10 @@ class VoiceItemMatcher:
         # Then match the item text
         matches = self.match(item_text, top_n=top_n)
 
-        return matches, count_value, weight_unit
+        # If rapidfuzz found no matches, flag for manual mapping
+        needs_manual = len(matches) == 0
+
+        return matches, count_value, weight_unit, needs_manual
 
     def get_confidence_level(self, confidence: float) -> str:
         """
