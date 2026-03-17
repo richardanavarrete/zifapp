@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.config import get_settings
-from api.routers import auth, cogs, health, inventory, orders, voice
+from api.routers import cogs, health, inventory, orders, voice
 
 # Configure logging
 logging.basicConfig(
@@ -27,6 +27,11 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"Debug mode: {settings.debug}")
+
+    if settings.supabase_enabled:
+        logger.info("Supabase integration: enabled")
+    else:
+        logger.warning("Supabase not configured — auth endpoints disabled")
 
     # Startup
     yield
@@ -59,7 +64,11 @@ def create_app() -> FastAPI:
 
     # Routers
     app.include_router(health.router)
-    app.include_router(auth.router, prefix="/api/v1")
+
+    if settings.supabase_enabled:
+        from api.routers import auth
+        app.include_router(auth.router, prefix="/api/v1")
+
     app.include_router(inventory.router, prefix="/api/v1")
     app.include_router(voice.router, prefix="/api/v1")
     app.include_router(orders.router, prefix="/api/v1")
