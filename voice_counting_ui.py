@@ -899,7 +899,15 @@ If you can't extract any items, return empty items array with helpful message.""
         if not ai_content or not ai_content.strip():
             return None  # Signal to use fallback
 
-        result = json.loads(ai_content)
+        # Handle markdown-wrapped JSON (```json ... ```)
+        content_to_parse = ai_content.strip()
+        if content_to_parse.startswith("```"):
+            lines = content_to_parse.split("\n")
+            # Remove first line (```json) and last line (```)
+            if len(lines) >= 2:
+                content_to_parse = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+        result = json.loads(content_to_parse)
 
         # Process each item
         items_processed = 0
@@ -954,11 +962,18 @@ If you can't extract any items, return empty items array with helpful message.""
         # Return with AI feedback
         return items_processed, result.get("confirmation", "Items processed!")
 
-    except json.JSONDecodeError:
-        st.warning("⚠️ AI response parsing failed, using standard matching...")
+    except json.JSONDecodeError as e:
+        st.warning(f"⚠️ AI response parsing failed: {str(e)[:100]}")
         return None  # Signal to use fallback
     except Exception as e:
-        st.warning(f"⚠️ AI Assistant unavailable ({str(e)[:50]}...), using standard matching...")
+        error_msg = str(e)
+        # Check for common API errors
+        if "api_key" in error_msg.lower() or "authentication" in error_msg.lower():
+            st.warning("⚠️ OpenAI API key issue - check secrets configuration")
+        elif "rate" in error_msg.lower() or "quota" in error_msg.lower():
+            st.warning("⚠️ OpenAI rate limit/quota exceeded")
+        else:
+            st.warning(f"⚠️ AI Assistant error: {error_msg[:80]}")
         return None  # Signal to use fallback
 
 
