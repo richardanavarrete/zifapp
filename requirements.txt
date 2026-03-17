@@ -1,28 +1,30 @@
-# HoundCOGS/ZifApp Dependencies
+# smallCOGS API Dependencies
 
-# Streamlit app
-streamlit>=1.30.0
-streamlit-audiorecorder>=0.0.5
+# Web framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
 
 # Data processing
 pandas>=2.0.0
+numpy>=1.24.0
 openpyxl>=3.1.0
-statsmodels>=0.14.0
-plotly>=5.18.0
 
-# Audio processing
-pydub>=0.25.0
-audioop-lts>=0.2.1  # Provides audioop for Python 3.13+ (fallback if runtime.txt not respected)
+# Database (Supabase - PostgreSQL, Auth, Storage)
+supabase>=2.0.0
+PyJWT>=2.8.0
 
-# Voice counting & AI
+# Audio processing (for voice counting)
+pydub>=0.25.1
 openai>=1.0.0
+
+# Fuzzy matching
 rapidfuzz>=3.0.0
 
 # HTTP client
+httpx>=0.26.0
 requests>=2.31.0
 
-# Image processing
-Pillow>=9.0.0
-
-# Document processing
-python-docx>=0.8.11
+# File uploads
+python-multipart>=0.0.6

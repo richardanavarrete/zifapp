@@ -10,8 +10,11 @@ services:
     environment:
       - DEBUG=false
       - API_KEYS=${API_KEYS}
-      - CORS_ORIGINS=http://localhost:8501
+      - CORS_ORIGINS=http://localhost:3000
       - DATA_DIR=/app/data
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
     volumes:
       - smallcogs-data:/app/data
     healthcheck:
@@ -20,15 +23,15 @@ services:
       timeout: 10s
       retries: 3
 
-  ui:
+  frontend:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.ui
+      dockerfile: docker/Dockerfile.frontend
     ports:
-      - "8501:8501"
+      - "3000:3000"
     environment:
-      - API_BASE_URL=http://api:8000
-      - API_KEY=${API_KEYS}
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_KEY=${API_KEYS}
     depends_on:
       - api
 
