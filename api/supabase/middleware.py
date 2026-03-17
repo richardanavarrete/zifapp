@@ -22,8 +22,11 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 @lru_cache()
-def get_auth_service() -> AuthService:
+def get_auth_service() -> Optional[AuthService]:
     """Get singleton auth service."""
+    settings = get_settings()
+    if not settings.supabase_enabled:
+        return None
     return AuthService()
 
 
