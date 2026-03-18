@@ -1,8 +1,25 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
-import type { Dataset, OrderTargets, OrderConstraints } from "@/types/api"
+import type {
+  Dataset,
+  OrderTargets,
+  OrderConstraints,
+  AuthTokens,
+  AuthUser,
+  AuthUserProfile,
+  LoginResponse,
+} from "@/types/api"
 
 interface AppState {
+  // Auth
+  user: AuthUser | null
+  profile: AuthUserProfile | null
+  tokens: AuthTokens | null
+  isAuthenticated: boolean
+  setAuth: (response: LoginResponse) => void
+  updateTokens: (tokens: AuthTokens) => void
+  logout: () => void
+
   // Active dataset
   activeDatasetId: string | null
   activeDataset: Dataset | null
@@ -42,6 +59,27 @@ const defaultConstraints: OrderConstraints = {
 export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
+      // Auth
+      user: null,
+      profile: null,
+      tokens: null,
+      isAuthenticated: false,
+      setAuth: (response) =>
+        set({
+          user: response.user,
+          profile: response.profile,
+          tokens: response.tokens,
+          isAuthenticated: true,
+        }),
+      updateTokens: (tokens) => set({ tokens }),
+      logout: () =>
+        set({
+          user: null,
+          profile: null,
+          tokens: null,
+          isAuthenticated: false,
+        }),
+
       // Active dataset
       activeDatasetId: null,
       activeDataset: null,
@@ -74,6 +112,10 @@ export const useAppStore = create<AppState>()(
     {
       name: "zif-app-storage",
       partialize: (state) => ({
+        user: state.user,
+        profile: state.profile,
+        tokens: state.tokens,
+        isAuthenticated: state.isAuthenticated,
         activeDatasetId: state.activeDatasetId,
         theme: state.theme,
         orderTargets: state.orderTargets,

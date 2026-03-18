@@ -1,18 +1,26 @@
 "use client"
 
 import * as React from "react"
-import { Moon, Sun, Monitor } from "lucide-react"
+import { Moon, Sun, Monitor, LogOut } from "lucide-react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useAppStore } from "@/store/app"
+import { api } from "@/lib/api"
 
 export function Header({ title }: { title?: string }) {
-  const { theme, setTheme } = useAppStore()
+  const router = useRouter()
+  const { theme, setTheme, profile, logout } = useAppStore()
 
   const cycleTheme = () => {
     const themes: Array<"light" | "dark" | "system"> = ["light", "dark", "system"]
     const currentIndex = themes.indexOf(theme)
     const nextIndex = (currentIndex + 1) % themes.length
     setTheme(themes[nextIndex])
+  }
+
+  const handleLogout = async () => {
+    await api.logout()
+    router.replace("/login")
   }
 
   const ThemeIcon = theme === "dark" ? Moon : theme === "light" ? Sun : Monitor
@@ -25,9 +33,18 @@ export function Header({ title }: { title?: string }) {
       </div>
 
       <div className="flex items-center gap-2">
+        {profile && (
+          <span className="hidden text-sm text-muted-foreground sm:inline">
+            {profile.full_name || profile.email}
+          </span>
+        )}
         <Button variant="ghost" size="icon" onClick={cycleTheme}>
           <ThemeIcon className="h-5 w-5" />
           <span className="sr-only">Toggle theme</span>
+        </Button>
+        <Button variant="ghost" size="icon" onClick={handleLogout}>
+          <LogOut className="h-5 w-5" />
+          <span className="sr-only">Sign out</span>
         </Button>
       </div>
     </header>
