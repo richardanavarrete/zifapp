@@ -417,6 +417,15 @@ class AuthService:
     # Internal Helpers
     # =========================================================================
 
+    @staticmethod
+    def _parse_timestamp(value) -> Optional[datetime]:
+        """Parse a timestamp that may be a string or datetime object."""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
     def _map_supabase_user(self, supabase_user) -> User:
         """Map Supabase user object to our User model."""
         user_metadata = supabase_user.user_metadata or {}
@@ -424,9 +433,9 @@ class AuthService:
         return User(
             id=UUID(supabase_user.id),
             email=supabase_user.email,
-            email_confirmed_at=datetime.fromisoformat(supabase_user.email_confirmed_at.replace("Z", "+00:00")) if supabase_user.email_confirmed_at else None,
-            created_at=datetime.fromisoformat(supabase_user.created_at.replace("Z", "+00:00")),
-            updated_at=datetime.fromisoformat(supabase_user.updated_at.replace("Z", "+00:00")) if supabase_user.updated_at else None,
+            email_confirmed_at=self._parse_timestamp(supabase_user.email_confirmed_at),
+            created_at=self._parse_timestamp(supabase_user.created_at),
+            updated_at=self._parse_timestamp(supabase_user.updated_at),
             full_name=user_metadata.get("full_name"),
             avatar_url=user_metadata.get("avatar_url"),
         )

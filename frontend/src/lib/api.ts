@@ -245,7 +245,7 @@ class ApiClient {
 
   async getDatasets(): Promise<Dataset[]> {
     const res = await this.request<{ datasets: Dataset[] }>("/inventory/datasets")
-    return res.datasets
+    return res.datasets || []
   }
 
   async getDataset(datasetId: string): Promise<Dataset> {
