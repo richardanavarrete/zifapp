@@ -4,6 +4,8 @@ import type {
   Item,
   ItemDetail,
   UploadResult,
+  ManualEntryRequest,
+  ManualEntryResult,
   VoiceSession,
   CountRecord,
   TranscriptionResult,
@@ -230,6 +232,15 @@ class ApiClient {
       formData.append("skip_rows", options.skipRows.toString())
     }
     return this.upload("/inventory/upload", formData)
+  }
+
+  async submitManualEntry(
+    data: ManualEntryRequest
+  ): Promise<ManualEntryResult> {
+    return this.request("/inventory/manual", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
   }
 
   async getDatasets(): Promise<Dataset[]> {

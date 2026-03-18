@@ -11,6 +11,7 @@ from api.middleware.rate_limit import limiter
 from api.dependencies import get_supabase_repository
 from api.supabase.middleware import get_current_user, get_current_user_optional, require_org
 from api.supabase.models import CurrentUser
+from smallcogs.models.inventory import ManualEntryRequest
 from smallcogs.services.inventory_service import InventoryService
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
@@ -89,6 +90,38 @@ async def upload_inventory(
         # Clean up temp file
         if os.path.exists(temp_path):
             os.remove(temp_path)
+
+
+@router.post("/manual")
+@limiter.limit(lambda: get_settings().rate_limit_upload)
+async def manual_entry(
+    request: Request,
+    body: ManualEntryRequest,
+    current_user: Optional[CurrentUser] = Depends(get_current_user_optional),
+    service: InventoryService = Depends(get_service),
+):
+    """Add inventory items via manual entry."""
+    try:
+        if not body.dataset_id and not body.dataset_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Either dataset_id or dataset_name is required",
+            )
+
+        result = service.add_items_manually(body)
+
+        # Save to Supabase if enabled
+        settings = get_settings()
+        if settings.supabase_enabled and current_user and current_user.org_id:
+            repo = get_supabase_repository(current_user.org_id)
+            dataset = service.get_dataset(result.dataset_id)
+            if dataset:
+                repo.save_dataset(dataset)
+
+        return result.model_dump()
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/datasets")
