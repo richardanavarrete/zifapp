@@ -12,7 +12,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from api.config import get_settings
-from api.supabase.auth_service import AuthError, AuthService
+from api.auth.errors import AuthError
 from api.supabase.models import CurrentUser
 
 logger = logging.getLogger(__name__)
@@ -22,17 +22,19 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 @lru_cache()
-def get_auth_service() -> Optional[AuthService]:
-    """Get singleton auth service."""
+def get_auth_service():
+    """Get singleton auth service (Supabase or local SQLite)."""
     settings = get_settings()
-    if not settings.supabase_enabled:
-        return None
-    return AuthService()
+    if settings.supabase_enabled:
+        from api.supabase.auth_service import AuthService
+        return AuthService()
+    from api.auth.local_auth_service import LocalAuthService
+    return LocalAuthService()
 
 
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
-    auth_service: AuthService = Depends(get_auth_service),
+    auth_service = Depends(get_auth_service),
 ) -> CurrentUser:
     """
     Dependency to get the current authenticated user.
@@ -40,19 +42,6 @@ async def get_current_user(
     Validates JWT token and returns user context with organization info.
     Raises HTTPException if not authenticated.
     """
-    settings = get_settings()
-
-    # Skip auth in debug mode if Supabase not configured
-    if settings.debug and not settings.supabase_enabled:
-        return CurrentUser(
-            user_id="00000000-0000-0000-0000-000000000000",
-            email="debug@example.com",
-            full_name="Debug User",
-            org_id="00000000-0000-0000-0000-000000000001",
-            org_name="Debug Organization",
-            org_role="owner",
-        )
-
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -85,25 +74,14 @@ async def get_current_user(
 
 async def get_current_user_optional(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
-    auth_service: AuthService = Depends(get_auth_service),
+    auth_service = Depends(get_auth_service),
 ) -> Optional[CurrentUser]:
     """
     Dependency to get current user if authenticated, None otherwise.
 
     For endpoints that work both with and without authentication.
     """
-    settings = get_settings()
-
     if not credentials:
-        if settings.debug and not settings.supabase_enabled:
-            return CurrentUser(
-                user_id="00000000-0000-0000-0000-000000000000",
-                email="debug@example.com",
-                full_name="Debug User",
-                org_id="00000000-0000-0000-0000-000000000001",
-                org_name="Debug Organization",
-                org_role="owner",
-            )
         return None
 
     try:
