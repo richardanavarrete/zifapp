@@ -29,7 +29,7 @@ const navigation = [
 
 export function Sidebar() {
   const pathname = usePathname()
-  const { sidebarOpen, setSidebarOpen, activeDataset } = useAppStore()
+  const { sidebarOpen, setSidebarOpen, activeDataset, isGuest, profile } = useAppStore()
 
   return (
     <>
@@ -116,11 +116,11 @@ export function Sidebar() {
           <div className="border-t px-4 py-4">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-sm font-medium">
-                JD
+                {isGuest ? "G" : (profile?.full_name?.charAt(0) || profile?.email?.charAt(0) || "U").toUpperCase()}
               </div>
               <div className="flex-1 truncate">
-                <p className="text-sm font-medium">John Doe</p>
-                <p className="text-xs text-muted-foreground">Bar Manager</p>
+                <p className="text-sm font-medium">{isGuest ? "Guest" : (profile?.full_name || profile?.email || "User")}</p>
+                <p className="text-xs text-muted-foreground">{isGuest ? "Data not saved" : "Bar Manager"}</p>
               </div>
             </div>
           </div>

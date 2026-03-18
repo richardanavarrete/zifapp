@@ -12,7 +12,7 @@ type Mode = "login" | "register"
 
 export default function LoginPage() {
   const router = useRouter()
-  const { isAuthenticated, setAuth } = useAppStore()
+  const { isAuthenticated, setAuth, setGuest } = useAppStore()
   const [mode, setMode] = React.useState<Mode>("login")
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -63,6 +63,11 @@ export default function LoginPage() {
   const switchMode = () => {
     setMode(mode === "login" ? "register" : "login")
     setError(null)
+  }
+
+  const handleGuestAccess = () => {
+    setGuest()
+    router.replace("/upload")
   }
 
   return (
@@ -208,6 +213,30 @@ export default function LoginPage() {
                   </button>
                 </>
               )}
+            </div>
+
+            <div className="relative mt-6">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">or</span>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={handleGuestAccess}
+              >
+                Continue as Guest
+              </Button>
+              <p className="mt-2 text-center text-xs text-muted-foreground">
+                Upload and analyze a spreadsheet without an account.
+                Data won&apos;t be saved between sessions.
+              </p>
             </div>
           </CardContent>
         </Card>

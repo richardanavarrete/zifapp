@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from api.config import get_settings
 from api.middleware.rate_limit import limiter
 from api.dependencies import get_supabase_repository
-from api.supabase.middleware import get_current_user, require_org
+from api.supabase.middleware import get_current_user, get_current_user_optional, require_org
 from api.supabase.models import CurrentUser
 from smallcogs.services.inventory_service import InventoryService
 
@@ -38,7 +38,7 @@ async def upload_inventory(
     file: UploadFile = File(...),
     name: Optional[str] = Query(None, description="Dataset name"),
     skip_rows: int = Query(0, ge=0, description="Rows to skip"),
-    current_user: CurrentUser = Depends(require_org),
+    current_user: Optional[CurrentUser] = Depends(get_current_user_optional),
     service: InventoryService = Depends(get_service),
 ):
     """Upload an inventory spreadsheet (Excel or CSV)."""
@@ -73,8 +73,8 @@ async def upload_inventory(
             skip_rows=skip_rows,
         )
 
-        # Save to Supabase if enabled
-        if settings.supabase_enabled and current_user.org_id:
+        # Save to Supabase if enabled and user is authenticated with an org
+        if settings.supabase_enabled and current_user and current_user.org_id:
             repo = get_supabase_repository(current_user.org_id)
             dataset = service.get_dataset(result.dataset_id)
             if dataset:
@@ -93,14 +93,14 @@ async def upload_inventory(
 
 @router.get("/datasets")
 async def list_datasets(
-    current_user: CurrentUser = Depends(require_org),
+    current_user: Optional[CurrentUser] = Depends(get_current_user_optional),
     service: InventoryService = Depends(get_service),
 ):
     """List all uploaded datasets."""
     settings = get_settings()
 
-    # Use Supabase if enabled
-    if settings.supabase_enabled and current_user.org_id:
+    # Use Supabase if enabled and user is authenticated with an org
+    if settings.supabase_enabled and current_user and current_user.org_id:
         repo = get_supabase_repository(current_user.org_id)
         datasets = repo.list_datasets()
         return {"datasets": [d.model_dump() for d in datasets]}
@@ -113,14 +113,14 @@ async def list_datasets(
 @router.get("/datasets/{dataset_id}")
 async def get_dataset(
     dataset_id: str,
-    current_user: CurrentUser = Depends(require_org),
+    current_user: Optional[CurrentUser] = Depends(get_current_user_optional),
     service: InventoryService = Depends(get_service),
 ):
     """Get dataset details."""
     settings = get_settings()
 
-    # Use Supabase if enabled
-    if settings.supabase_enabled and current_user.org_id:
+    # Use Supabase if enabled and user is authenticated with an org
+    if settings.supabase_enabled and current_user and current_user.org_id:
         repo = get_supabase_repository(current_user.org_id)
         dataset = repo.get_dataset(dataset_id)
     else:
@@ -146,14 +146,14 @@ async def get_dataset(
 @router.delete("/datasets/{dataset_id}")
 async def delete_dataset(
     dataset_id: str,
-    current_user: CurrentUser = Depends(require_org),
+    current_user: Optional[CurrentUser] = Depends(get_current_user_optional),
     service: InventoryService = Depends(get_service),
 ):
     """Delete a dataset."""
     settings = get_settings()
 
-    # Use Supabase if enabled
-    if settings.supabase_enabled and current_user.org_id:
+    # Use Supabase if enabled and user is authenticated with an org
+    if settings.supabase_enabled and current_user and current_user.org_id:
         repo = get_supabase_repository(current_user.org_id)
         deleted = repo.delete_dataset(dataset_id)
     else:
@@ -175,7 +175,7 @@ async def get_items(
     category: Optional[str] = Query(None),
     vendor: Optional[str] = Query(None),
     include_stats: bool = Query(True),
-    current_user: CurrentUser = Depends(require_org),
+    current_user: Optional[CurrentUser] = Depends(get_current_user_optional),
     service: InventoryService = Depends(get_service),
 ):
     """Get items in a dataset with optional filtering."""
@@ -184,7 +184,7 @@ async def get_items(
     settings = get_settings()
 
     # For Supabase, first get the dataset then use service for stats
-    if settings.supabase_enabled and current_user.org_id:
+    if settings.supabase_enabled and current_user and current_user.org_id:
         repo = get_supabase_repository(current_user.org_id)
         dataset = repo.get_dataset(dataset_id)
         if not dataset:
@@ -210,14 +210,14 @@ async def get_items(
 async def get_item_detail(
     dataset_id: str,
     item_id: str,
-    current_user: CurrentUser = Depends(require_org),
+    current_user: Optional[CurrentUser] = Depends(get_current_user_optional),
     service: InventoryService = Depends(get_service),
 ):
     """Get detailed view of a single item including history and trends."""
     settings = get_settings()
 
     # For Supabase, first get the dataset
-    if settings.supabase_enabled and current_user.org_id:
+    if settings.supabase_enabled and current_user and current_user.org_id:
         repo = get_supabase_repository(current_user.org_id)
         dataset = repo.get_dataset(dataset_id)
         if dataset:
@@ -236,14 +236,14 @@ async def get_item_detail(
 @router.get("/datasets/{dataset_id}/dashboard")
 async def get_dashboard(
     dataset_id: str,
-    current_user: CurrentUser = Depends(require_org),
+    current_user: Optional[CurrentUser] = Depends(get_current_user_optional),
     service: InventoryService = Depends(get_service),
 ):
     """Get dashboard summary with key metrics and alerts."""
     settings = get_settings()
 
     # For Supabase, first get the dataset
-    if settings.supabase_enabled and current_user.org_id:
+    if settings.supabase_enabled and current_user and current_user.org_id:
         repo = get_supabase_repository(current_user.org_id)
         dataset = repo.get_dataset(dataset_id)
         if dataset:
