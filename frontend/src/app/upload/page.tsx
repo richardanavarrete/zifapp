@@ -317,7 +317,7 @@ export default function UploadPage() {
           </CardHeader>
           <CardContent>
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList>
+              <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="upload">
                   <Upload className="mr-2 h-4 w-4" />
                   Upload File
