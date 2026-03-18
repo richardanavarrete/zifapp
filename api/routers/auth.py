@@ -73,6 +73,12 @@ async def register(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": {"code": e.code, "message": e.message}},
         )
+    except Exception as e:
+        logger.error(f"Unexpected error during registration: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": {"code": "REGISTRATION_FAILED", "message": "An unexpected error occurred during registration."}},
+        )
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -94,6 +100,12 @@ async def login(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"error": {"code": e.code, "message": e.message}},
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during login: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": {"code": "LOGIN_FAILED", "message": "An unexpected error occurred during login."}},
         )
 
 
