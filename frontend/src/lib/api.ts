@@ -79,11 +79,8 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}))
-      throw new ApiError(
-        error.error?.code || "UNKNOWN_ERROR",
-        error.error?.message || `Request failed with status ${response.status}`,
-        response.status
-      )
+      const parsed = parseApiError(error, "UNKNOWN_ERROR", `Request failed with status ${response.status}`)
+      throw new ApiError(parsed.code, parsed.message, response.status)
     }
 
     return response.json()
@@ -129,11 +126,8 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}))
-      throw new ApiError(
-        error.error?.code || "UPLOAD_ERROR",
-        error.error?.message || `Upload failed with status ${response.status}`,
-        response.status
-      )
+      const parsed = parseApiError(error, "UPLOAD_ERROR", `Upload failed with status ${response.status}`)
+      throw new ApiError(parsed.code, parsed.message, response.status)
     }
 
     return response.json()
@@ -170,11 +164,8 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}))
-      throw new ApiError(
-        error.detail?.error?.code || "LOGIN_FAILED",
-        error.detail?.error?.message || "Invalid email or password",
-        response.status
-      )
+      const parsed = parseApiError(error, "LOGIN_FAILED", "Invalid email or password")
+      throw new ApiError(parsed.code, parsed.message, response.status)
     }
 
     return response.json()
@@ -195,11 +186,8 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}))
-      throw new ApiError(
-        error.detail?.error?.code || "REGISTER_FAILED",
-        error.detail?.error?.message || "Registration failed",
-        response.status
-      )
+      const parsed = parseApiError(error, "REGISTER_FAILED", "Registration failed")
+      throw new ApiError(parsed.code, parsed.message, response.status)
     }
 
     return response.json()
@@ -457,6 +445,34 @@ export class ApiError extends Error {
     super(message)
     this.name = "ApiError"
   }
+}
+
+function parseApiError(
+  error: Record<string, unknown>,
+  fallbackCode: string,
+  fallbackMessage: string,
+): { code: string; message: string } {
+  // FastAPI HTTPException format: { detail: { error: { code, message } } }
+  const detail = error.detail as Record<string, unknown> | unknown[] | undefined
+  if (detail && !Array.isArray(detail)) {
+    const err = detail.error as Record<string, string> | undefined
+    if (err?.code || err?.message) {
+      return { code: err.code || fallbackCode, message: err.message || fallbackMessage }
+    }
+  }
+  // Pydantic 422 validation errors: { detail: [{ msg, loc, type }] }
+  if (Array.isArray(detail) && detail.length > 0) {
+    const first = detail[0] as Record<string, unknown>
+    const field = Array.isArray(first.loc) ? (first.loc as string[]).slice(-1)[0] : ""
+    const msg = (first.msg as string) || fallbackMessage
+    return { code: "VALIDATION_ERROR", message: field ? `${field}: ${msg}` : msg }
+  }
+  // Rate limiter / top-level error format: { error: { code, message } }
+  const topError = error.error as Record<string, string> | undefined
+  if (topError?.code || topError?.message) {
+    return { code: topError.code || fallbackCode, message: topError.message || fallbackMessage }
+  }
+  return { code: fallbackCode, message: fallbackMessage }
 }
 
 export const api = new ApiClient()
