@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     api_keys: str = ""  # Loaded from API_KEYS env var
 
     # CORS
-    cors_origins: str = "http://localhost:8501,http://localhost:3000,https://zifapp.vercel.app"
+    cors_origins: str = "http://localhost:8501,http://localhost:3000,https://zifapp.vercel.app,https://zifapp-git-main-richardanavarretes-projects.vercel.app,https://zifapp-richardanavarretes-projects.vercel.app"
 
     # Storage
     data_dir: str = "./data"

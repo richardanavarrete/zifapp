@@ -137,6 +137,12 @@ async def refresh_tokens(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"error": {"code": e.code, "message": e.message}},
         )
+    except Exception as e:
+        logger.error(f"Unexpected error during token refresh: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": {"code": "REFRESH_FAILED", "message": "An unexpected error occurred during token refresh."}},
+        )
 
 
 # =============================================================================
@@ -151,9 +157,14 @@ async def request_password_reset(
     auth_service = Depends(get_auth_service),
 ):
     """Request password reset email."""
-    await auth_service.request_password_reset(reset_request.email)
-    # Always return success to prevent email enumeration
-    return {"message": "If an account exists with this email, a reset link has been sent."}
+    try:
+        await auth_service.request_password_reset(reset_request.email)
+        # Always return success to prevent email enumeration
+        return {"message": "If an account exists with this email, a reset link has been sent."}
+    except Exception as e:
+        logger.error(f"Unexpected error during password reset: {e}")
+        # Still return success to prevent email enumeration
+        return {"message": "If an account exists with this email, a reset link has been sent."}
 
 
 @router.post("/password/update")
@@ -176,6 +187,12 @@ async def update_password(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"error": {"code": e.code, "message": e.message}},
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during password update: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": {"code": "PASSWORD_UPDATE_FAILED", "message": "An unexpected error occurred."}},
         )
 
 
@@ -237,13 +254,22 @@ async def get_current_organization(
     auth_service = Depends(get_auth_service),
 ):
     """Get the current user's organization."""
-    org = await auth_service.get_organization(current_user.org_id)
-    if not org:
+    try:
+        org = await auth_service.get_organization(current_user.org_id)
+        if not org:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"error": {"code": "ORG_NOT_FOUND", "message": "Organization not found"}},
+            )
+        return org
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error fetching organization: {e}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error": {"code": "ORG_NOT_FOUND", "message": "Organization not found"}},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": {"code": "INTERNAL_ERROR", "message": "An unexpected error occurred."}},
         )
-    return org
 
 
 @router.get("/organizations/{org_id}", response_model=Organization)
@@ -274,7 +300,14 @@ async def list_organization_members(
     auth_service = Depends(get_auth_service),
 ):
     """List members of the current organization."""
-    return await auth_service.list_org_members(current_user.org_id)
+    try:
+        return await auth_service.list_org_members(current_user.org_id)
+    except Exception as e:
+        logger.error(f"Unexpected error listing org members: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": {"code": "INTERNAL_ERROR", "message": "An unexpected error occurred."}},
+        )
 
 
 @router.post("/organizations/current/invite")
@@ -289,12 +322,21 @@ async def invite_member(
 
     Only admins and owners can invite new members.
     """
-    return await auth_service.create_invite(
-        org_id=current_user.org_id,
-        email=email,
-        role=role,
-        created_by=current_user.user_id,
-    )
+    try:
+        return await auth_service.create_invite(
+            org_id=current_user.org_id,
+            email=email,
+            role=role,
+            created_by=current_user.user_id,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error creating invite: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": {"code": "INTERNAL_ERROR", "message": "An unexpected error occurred."}},
+        )
 
 
 @router.delete("/organizations/current/members/{user_id}")
