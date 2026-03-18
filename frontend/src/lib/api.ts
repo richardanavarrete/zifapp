@@ -13,8 +13,11 @@ import type {
   RecommendRequest,
   OrderTargets,
   OrderConstraints,
+  LoginResponse,
+  AuthTokens,
   ApiResponse,
 } from "@/types/api"
+import { useAppStore } from "@/store/app"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 const API_PREFIX = "/api/v1"
@@ -28,6 +31,10 @@ class ApiClient {
     this.apiKey = process.env.NEXT_PUBLIC_API_KEY
   }
 
+  private getAccessToken(): string | null {
+    return useAppStore.getState().tokens?.access_token ?? null
+  }
+
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
@@ -35,6 +42,11 @@ class ApiClient {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...(options.headers as Record<string, string>),
+    }
+
+    const token = this.getAccessToken()
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`
     }
 
     if (this.apiKey) {
@@ -45,6 +57,25 @@ class ApiClient {
       ...options,
       headers,
     })
+
+    if (response.status === 401) {
+      // Try to refresh token
+      const refreshed = await this.tryRefreshToken()
+      if (refreshed) {
+        // Retry with new token
+        headers["Authorization"] = `Bearer ${this.getAccessToken()}`
+        const retryResponse = await fetch(`${this.baseUrl}${endpoint}`, {
+          ...options,
+          headers,
+        })
+        if (retryResponse.ok) {
+          return retryResponse.json()
+        }
+      }
+      // Refresh failed - force logout
+      useAppStore.getState().logout()
+      throw new ApiError("AUTH_EXPIRED", "Session expired. Please log in again.", 401)
+    }
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}))
@@ -64,6 +95,11 @@ class ApiClient {
   ): Promise<T> {
     const headers: Record<string, string> = {}
 
+    const token = this.getAccessToken()
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`
+    }
+
     if (this.apiKey) {
       headers["X-API-Key"] = this.apiKey
     }
@@ -73,6 +109,23 @@ class ApiClient {
       headers,
       body: formData,
     })
+
+    if (response.status === 401) {
+      const refreshed = await this.tryRefreshToken()
+      if (refreshed) {
+        headers["Authorization"] = `Bearer ${this.getAccessToken()}`
+        const retryResponse = await fetch(`${this.baseUrl}${endpoint}`, {
+          method: "POST",
+          headers,
+          body: formData,
+        })
+        if (retryResponse.ok) {
+          return retryResponse.json()
+        }
+      }
+      useAppStore.getState().logout()
+      throw new ApiError("AUTH_EXPIRED", "Session expired. Please log in again.", 401)
+    }
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}))
@@ -84,6 +137,81 @@ class ApiClient {
     }
 
     return response.json()
+  }
+
+  private async tryRefreshToken(): Promise<boolean> {
+    const refreshToken = useAppStore.getState().tokens?.refresh_token
+    if (!refreshToken) return false
+
+    try {
+      const response = await fetch(`${this.baseUrl}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      })
+      if (!response.ok) return false
+
+      const tokens: AuthTokens = await response.json()
+      useAppStore.getState().updateTokens(tokens)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  // ============== Auth ==============
+
+  async login(email: string, password: string): Promise<LoginResponse> {
+    const response = await fetch(`${this.baseUrl}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}))
+      throw new ApiError(
+        error.detail?.error?.code || "LOGIN_FAILED",
+        error.detail?.error?.message || "Invalid email or password",
+        response.status
+      )
+    }
+
+    return response.json()
+  }
+
+  async register(data: {
+    email: string
+    password: string
+    full_name?: string
+    organization_name?: string
+    invite_code?: string
+  }): Promise<LoginResponse> {
+    const response = await fetch(`${this.baseUrl}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}))
+      throw new ApiError(
+        error.detail?.error?.code || "REGISTER_FAILED",
+        error.detail?.error?.message || "Registration failed",
+        response.status
+      )
+    }
+
+    return response.json()
+  }
+
+  async logout(): Promise<void> {
+    try {
+      await this.request("/auth/logout", { method: "POST" })
+    } catch {
+      // Ignore errors on logout
+    }
+    useAppStore.getState().logout()
   }
 
   // ============== Health ==============
@@ -290,6 +418,11 @@ class ApiClient {
     format: "csv" | "pdf" = "csv"
   ): Promise<Blob> {
     const headers: HeadersInit = {}
+
+    const token = this.getAccessToken()
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`
+    }
     if (this.apiKey) {
       headers["X-API-Key"] = this.apiKey
     }

@@ -4,9 +4,10 @@ import os
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 
 from api.config import get_settings
+from api.middleware.rate_limit import limiter
 from api.dependencies import get_supabase_repository
 from api.supabase.middleware import get_current_user, require_org
 from api.supabase.models import CurrentUser
@@ -31,7 +32,9 @@ def get_service() -> InventoryService:
 # =============================================================================
 
 @router.post("/upload")
+@limiter.limit(lambda: get_settings().rate_limit_upload)
 async def upload_inventory(
+    request: Request,
     file: UploadFile = File(...),
     name: Optional[str] = Query(None, description="Dataset name"),
     skip_rows: int = Query(0, ge=0, description="Rows to skip"),

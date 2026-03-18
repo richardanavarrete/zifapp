@@ -8,8 +8,10 @@ import logging
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from api.config import get_settings
+from api.middleware.rate_limit import limiter
 from api.supabase.auth_service import AuthError, AuthService
 from api.supabase.middleware import (
     get_auth_service,
@@ -45,8 +47,10 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 # =============================================================================
 
 @router.post("/register", response_model=LoginResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit(lambda: get_settings().rate_limit_login)
 async def register(
-    request: UserCreate,
+    request: Request,
+    user_request: UserCreate,
     auth_service: AuthService = Depends(get_auth_service),
 ):
     """
@@ -56,11 +60,11 @@ async def register(
     """
     try:
         response = await auth_service.register(
-            email=request.email,
-            password=request.password,
-            full_name=request.full_name,
-            organization_name=request.organization_name,
-            invite_code=request.invite_code,
+            email=user_request.email,
+            password=user_request.password,
+            full_name=user_request.full_name,
+            organization_name=user_request.organization_name,
+            invite_code=user_request.invite_code,
         )
         return response
 
@@ -72,15 +76,17 @@ async def register(
 
 
 @router.post("/login", response_model=LoginResponse)
+@limiter.limit(lambda: get_settings().rate_limit_login)
 async def login(
-    request: LoginRequest,
+    request: Request,
+    login_request: LoginRequest,
     auth_service: AuthService = Depends(get_auth_service),
 ):
     """Login with email and password."""
     try:
         response = await auth_service.login(
-            email=request.email,
-            password=request.password,
+            email=login_request.email,
+            password=login_request.password,
         )
         return response
 
@@ -103,13 +109,15 @@ async def logout(
 
 
 @router.post("/refresh", response_model=AuthTokens)
+@limiter.limit(lambda: get_settings().rate_limit_auth_general)
 async def refresh_tokens(
-    request: RefreshRequest,
+    request: Request,
+    refresh_request: RefreshRequest,
     auth_service: AuthService = Depends(get_auth_service),
 ):
     """Refresh access token using refresh token."""
     try:
-        tokens = await auth_service.refresh_tokens(request.refresh_token)
+        tokens = await auth_service.refresh_tokens(refresh_request.refresh_token)
         return tokens
 
     except AuthError as e:
@@ -124,19 +132,23 @@ async def refresh_tokens(
 # =============================================================================
 
 @router.post("/password/reset")
+@limiter.limit(lambda: get_settings().rate_limit_login)
 async def request_password_reset(
-    request: PasswordResetRequest,
+    request: Request,
+    reset_request: PasswordResetRequest,
     auth_service: AuthService = Depends(get_auth_service),
 ):
     """Request password reset email."""
-    await auth_service.request_password_reset(request.email)
+    await auth_service.request_password_reset(reset_request.email)
     # Always return success to prevent email enumeration
     return {"message": "If an account exists with this email, a reset link has been sent."}
 
 
 @router.post("/password/update")
+@limiter.limit(lambda: get_settings().rate_limit_login)
 async def update_password(
-    request: PasswordUpdateRequest,
+    request: Request,
+    update_request: PasswordUpdateRequest,
     current_user: CurrentUser = Depends(get_current_user),
     auth_service: AuthService = Depends(get_auth_service),
 ):
@@ -144,7 +156,7 @@ async def update_password(
     try:
         await auth_service.update_password(
             access_token="",  # Token is validated by get_current_user
-            new_password=request.password,
+            new_password=update_request.password,
         )
         return {"message": "Password updated successfully"}
 

@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # Rate Limiting
+    rate_limit_enabled: bool = True
+    rate_limit_login: str = "5/minute"
+    rate_limit_auth_general: str = "30/minute"
+    rate_limit_upload: str = "10/minute"
+    rate_limit_voice: str = "20/minute"
+    rate_limit_default: str = "60/minute"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
