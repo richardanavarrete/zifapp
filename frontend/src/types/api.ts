@@ -110,6 +110,36 @@ export interface UploadResult {
   warnings: string[]
 }
 
+// ============== Manual Entry Models ==============
+
+export interface ManualItemEntry {
+  name: string
+  category?: string
+  vendor?: string
+  sku?: string
+  unit_cost?: number
+  unit_of_measure?: string
+  on_hand: number
+  record_date?: string
+}
+
+export interface ManualEntryRequest {
+  dataset_name?: string
+  dataset_id?: string
+  items: ManualItemEntry[]
+}
+
+export interface ManualEntryResult {
+  success: boolean
+  dataset_id: string
+  dataset_name: string
+  items_added: number
+  records_added: number
+  categories_found: string[]
+  warnings: string[]
+  created_at: string
+}
+
 // ============== Voice Models ==============
 
 export type SessionStatus = "in_progress" | "completed" | "cancelled"

@@ -4,9 +4,14 @@ Inventory Service - CRUD operations for inventory data
 Handles dataset management, item queries, and data persistence.
 """
 
+import uuid
+from datetime import date, datetime
 from typing import Dict, List, Optional
 
-from smallcogs.models.inventory import Dataset, DatasetSummary, Item, ItemFilter, UploadResult
+from smallcogs.models.inventory import (
+    Dataset, DatasetSummary, Item, ItemFilter, ManualEntryRequest,
+    ManualEntryResult, Record, UploadResult,
+)
 from smallcogs.services.parser_service import ParserService
 from smallcogs.services.stats_service import StatsService
 
@@ -51,6 +56,104 @@ class InventoryService:
             periods_count=dataset.periods_count,
             date_range_start=dataset.date_range_start,
             date_range_end=dataset.date_range_end,
+            categories_found=dataset.categories,
+            warnings=warnings,
+        )
+
+    def add_items_manually(self, request: ManualEntryRequest) -> ManualEntryResult:
+        """Add inventory items via manual entry."""
+        warnings: List[str] = []
+
+        # Get existing dataset or create a new one
+        if request.dataset_id:
+            dataset = self.get_dataset(request.dataset_id)
+            if not dataset:
+                raise ValueError(f"Dataset not found: {request.dataset_id}")
+        else:
+            dataset_name = request.dataset_name or "Manual Entry"
+            dataset = Dataset(
+                dataset_id=uuid.uuid4().hex[:12],
+                name=dataset_name,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+                source_files=["manual_entry"],
+            )
+
+        items_added = 0
+        records_added = 0
+
+        for entry in request.items:
+            item_id = self.parser._make_item_id(entry.name)
+            record_date = entry.record_date or date.today()
+
+            # Create or update item
+            if item_id not in dataset.items:
+                dataset.items[item_id] = Item(
+                    item_id=item_id,
+                    name=entry.name,
+                    category=entry.category,
+                    vendor=entry.vendor,
+                    sku=entry.sku,
+                    unit_cost=entry.unit_cost,
+                    unit_of_measure=entry.unit_of_measure,
+                )
+                items_added += 1
+            else:
+                # Update fields if provided
+                existing = dataset.items[item_id]
+                if entry.category:
+                    existing.category = entry.category
+                if entry.vendor:
+                    existing.vendor = entry.vendor
+                if entry.sku:
+                    existing.sku = entry.sku
+                if entry.unit_cost is not None:
+                    existing.unit_cost = entry.unit_cost
+                if entry.unit_of_measure != "unit":
+                    existing.unit_of_measure = entry.unit_of_measure
+                warnings.append(f"Item '{entry.name}' already exists, updated record")
+
+            # Create record
+            record = Record(
+                record_id=uuid.uuid4().hex[:12],
+                item_id=item_id,
+                record_date=record_date,
+                on_hand=entry.on_hand,
+                source_file="manual_entry",
+            )
+            dataset.records.append(record)
+            records_added += 1
+
+        # Update dataset metadata
+        categories = list({
+            item.category for item in dataset.items.values()
+            if item.category
+        })
+        vendors = list({
+            item.vendor for item in dataset.items.values()
+            if item.vendor
+        })
+        dates = list({r.record_date for r in dataset.records})
+
+        dataset.items_count = len(dataset.items)
+        dataset.records_count = len(dataset.records)
+        dataset.periods_count = len(dates)
+        dataset.categories = sorted(categories)
+        dataset.vendors = sorted(vendors)
+        dataset.updated_at = datetime.utcnow()
+        if dates:
+            dataset.date_range_start = min(dates)
+            dataset.date_range_end = max(dates)
+
+        # Store
+        self._datasets[dataset.dataset_id] = dataset
+
+        return ManualEntryResult(
+            success=True,
+            dataset_id=dataset.dataset_id,
+            dataset_name=dataset.name,
+            items_added=items_added,
+            records_added=records_added,
             categories_found=dataset.categories,
             warnings=warnings,
         )

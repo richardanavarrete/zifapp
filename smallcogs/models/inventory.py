@@ -179,3 +179,38 @@ class ItemFilter(BaseModel):
     trending_up: bool = False
     trending_down: bool = False
     has_issues: bool = False
+
+
+# =============================================================================
+# Manual Entry Models
+# =============================================================================
+
+class ManualItemEntry(BaseModel):
+    """A single manually-entered inventory item + count."""
+    name: str = Field(..., min_length=1, description="Item name")
+    category: Optional[str] = None
+    vendor: Optional[str] = None
+    sku: Optional[str] = None
+    unit_cost: Optional[float] = Field(default=None, ge=0)
+    unit_of_measure: str = Field(default="unit")
+    on_hand: float = Field(..., description="Quantity on hand")
+    record_date: Optional[date] = None
+
+
+class ManualEntryRequest(BaseModel):
+    """Request body for manual inventory entry."""
+    dataset_name: Optional[str] = None
+    dataset_id: Optional[str] = None
+    items: List[ManualItemEntry] = Field(..., min_length=1)
+
+
+class ManualEntryResult(BaseModel):
+    """Result of manual entry."""
+    success: bool
+    dataset_id: str
+    dataset_name: str
+    items_added: int
+    records_added: int
+    categories_found: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=datetime.utcnow)

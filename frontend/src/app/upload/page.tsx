@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   Trash2,
   FileSpreadsheet,
+  ClipboardList,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { PageLayout } from "@/components/layout/page-layout"
@@ -21,6 +22,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState } from "@/components/ui/empty-state"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { ManualEntryForm } from "@/components/inventory/manual-entry-form"
 import { useToast } from "@/hooks/use-toast"
 import { api } from "@/lib/api"
 import { useAppStore } from "@/store/app"
@@ -242,6 +245,7 @@ export default function UploadPage() {
   const { addToast } = useToast()
   const { activeDatasetId, setActiveDataset } = useAppStore()
 
+  const [activeTab, setActiveTab] = React.useState("upload")
   const [uploading, setUploading] = React.useState(false)
   const [progress, setProgress] = React.useState(0)
   const [uploadResult, setUploadResult] = React.useState<UploadResult | null>(null)
@@ -306,36 +310,51 @@ export default function UploadPage() {
   return (
     <PageLayout title="Upload">
       <div className="space-y-6">
-        {/* Upload Section */}
+        {/* Add Inventory Section */}
         <Card>
           <CardHeader>
-            <CardTitle>Upload Inventory Data</CardTitle>
+            <CardTitle>Add Inventory</CardTitle>
           </CardHeader>
           <CardContent>
-            {uploading ? (
-              <UploadProgress progress={progress} />
-            ) : uploadResult ? (
-              <UploadResultCard
-                result={uploadResult}
-                onViewDataset={handleViewDataset}
-              />
-            ) : (
-              <DropZone onFileSelect={handleFileSelect} uploading={uploading} />
-            )}
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList>
+                <TabsTrigger value="upload">
+                  <Upload className="mr-2 h-4 w-4" />
+                  Upload File
+                </TabsTrigger>
+                <TabsTrigger value="manual">
+                  <ClipboardList className="mr-2 h-4 w-4" />
+                  Manual Entry
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="upload">
+                {uploading ? (
+                  <UploadProgress progress={progress} />
+                ) : uploadResult ? (
+                  <div className="space-y-4">
+                    <UploadResultCard
+                      result={uploadResult}
+                      onViewDataset={handleViewDataset}
+                    />
+                    <div className="flex justify-center">
+                      <Button
+                        variant="outline"
+                        onClick={() => setUploadResult(null)}
+                      >
+                        Upload Another File
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <DropZone onFileSelect={handleFileSelect} uploading={uploading} />
+                )}
+              </TabsContent>
+              <TabsContent value="manual">
+                <ManualEntryForm />
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
-
-        {/* Reset after successful upload */}
-        {uploadResult && (
-          <div className="flex justify-center">
-            <Button
-              variant="outline"
-              onClick={() => setUploadResult(null)}
-            >
-              Upload Another File
-            </Button>
-          </div>
-        )}
 
         {/* Existing Datasets */}
         <Card>
