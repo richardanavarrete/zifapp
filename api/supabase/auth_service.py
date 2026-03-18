@@ -10,11 +10,9 @@ from datetime import datetime
 from typing import Optional, Tuple
 from uuid import UUID, uuid4
 
-import jwt
 from gotrue.errors import AuthApiError
 from pydantic import EmailStr
 
-from api.config import get_settings
 from api.supabase.client import get_supabase_admin_client, get_supabase_client
 from api.supabase.models import (
     AuthTokens,
@@ -211,42 +209,12 @@ class AuthService:
         """
         Validate a JWT token and extract user info.
 
+        Uses Supabase's auth server to verify the token directly,
+        which supports any signing algorithm (HS256, ES256, etc.).
+
         Returns: (user_id, email)
         Raises: AuthError if token is invalid
         """
-        settings = get_settings()
-
-        if not settings.supabase_jwt_secret:
-            # Fall back to verifying with Supabase API
-            return self._validate_token_via_api(token)
-
-        try:
-            # Decode and verify JWT
-            payload = jwt.decode(
-                token,
-                settings.supabase_jwt_secret,
-                algorithms=["HS256"],
-                audience="authenticated",
-            )
-
-            user_id = UUID(payload.get("sub"))
-            email = payload.get("email", "")
-
-            # Check expiration (jwt.decode already does this, but be explicit)
-            exp = payload.get("exp")
-            if exp and datetime.utcnow().timestamp() > exp:
-                raise AuthError("Token expired", "TOKEN_EXPIRED")
-
-            return user_id, email
-
-        except jwt.ExpiredSignatureError:
-            raise AuthError("Token expired", "TOKEN_EXPIRED")
-        except jwt.InvalidTokenError as e:
-            logger.error(f"JWT validation error: {e}")
-            raise AuthError("Invalid token", "INVALID_TOKEN")
-
-    def _validate_token_via_api(self, token: str) -> Tuple[UUID, str]:
-        """Validate token by calling Supabase API."""
         try:
             response = self.client.auth.get_user(token)
 
@@ -257,6 +225,8 @@ class AuthService:
 
         except AuthApiError as e:
             logger.error(f"Token validation error: {e}")
+            if "expired" in str(e).lower():
+                raise AuthError("Token expired", "TOKEN_EXPIRED")
             raise AuthError("Invalid token", "INVALID_TOKEN")
 
     async def get_current_user(self, token: str) -> CurrentUser:
