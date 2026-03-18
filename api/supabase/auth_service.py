@@ -26,16 +26,9 @@ from api.supabase.models import (
     UserProfile,
 )
 
+from api.auth.errors import AuthError  # noqa: E402 - re-export for backwards compat
+
 logger = logging.getLogger(__name__)
-
-
-class AuthError(Exception):
-    """Authentication error."""
-
-    def __init__(self, message: str, code: str = "AUTH_ERROR"):
-        self.message = message
-        self.code = code
-        super().__init__(message)
 
 
 class AuthService:
@@ -340,6 +333,75 @@ class AuthService:
             updated_at=datetime.fromisoformat(result.data["updated_at"]) if result.data.get("updated_at") else None,
             owner_id=UUID(result.data["owner_id"]),
         )
+
+    async def list_org_members(self, org_id: UUID) -> list:
+        """List members of an organization."""
+        from api.supabase.models import OrganizationMember
+
+        result = self.client.table("organization_members").select(
+            "*, user_profiles(email, full_name)"
+        ).eq("org_id", str(org_id)).execute()
+
+        members = []
+        for row in result.data or []:
+            profile = row.get("user_profiles", {})
+            members.append(OrganizationMember(
+                org_id=UUID(row["org_id"]),
+                user_id=UUID(row["user_id"]),
+                role=OrganizationRole(row["role"]),
+                email=profile.get("email") if profile else None,
+                full_name=profile.get("full_name") if profile else None,
+                joined_at=row["joined_at"],
+                invited_by=UUID(row["invited_by"]) if row.get("invited_by") else None,
+            ))
+        return members
+
+    async def create_invite(self, org_id: UUID, email: str, role: OrganizationRole, created_by: UUID) -> dict:
+        """Create an organization invite."""
+        import secrets as _secrets
+        from datetime import timedelta
+
+        invite_code = _secrets.token_urlsafe(16)
+        expires_at = (datetime.utcnow() + timedelta(days=7)).isoformat()
+
+        invite_data = {
+            "org_id": str(org_id),
+            "email": email,
+            "role": role.value,
+            "code": invite_code,
+            "expires_at": expires_at,
+            "created_at": datetime.utcnow().isoformat(),
+            "created_by": str(created_by),
+            "accepted": False,
+        }
+
+        self.client.table("organization_invites").insert(invite_data).execute()
+
+        return {
+            "message": f"Invitation sent to {email}",
+            "invite_code": invite_code,
+            "expires_at": expires_at,
+        }
+
+    async def get_member_role(self, org_id: UUID, user_id: UUID) -> Optional[OrganizationRole]:
+        """Get a member's role in an organization."""
+        result = self.client.table("organization_members").select("role").eq(
+            "org_id", str(org_id)
+        ).eq("user_id", str(user_id)).single().execute()
+
+        if not result.data:
+            return None
+        return OrganizationRole(result.data["role"])
+
+    async def remove_member(self, org_id: UUID, user_id: UUID) -> None:
+        """Remove a member from an organization."""
+        self.client.table("organization_members").delete().eq(
+            "org_id", str(org_id)
+        ).eq("user_id", str(user_id)).execute()
+
+    async def leave_organization(self, org_id: UUID, user_id: UUID) -> None:
+        """Leave an organization."""
+        await self.remove_member(org_id, user_id)
 
     async def get_user_organization(self, user_id: UUID) -> Optional[Organization]:
         """Get the organization a user belongs to."""

@@ -14,7 +14,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from api.config import get_settings
 from api.middleware.rate_limit import limiter, rate_limit_exceeded_handler
-from api.routers import cogs, health, inventory, orders, voice
+from api.routers import auth, cogs, health, inventory, orders, voice
 
 # Configure logging
 logging.basicConfig(
@@ -32,9 +32,9 @@ async def lifespan(app: FastAPI):
     logger.info(f"Debug mode: {settings.debug}")
 
     if settings.supabase_enabled:
-        logger.info("Supabase integration: enabled")
+        logger.info("Auth: Supabase")
     else:
-        logger.warning("Supabase not configured — auth endpoints disabled")
+        logger.info("Auth: local (SQLite + JWT)")
 
     # Startup
     yield
@@ -73,10 +73,7 @@ def create_app() -> FastAPI:
     # Routers
     app.include_router(health.router)
 
-    if settings.supabase_enabled:
-        from api.routers import auth
-        app.include_router(auth.router, prefix="/api/v1")
-
+    app.include_router(auth.router, prefix="/api/v1")
     app.include_router(inventory.router, prefix="/api/v1")
     app.include_router(voice.router, prefix="/api/v1")
     app.include_router(orders.router, prefix="/api/v1")

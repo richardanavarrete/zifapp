@@ -10,9 +10,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from api.auth.errors import AuthError
 from api.config import get_settings
 from api.middleware.rate_limit import limiter
-from api.supabase.auth_service import AuthError, AuthService
 from api.supabase.middleware import (
     get_auth_service,
     get_current_user,
@@ -51,7 +51,7 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 async def register(
     request: Request,
     user_request: UserCreate,
-    auth_service: AuthService = Depends(get_auth_service),
+    auth_service = Depends(get_auth_service),
 ):
     """
     Register a new user account.
@@ -80,7 +80,7 @@ async def register(
 async def login(
     request: Request,
     login_request: LoginRequest,
-    auth_service: AuthService = Depends(get_auth_service),
+    auth_service = Depends(get_auth_service),
 ):
     """Login with email and password."""
     try:
@@ -100,7 +100,7 @@ async def login(
 @router.post("/logout")
 async def logout(
     current_user: CurrentUser = Depends(get_current_user),
-    auth_service: AuthService = Depends(get_auth_service),
+    auth_service = Depends(get_auth_service),
 ):
     """Logout current user and invalidate session."""
     # Note: With JWT, we can't truly invalidate tokens server-side
@@ -113,7 +113,7 @@ async def logout(
 async def refresh_tokens(
     request: Request,
     refresh_request: RefreshRequest,
-    auth_service: AuthService = Depends(get_auth_service),
+    auth_service = Depends(get_auth_service),
 ):
     """Refresh access token using refresh token."""
     try:
@@ -136,7 +136,7 @@ async def refresh_tokens(
 async def request_password_reset(
     request: Request,
     reset_request: PasswordResetRequest,
-    auth_service: AuthService = Depends(get_auth_service),
+    auth_service = Depends(get_auth_service),
 ):
     """Request password reset email."""
     await auth_service.request_password_reset(reset_request.email)
@@ -150,7 +150,7 @@ async def update_password(
     request: Request,
     update_request: PasswordUpdateRequest,
     current_user: CurrentUser = Depends(get_current_user),
-    auth_service: AuthService = Depends(get_auth_service),
+    auth_service = Depends(get_auth_service),
 ):
     """Update password for authenticated user."""
     try:
@@ -185,7 +185,7 @@ async def get_me(current_user: CurrentUser = Depends(get_current_user)):
 async def create_organization(
     request: OrganizationCreate,
     current_user: CurrentUser = Depends(get_current_user),
-    auth_service: AuthService = Depends(get_auth_service),
+    auth_service = Depends(get_auth_service),
 ):
     """
     Create a new organization.
@@ -222,7 +222,7 @@ async def create_organization(
 @router.get("/organizations/current", response_model=Organization)
 async def get_current_organization(
     current_user: CurrentUser = Depends(require_org),
-    auth_service: AuthService = Depends(get_auth_service),
+    auth_service = Depends(get_auth_service),
 ):
     """Get the current user's organization."""
     org = await auth_service.get_organization(current_user.org_id)
@@ -238,7 +238,7 @@ async def get_current_organization(
 async def get_organization(
     org_id: UUID,
     current_user: CurrentUser = Depends(require_org),
-    auth_service: AuthService = Depends(get_auth_service),
+    auth_service = Depends(get_auth_service),
 ):
     """Get organization by ID (must be a member)."""
     if current_user.org_id != org_id:
@@ -259,29 +259,10 @@ async def get_organization(
 @router.get("/organizations/current/members", response_model=List[OrganizationMember])
 async def list_organization_members(
     current_user: CurrentUser = Depends(require_org),
-    auth_service: AuthService = Depends(get_auth_service),
+    auth_service = Depends(get_auth_service),
 ):
     """List members of the current organization."""
-    client = auth_service.client
-
-    result = client.table("organization_members").select(
-        "*, user_profiles(email, full_name)"
-    ).eq("org_id", str(current_user.org_id)).execute()
-
-    members = []
-    for row in result.data or []:
-        profile = row.get("user_profiles", {})
-        members.append(OrganizationMember(
-            org_id=UUID(row["org_id"]),
-            user_id=UUID(row["user_id"]),
-            role=OrganizationRole(row["role"]),
-            email=profile.get("email") if profile else None,
-            full_name=profile.get("full_name") if profile else None,
-            joined_at=row["joined_at"],
-            invited_by=UUID(row["invited_by"]) if row.get("invited_by") else None,
-        ))
-
-    return members
+    return await auth_service.list_org_members(current_user.org_id)
 
 
 @router.post("/organizations/current/invite")
@@ -289,49 +270,26 @@ async def invite_member(
     email: str,
     role: OrganizationRole = OrganizationRole.MEMBER,
     current_user: CurrentUser = Depends(require_org_admin),
-    auth_service: AuthService = Depends(get_auth_service),
+    auth_service = Depends(get_auth_service),
 ):
     """
     Invite a user to join the organization.
 
     Only admins and owners can invite new members.
     """
-    import secrets
-    from datetime import datetime, timedelta
-
-    client = auth_service.client
-
-    # Create invite
-    invite_code = secrets.token_urlsafe(16)
-    expires_at = (datetime.utcnow() + timedelta(days=7)).isoformat()
-
-    invite_data = {
-        "org_id": str(current_user.org_id),
-        "email": email,
-        "role": role.value,
-        "code": invite_code,
-        "expires_at": expires_at,
-        "created_at": datetime.utcnow().isoformat(),
-        "created_by": str(current_user.user_id),
-        "accepted": False,
-    }
-
-    client.table("organization_invites").insert(invite_data).execute()
-
-    # In production, send email with invite link
-    # For now, just return the code
-    return {
-        "message": f"Invitation sent to {email}",
-        "invite_code": invite_code,
-        "expires_at": expires_at,
-    }
+    return await auth_service.create_invite(
+        org_id=current_user.org_id,
+        email=email,
+        role=role,
+        created_by=current_user.user_id,
+    )
 
 
 @router.delete("/organizations/current/members/{user_id}")
 async def remove_member(
     user_id: UUID,
     current_user: CurrentUser = Depends(require_org_admin),
-    auth_service: AuthService = Depends(get_auth_service),
+    auth_service = Depends(get_auth_service),
 ):
     """
     Remove a member from the organization.
@@ -344,18 +302,13 @@ async def remove_member(
             detail={"error": {"code": "CANNOT_REMOVE_SELF", "message": "Use leave endpoint to leave the organization"}},
         )
 
-    client = auth_service.client
+    member_role = await auth_service.get_member_role(current_user.org_id, user_id)
 
-    # Get member's role
-    result = client.table("organization_members").select("role").eq("org_id", str(current_user.org_id)).eq("user_id", str(user_id)).single().execute()
-
-    if not result.data:
+    if not member_role:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": {"code": "MEMBER_NOT_FOUND", "message": "Member not found"}},
         )
-
-    member_role = OrganizationRole(result.data["role"])
 
     # Only owner can remove admins
     if member_role == OrganizationRole.ADMIN and not current_user.is_org_owner:
@@ -371,16 +324,14 @@ async def remove_member(
             detail={"error": {"code": "CANNOT_REMOVE_OWNER", "message": "Cannot remove the organization owner"}},
         )
 
-    # Remove member
-    client.table("organization_members").delete().eq("org_id", str(current_user.org_id)).eq("user_id", str(user_id)).execute()
-
+    await auth_service.remove_member(current_user.org_id, user_id)
     return {"message": "Member removed successfully"}
 
 
 @router.post("/organizations/current/leave")
 async def leave_organization(
     current_user: CurrentUser = Depends(require_org),
-    auth_service: AuthService = Depends(get_auth_service),
+    auth_service = Depends(get_auth_service),
 ):
     """Leave the current organization."""
     if current_user.is_org_owner:
@@ -394,7 +345,5 @@ async def leave_organization(
             },
         )
 
-    client = auth_service.client
-    client.table("organization_members").delete().eq("org_id", str(current_user.org_id)).eq("user_id", str(current_user.user_id)).execute()
-
+    await auth_service.leave_organization(current_user.org_id, current_user.user_id)
     return {"message": "Left organization successfully"}

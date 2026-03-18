@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     # Database (for future use)
     database_url: Optional[str] = None  # e.g., sqlite:///./data/smallcogs.db
 
+    # JWT (standalone, used when Supabase is not configured)
+    jwt_secret: str = ""  # Loaded from JWT_SECRET env var
+
     # Supabase
     supabase_url: Optional[str] = None  # Loaded from SUPABASE_URL env var
     supabase_anon_key: Optional[str] = None  # Loaded from SUPABASE_ANON_KEY env var
@@ -73,6 +76,20 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> List[str]:
         """Parse comma-separated CORS origins."""
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def jwt_secret_key(self) -> str:
+        """Return JWT signing key. Falls back to supabase secret or a dev default."""
+        if self.jwt_secret:
+            return self.jwt_secret
+        if self.supabase_jwt_secret:
+            return self.supabase_jwt_secret
+        import hashlib
+        import logging
+        logging.getLogger("smallcogs").warning(
+            "No JWT_SECRET set — using insecure dev default. Set JWT_SECRET in production."
+        )
+        return hashlib.sha256(b"smallcogs-dev-secret-change-me").hexdigest()
 
     @property
     def supabase_enabled(self) -> bool:
