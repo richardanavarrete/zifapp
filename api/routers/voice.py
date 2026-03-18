@@ -6,9 +6,11 @@ Endpoints for transcription, matching, and session management.
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
+from api.config import get_settings
 from api.dependencies import get_inventory_service, get_voice_service
+from api.middleware.rate_limit import limiter
 from smallcogs.models.voice import (
     CountRecord,
     SessionExport,
@@ -76,7 +78,9 @@ async def complete_session(
 # =============================================================================
 
 @router.post("/transcribe", response_model=TranscriptionResult)
+@limiter.limit(lambda: get_settings().rate_limit_voice)
 async def transcribe_audio(
+    request: Request,
     audio: UploadFile = File(...),
     language: str = Form(default="en"),
     voice_svc: VoiceService = Depends(get_voice_service),
@@ -108,8 +112,10 @@ async def transcribe_audio(
 # =============================================================================
 
 @router.post("/match", response_model=VoiceMatchResponse)
+@limiter.limit(lambda: get_settings().rate_limit_voice)
 async def match_text(
-    request: VoiceMatchRequest,
+    request: Request,
+    match_request: VoiceMatchRequest,
     voice_svc: VoiceService = Depends(get_voice_service),
     inv_svc: InventoryService = Depends(get_inventory_service),
 ):
@@ -122,14 +128,14 @@ async def match_text(
     - "jameson, 3"
     """
     dataset = None
-    if request.dataset_id:
-        dataset = inv_svc.get_dataset(request.dataset_id)
+    if match_request.dataset_id:
+        dataset = inv_svc.get_dataset(match_request.dataset_id)
 
     return voice_svc.match_text(
-        text=request.text,
+        text=match_request.text,
         dataset=dataset,
-        confidence_threshold=request.confidence_threshold,
-        max_alternatives=request.max_alternatives,
+        confidence_threshold=match_request.confidence_threshold,
+        max_alternatives=match_request.max_alternatives,
     )
 
 
