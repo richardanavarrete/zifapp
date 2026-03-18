@@ -156,11 +156,16 @@ class ApiClient {
   // ============== Auth ==============
 
   async login(email: string, password: string): Promise<LoginResponse> {
-    const response = await fetch(`${this.baseUrl}/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    })
+    let response: Response
+    try {
+      response = await fetch(`${this.baseUrl}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      })
+    } catch {
+      throw new ApiError("NETWORK_ERROR", "Cannot connect to the server. Please try again later.")
+    }
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}))
@@ -178,11 +183,16 @@ class ApiClient {
     organization_name?: string
     invite_code?: string
   }): Promise<LoginResponse> {
-    const response = await fetch(`${this.baseUrl}/auth/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    })
+    let response: Response
+    try {
+      response = await fetch(`${this.baseUrl}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      })
+    } catch {
+      throw new ApiError("NETWORK_ERROR", "Cannot connect to the server. Please try again later.")
+    }
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}))
