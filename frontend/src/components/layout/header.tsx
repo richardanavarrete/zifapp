@@ -9,7 +9,7 @@ import { api } from "@/lib/api"
 
 export function Header({ title }: { title?: string }) {
   const router = useRouter()
-  const { theme, setTheme, profile, logout } = useAppStore()
+  const { theme, setTheme, profile, isGuest, logout } = useAppStore()
 
   const cycleTheme = () => {
     const themes: Array<"light" | "dark" | "system"> = ["light", "dark", "system"]
@@ -19,7 +19,11 @@ export function Header({ title }: { title?: string }) {
   }
 
   const handleLogout = async () => {
-    await api.logout()
+    if (!isGuest) {
+      await api.logout()
+    } else {
+      logout()
+    }
     router.replace("/login")
   }
 
@@ -33,9 +37,9 @@ export function Header({ title }: { title?: string }) {
       </div>
 
       <div className="flex items-center gap-2">
-        {profile && (
+        {(profile || isGuest) && (
           <span className="hidden text-sm text-muted-foreground sm:inline">
-            {profile.full_name || profile.email}
+            {isGuest ? "Guest" : (profile?.full_name || profile?.email)}
           </span>
         )}
         <Button variant="ghost" size="icon" onClick={cycleTheme}>

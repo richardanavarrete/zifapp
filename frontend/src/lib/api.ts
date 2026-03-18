@@ -58,7 +58,7 @@ class ApiClient {
       headers,
     })
 
-    if (response.status === 401) {
+    if (response.status === 401 && !useAppStore.getState().isGuest) {
       // Try to refresh token
       const refreshed = await this.tryRefreshToken()
       if (refreshed) {
@@ -107,7 +107,7 @@ class ApiClient {
       body: formData,
     })
 
-    if (response.status === 401) {
+    if (response.status === 401 && !useAppStore.getState().isGuest) {
       const refreshed = await this.tryRefreshToken()
       if (refreshed) {
         headers["Authorization"] = `Bearer ${this.getAccessToken()}`

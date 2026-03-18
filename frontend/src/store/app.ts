@@ -16,7 +16,9 @@ interface AppState {
   profile: AuthUserProfile | null
   tokens: AuthTokens | null
   isAuthenticated: boolean
+  isGuest: boolean
   setAuth: (response: LoginResponse) => void
+  setGuest: () => void
   updateTokens: (tokens: AuthTokens) => void
   logout: () => void
 
@@ -64,12 +66,22 @@ export const useAppStore = create<AppState>()(
       profile: null,
       tokens: null,
       isAuthenticated: false,
+      isGuest: false,
       setAuth: (response) =>
         set({
           user: response.user,
           profile: response.profile,
           tokens: response.tokens,
           isAuthenticated: true,
+          isGuest: false,
+        }),
+      setGuest: () =>
+        set({
+          user: null,
+          profile: null,
+          tokens: null,
+          isAuthenticated: true,
+          isGuest: true,
         }),
       updateTokens: (tokens) => set({ tokens }),
       logout: () =>
@@ -78,6 +90,7 @@ export const useAppStore = create<AppState>()(
           profile: null,
           tokens: null,
           isAuthenticated: false,
+          isGuest: false,
         }),
 
       // Active dataset
@@ -116,6 +129,7 @@ export const useAppStore = create<AppState>()(
         profile: state.profile,
         tokens: state.tokens,
         isAuthenticated: state.isAuthenticated,
+        isGuest: state.isGuest,
         activeDatasetId: state.activeDatasetId,
         theme: state.theme,
         orderTargets: state.orderTargets,
