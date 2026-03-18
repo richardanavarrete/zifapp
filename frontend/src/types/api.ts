@@ -268,6 +268,44 @@ export interface RecommendRequest {
   min_confidence?: "high" | "medium" | "low"
 }
 
+// ============== Auth Models ==============
+
+export interface AuthTokens {
+  access_token: string
+  refresh_token: string
+  token_type: string
+  expires_in: number
+  expires_at?: number
+}
+
+export interface AuthUser {
+  id: string
+  email: string
+  email_confirmed_at?: string
+  created_at: string
+  updated_at?: string
+  full_name?: string
+  avatar_url?: string
+}
+
+export interface AuthUserProfile {
+  user_id: string
+  email: string
+  full_name?: string
+  avatar_url?: string
+  org_id?: string
+  org_name?: string
+  org_role?: "owner" | "admin" | "member" | "viewer"
+  created_at: string
+  updated_at?: string
+}
+
+export interface LoginResponse {
+  user: AuthUser
+  profile: AuthUserProfile
+  tokens: AuthTokens
+}
+
 // ============== API Response Wrappers ==============
 
 export interface ApiResponse<T> {
