@@ -70,6 +70,17 @@ async def get_current_user(
             },
             headers={"WWW-Authenticate": "Bearer"},
         )
+    except Exception as e:
+        logger.error(f"Unexpected auth error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": {
+                    "code": "AUTH_SERVICE_ERROR",
+                    "message": "Authentication service temporarily unavailable.",
+                }
+            },
+        )
 
 
 async def get_current_user_optional(
@@ -87,6 +98,9 @@ async def get_current_user_optional(
     try:
         return await auth_service.get_current_user(credentials.credentials)
     except AuthError:
+        return None
+    except Exception as e:
+        logger.warning(f"Unexpected error in optional auth: {e}")
         return None
 
 

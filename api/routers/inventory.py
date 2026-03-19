@@ -152,28 +152,33 @@ async def get_dataset(
     """Get dataset details."""
     settings = get_settings()
 
-    # Use Supabase if enabled and user is authenticated with an org
-    if settings.supabase_enabled and current_user and current_user.org_id:
-        repo = get_supabase_repository(current_user.org_id)
-        dataset = repo.get_dataset(dataset_id)
-    else:
-        dataset = service.get_dataset(dataset_id)
+    try:
+        # Use Supabase if enabled and user is authenticated with an org
+        if settings.supabase_enabled and current_user and current_user.org_id:
+            repo = get_supabase_repository(current_user.org_id)
+            dataset = repo.get_dataset(dataset_id)
+        else:
+            dataset = service.get_dataset(dataset_id)
 
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
 
-    return {
-        "dataset_id": dataset.dataset_id,
-        "name": dataset.name,
-        "created_at": dataset.created_at.isoformat(),
-        "items_count": dataset.items_count,
-        "records_count": getattr(dataset, "records_count", 0),
-        "periods_count": dataset.periods_count,
-        "date_range_start": str(dataset.date_range_start) if dataset.date_range_start else None,
-        "date_range_end": str(dataset.date_range_end) if dataset.date_range_end else None,
-        "categories": getattr(dataset, "categories", []),
-        "vendors": getattr(dataset, "vendors", []),
-    }
+        return {
+            "dataset_id": dataset.dataset_id,
+            "name": dataset.name,
+            "created_at": dataset.created_at.isoformat(),
+            "items_count": dataset.items_count,
+            "records_count": getattr(dataset, "records_count", 0),
+            "periods_count": dataset.periods_count,
+            "date_range_start": str(dataset.date_range_start) if dataset.date_range_start else None,
+            "date_range_end": str(dataset.date_range_end) if dataset.date_range_end else None,
+            "categories": getattr(dataset, "categories", []),
+            "vendors": getattr(dataset, "vendors", []),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"error": {"code": "DATASET_ERROR", "message": str(e)}})
 
 
 @router.delete("/datasets/{dataset_id}")
@@ -216,27 +221,32 @@ async def get_items(
 
     settings = get_settings()
 
-    # For Supabase, first get the dataset then use service for stats
-    if settings.supabase_enabled and current_user and current_user.org_id:
-        repo = get_supabase_repository(current_user.org_id)
-        dataset = repo.get_dataset(dataset_id)
-        if not dataset:
+    try:
+        # For Supabase, first get the dataset then use service for stats
+        if settings.supabase_enabled and current_user and current_user.org_id:
+            repo = get_supabase_repository(current_user.org_id)
+            dataset = repo.get_dataset(dataset_id)
+            if not dataset:
+                raise HTTPException(status_code=404, detail="Dataset not found")
+
+            # Store in service for stats computation
+            service._datasets[dataset_id] = dataset
+
+        filters = ItemFilter(
+            search=search,
+            categories=[category] if category else None,
+            vendors=[vendor] if vendor else None,
+        )
+
+        items = service.get_items(dataset_id, filters, include_stats)
+        if not items and not service.get_dataset(dataset_id):
             raise HTTPException(status_code=404, detail="Dataset not found")
 
-        # Store in service for stats computation
-        service._datasets[dataset_id] = dataset
-
-    filters = ItemFilter(
-        search=search,
-        categories=[category] if category else None,
-        vendors=[vendor] if vendor else None,
-    )
-
-    items = service.get_items(dataset_id, filters, include_stats)
-    if not items and not service.get_dataset(dataset_id):
-        raise HTTPException(status_code=404, detail="Dataset not found")
-
-    return {"items": items, "count": len(items)}
+        return {"items": items, "count": len(items)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"error": {"code": "ITEMS_ERROR", "message": str(e)}})
 
 
 @router.get("/datasets/{dataset_id}/items/{item_id}")
