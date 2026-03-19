@@ -21,7 +21,6 @@ import type {
 } from "@/types/api"
 import { useAppStore } from "@/store/app"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 const API_PREFIX = "/api/v1"
 
 class ApiClient {
@@ -29,7 +28,8 @@ class ApiClient {
   private apiKey?: string
 
   constructor() {
-    this.baseUrl = `${API_BASE_URL}${API_PREFIX}`
+    // Use relative URL so requests go through Next.js rewrites (avoids CORS)
+    this.baseUrl = API_PREFIX
     this.apiKey = process.env.NEXT_PUBLIC_API_KEY
   }
 
