@@ -242,7 +242,7 @@ function LowStockItems({
                     item.stats.weeks_on_hand < 1 ? "destructive" : "warning"
                   }
                 >
-                  {item.stats.weeks_on_hand.toFixed(1)}w left
+                  {(item.stats?.weeks_on_hand ?? 0).toFixed(1)}w left
                 </Badge>
               </div>
             </Link>
@@ -432,7 +432,7 @@ function NoDatasetSelected() {
         </p>
       </div>
       <div className="space-y-2">
-        {datasets.map((dataset: Dataset) => (
+        {datasets?.map((dataset: Dataset) => (
           <button
             key={dataset.dataset_id}
             onClick={() => setActiveDataset(dataset)}

@@ -278,8 +278,8 @@ function ItemDetailContent({
         />
         <StatCard
           title="Weeks on Hand"
-          value={stats.weeks_on_hand.toFixed(1)}
-          subtitle={`${stats.days_on_hand.toFixed(0)} days`}
+          value={(stats.weeks_on_hand ?? 0).toFixed(1)}
+          subtitle={`${(stats.days_on_hand ?? 0).toFixed(0)} days`}
         />
         <StatCard
           title="Unit Cost"
@@ -369,7 +369,7 @@ function ItemDetailContent({
             <div>
               <dt className="text-sm text-muted-foreground">Usage Variance</dt>
               <dd>
-                CV: {(stats.coefficient_of_variation * 100).toFixed(0)}%
+                CV: {((stats.coefficient_of_variation ?? 0) * 100).toFixed(0)}%
               </dd>
             </div>
             <div>

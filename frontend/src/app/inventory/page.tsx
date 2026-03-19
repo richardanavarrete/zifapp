@@ -101,14 +101,14 @@ function InventoryTable({ items }: { items: ItemWithStats[] }) {
                   {formatNumber(item.stats.avg_usage)}
                 </TableCell>
                 <TableCell className="text-right">
-                  {item.stats.weeks_on_hand.toFixed(1)}
+                  {(item.stats?.weeks_on_hand ?? 0).toFixed(1)}
                 </TableCell>
                 <TableCell className="hidden lg:table-cell">
                   <div className="flex items-center gap-1">
-                    <TrendIcon direction={item.stats.trend_direction} />
+                    <TrendIcon direction={item.stats?.trend_direction} />
                     <span className="text-xs text-muted-foreground">
-                      {item.stats.trend_percent_change > 0 ? "+" : ""}
-                      {item.stats.trend_percent_change.toFixed(0)}%
+                      {(item.stats?.trend_percent_change ?? 0) > 0 ? "+" : ""}
+                      {(item.stats?.trend_percent_change ?? 0).toFixed(0)}%
                     </span>
                   </div>
                 </TableCell>
