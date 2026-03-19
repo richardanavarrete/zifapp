@@ -275,14 +275,19 @@ async def get_dashboard(
     """Get dashboard summary with key metrics and alerts."""
     settings = get_settings()
 
-    # For Supabase, first get the dataset
-    if settings.supabase_enabled and current_user and current_user.org_id:
-        repo = get_supabase_repository(current_user.org_id)
-        dataset = repo.get_dataset(dataset_id)
-        if dataset:
-            service._datasets[dataset_id] = dataset
+    try:
+        # For Supabase, first get the dataset
+        if settings.supabase_enabled and current_user and current_user.org_id:
+            repo = get_supabase_repository(current_user.org_id)
+            dataset = repo.get_dataset(dataset_id)
+            if dataset:
+                service._datasets[dataset_id] = dataset
 
-    stats = service.get_dashboard_stats(dataset_id)
-    if not stats:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    return stats
+        stats = service.get_dashboard_stats(dataset_id)
+        if not stats:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        return stats
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"error": {"code": "DASHBOARD_ERROR", "message": str(e)}})

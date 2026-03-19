@@ -7,7 +7,7 @@ All queries are scoped by org_id for multi-tenancy.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
@@ -16,6 +16,16 @@ from smallcogs.models.inventory import Dataset, DatasetSummary, Item, Record
 from smallcogs.models.orders import OrderConstraints, OrderTargets, Recommendation, RecommendationRun
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_datetime(value) -> datetime:
+    """Safely parse a datetime from Supabase (string or datetime)."""
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        # Handle Supabase TIMESTAMPTZ format (e.g. "2024-01-01T00:00:00+00:00")
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return datetime.now(timezone.utc)
 
 
 class SupabaseRepository:
@@ -113,7 +123,7 @@ class SupabaseRepository:
     def get_dataset(self, dataset_id: str) -> Optional[Dataset]:
         """Load a dataset from the database."""
         # Get dataset metadata
-        result = self.client.table("datasets").select("*").eq("dataset_id", dataset_id).eq("org_id", str(self.org_id)).single().execute()
+        result = self.client.table("datasets").select("*").eq("dataset_id", dataset_id).eq("org_id", str(self.org_id)).maybe_single().execute()
 
         if not result.data:
             return None
@@ -152,8 +162,8 @@ class SupabaseRepository:
         return Dataset(
             dataset_id=row["dataset_id"],
             name=row["name"],
-            created_at=datetime.fromisoformat(row["created_at"]),
-            source_files=json.loads(row["source_files"]) if row["source_files"] else [],
+            created_at=_parse_datetime(row["created_at"]),
+            source_files=row["source_files"] if isinstance(row["source_files"], list) else json.loads(row["source_files"]) if row["source_files"] else [],
             date_range_start=row["date_range_start"],
             date_range_end=row["date_range_end"],
             items_count=row["items_count"],
@@ -173,7 +183,7 @@ class SupabaseRepository:
             results.append(DatasetSummary(
                 dataset_id=row["dataset_id"],
                 name=row["name"],
-                created_at=datetime.fromisoformat(row["created_at"]),
+                created_at=_parse_datetime(row["created_at"]),
                 items_count=row["items_count"],
                 records_count=0,
                 periods_count=row.get("weeks_count", 0),
@@ -186,7 +196,7 @@ class SupabaseRepository:
     def delete_dataset(self, dataset_id: str) -> bool:
         """Delete a dataset and all related data."""
         # Verify ownership
-        result = self.client.table("datasets").select("dataset_id").eq("dataset_id", dataset_id).eq("org_id", str(self.org_id)).single().execute()
+        result = self.client.table("datasets").select("dataset_id").eq("dataset_id", dataset_id).eq("org_id", str(self.org_id)).maybe_single().execute()
 
         if not result.data:
             return False
@@ -262,7 +272,7 @@ class SupabaseRepository:
 
     def get_agent_run(self, run_id: str) -> Optional[RecommendationRun]:
         """Load an agent run from the database."""
-        result = self.client.table("agent_runs").select("*").eq("run_id", run_id).eq("org_id", str(self.org_id)).single().execute()
+        result = self.client.table("agent_runs").select("*").eq("run_id", run_id).eq("org_id", str(self.org_id)).maybe_single().execute()
 
         if not result.data:
             return None
@@ -282,7 +292,7 @@ class SupabaseRepository:
         return RecommendationRun(
             run_id=row["run_id"],
             dataset_id=row["dataset_id"],
-            created_at=datetime.fromisoformat(row["created_at"]),
+            created_at=_parse_datetime(row["created_at"]),
             targets=OrderTargets.model_validate_json(row["targets"]),
             constraints=OrderConstraints.model_validate_json(row["constraints"]),
             recommendations=recommendations,
@@ -319,7 +329,7 @@ class SupabaseRepository:
             runs.append(RecommendationRun(
                 run_id=row["run_id"],
                 dataset_id=row["dataset_id"],
-                created_at=datetime.fromisoformat(row["created_at"]),
+                created_at=_parse_datetime(row["created_at"]),
                 targets=OrderTargets.model_validate_json(row["targets"]),
                 constraints=OrderConstraints.model_validate_json(row["constraints"]),
                 recommendations=[],  # Don't load recommendations for list view
@@ -346,7 +356,7 @@ class SupabaseRepository:
 
     def get_voice_session(self, session_id: str) -> Optional[dict]:
         """Get a voice session by ID."""
-        result = self.client.table("voice_sessions").select("*").eq("session_id", session_id).eq("org_id", str(self.org_id)).single().execute()
+        result = self.client.table("voice_sessions").select("*").eq("session_id", session_id).eq("org_id", str(self.org_id)).maybe_single().execute()
         return result.data
 
     def list_voice_sessions(self, page: int = 1, page_size: int = 20) -> List[dict]:
