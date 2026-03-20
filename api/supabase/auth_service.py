@@ -10,7 +10,10 @@ from datetime import datetime
 from typing import Optional, Tuple
 from uuid import UUID, uuid4
 
-from gotrue.errors import AuthApiError
+try:
+    from supabase_auth.errors import AuthApiError
+except ImportError:
+    from gotrue.errors import AuthApiError
 from pydantic import EmailStr
 
 from api.supabase.client import get_supabase_admin_client, get_supabase_client
