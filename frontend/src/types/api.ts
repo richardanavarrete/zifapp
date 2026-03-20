@@ -108,6 +108,8 @@ export interface UploadResult {
   periods_count: number
   categories_found: string[]
   warnings: string[]
+  persisted?: boolean
+  warning?: string
 }
 
 // ============== Manual Entry Models ==============

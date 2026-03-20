@@ -304,10 +304,19 @@ function CategoryBreakdown({
 }
 
 function DashboardContent({ datasetId }: { datasetId: string }) {
+  const setActiveDataset = useAppStore((state) => state.setActiveDataset)
   const { data, isLoading, error } = useQuery({
     queryKey: ["dashboard", datasetId],
     queryFn: () => api.getDashboard(datasetId),
+    retry: 1,
   })
+
+  // If dashboard returns 404, the dataset no longer exists - clear stale ID
+  React.useEffect(() => {
+    if (error && error instanceof Error && "status" in error && (error as { status?: number }).status === 404) {
+      setActiveDataset(null)
+    }
+  }, [error, setActiveDataset])
 
   if (isLoading) {
     return (
@@ -331,10 +340,20 @@ function DashboardContent({ datasetId }: { datasetId: string }) {
     return (
       <EmptyState
         icon={<AlertTriangle />}
-        title="Failed to load dashboard"
-        description="There was an error loading the dashboard data. Please try again."
+        title="Dataset not found"
+        description="This dataset may have been deleted or is no longer available. Please select or upload a new dataset."
         action={
-          <Button onClick={() => window.location.reload()}>Retry</Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setActiveDataset(null)}>
+              Select Dataset
+            </Button>
+            <Link href="/upload">
+              <Button>
+                <Upload className="mr-2 h-4 w-4" />
+                Upload New
+              </Button>
+            </Link>
+          </div>
         }
       />
     )
