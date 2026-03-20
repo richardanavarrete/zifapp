@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
-from api.supabase.client import get_supabase_client
+from api.supabase.client import get_supabase_admin_client
 from smallcogs.models.inventory import Dataset, DatasetSummary, Item, Record
 from smallcogs.models.orders import OrderConstraints, OrderTargets, Recommendation, RecommendationRun
 
@@ -43,7 +43,7 @@ class SupabaseRepository:
             org_id: Organization ID for multi-tenant data scoping
         """
         self.org_id = org_id
-        self.client = get_supabase_client()
+        self.client = get_supabase_admin_client()
 
     # =========================================================================
     # Dataset Operations

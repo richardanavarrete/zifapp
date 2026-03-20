@@ -438,29 +438,50 @@ class AuthService:
 
     async def _get_user_profile(self, user_id: UUID) -> Optional[UserProfile]:
         """Get user profile with organization info."""
-        # Join user_profiles with organization_members and organizations
-        result = self.client.table("user_profiles").select(
-            "*, organization_members(org_id, role), organizations(id, name)"
-        ).eq("user_id", str(user_id)).single().execute()
+        try:
+            # Get user profile
+            result = self.client.table("user_profiles").select("*").eq(
+                "user_id", str(user_id)
+            ).maybe_single().execute()
 
-        if not result.data:
+            if not result.data:
+                return None
+
+            data = result.data
+
+            # Get organization membership separately to avoid PostgREST relationship issues
+            org_id = None
+            org_name = None
+            org_role = None
+
+            try:
+                mem_result = self.admin_client.table("organization_members").select(
+                    "org_id, role, organizations(id, name)"
+                ).eq("user_id", str(user_id)).maybe_single().execute()
+
+                if mem_result.data:
+                    org_id = UUID(mem_result.data["org_id"])
+                    org_role = OrganizationRole(mem_result.data["role"])
+                    org_data = mem_result.data.get("organizations")
+                    if org_data:
+                        org_name = org_data["name"]
+            except Exception as e:
+                logger.warning(f"Failed to fetch org membership for user {user_id}: {e}")
+
+            return UserProfile(
+                user_id=UUID(data["user_id"]),
+                email=data["email"],
+                full_name=data.get("full_name"),
+                avatar_url=data.get("avatar_url"),
+                org_id=org_id,
+                org_name=org_name,
+                org_role=org_role,
+                created_at=datetime.fromisoformat(data["created_at"]),
+                updated_at=datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else None,
+            )
+        except Exception as e:
+            logger.error(f"Failed to get user profile for {user_id}: {e}")
             return None
-
-        data = result.data
-        org_member = data.get("organization_members")
-        org = data.get("organizations")
-
-        return UserProfile(
-            user_id=UUID(data["user_id"]),
-            email=data["email"],
-            full_name=data.get("full_name"),
-            avatar_url=data.get("avatar_url"),
-            org_id=UUID(org_member["org_id"]) if org_member else None,
-            org_name=org["name"] if org else None,
-            org_role=OrganizationRole(org_member["role"]) if org_member else None,
-            created_at=datetime.fromisoformat(data["created_at"]),
-            updated_at=datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else None,
-        )
 
     async def _create_organization(
         self,
