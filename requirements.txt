@@ -6,6 +6,9 @@ uvicorn[standard]>=0.27.0
 pydantic[email]>=2.5.0
 pydantic-settings>=2.1.0
 
+# Streamlit UI
+streamlit>=1.30.0
+
 # Data processing
 pandas>=2.0.0
 numpy>=1.24.0
