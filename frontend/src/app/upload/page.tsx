@@ -13,6 +13,7 @@ import {
   ClipboardList,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { PageLayout } from "@/components/layout/page-layout"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -139,17 +140,32 @@ function UploadResultCard({
   onViewDataset: () => void
 }) {
   return (
-    <Card className="border-success">
+    <Card className={result.persisted === false ? "border-warning" : "border-success"}>
       <CardContent className="py-6">
         <div className="flex items-start gap-4">
-          <div className="rounded-full bg-success/10 p-2">
-            <Check className="h-6 w-6 text-success" />
+          <div className={`rounded-full p-2 ${result.persisted === false ? "bg-warning/10" : "bg-success/10"}`}>
+            {result.persisted === false ? (
+              <AlertTriangle className="h-6 w-6 text-warning" />
+            ) : (
+              <Check className="h-6 w-6 text-success" />
+            )}
           </div>
           <div className="flex-1">
-            <h3 className="font-semibold">Upload Successful</h3>
+            <h3 className="font-semibold">
+              {result.persisted === false ? "Uploaded but Not Saved" : "Upload Successful"}
+            </h3>
             <p className="text-sm text-muted-foreground mt-1">
               {result.filename}
             </p>
+            {result.persisted === false && result.warning && (
+              <Alert variant="warning" className="mt-3">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Data Not Persisted</AlertTitle>
+                <AlertDescription>
+                  {result.warning} Your data will be lost when the server restarts.
+                </AlertDescription>
+              </Alert>
+            )}
             <div className="flex flex-wrap gap-4 mt-4 text-sm">
               <div>
                 <span className="text-muted-foreground">Items:</span>{" "}
@@ -184,7 +200,13 @@ function UploadResultCard({
               </Alert>
             )}
             <div className="mt-4">
-              <Button onClick={onViewDataset}>View Dataset</Button>
+              {result.persisted !== false ? (
+                <Button onClick={onViewDataset}>View Dataset</Button>
+              ) : (
+                <Link href="/login">
+                  <Button>Log In to Save Data</Button>
+                </Link>
+              )}
             </div>
           </div>
         </div>

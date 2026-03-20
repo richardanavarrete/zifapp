@@ -1,5 +1,6 @@
 """Inventory API endpoints."""
 
+import logging
 import os
 import uuid
 from typing import Optional
@@ -13,6 +14,8 @@ from api.supabase.middleware import get_current_user, get_current_user_optional,
 from api.supabase.models import CurrentUser
 from smallcogs.models.inventory import ManualEntryRequest
 from smallcogs.services.inventory_service import InventoryService
+
+logger = logging.getLogger("smallcogs.inventory")
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
 
@@ -74,18 +77,69 @@ async def upload_inventory(
             skip_rows=skip_rows,
         )
 
-        # Save to Supabase if enabled and user is authenticated with an org
-        if settings.supabase_enabled and current_user and current_user.org_id:
-            repo = get_supabase_repository(current_user.org_id)
-            dataset = service.get_dataset(result.dataset_id)
-            if dataset:
-                repo.save_dataset(dataset)
+        logger.info(
+            "Parsed file %s: %d items, %d records",
+            file.filename, result.items_count, result.records_count,
+        )
 
-        return result.model_dump()
+        persisted = False
+        if settings.supabase_enabled:
+            if not current_user:
+                logger.warning(
+                    "Upload by unauthenticated user - data will NOT persist. "
+                    "File: %s, dataset_id: %s",
+                    file.filename, result.dataset_id,
+                )
+            elif not current_user.org_id:
+                logger.warning(
+                    "User %s has no org_id - data will NOT persist. "
+                    "File: %s, dataset_id: %s",
+                    current_user.user_id, file.filename, result.dataset_id,
+                )
+            else:
+                try:
+                    repo = get_supabase_repository(current_user.org_id)
+                    dataset = service.get_dataset(result.dataset_id)
+                    if dataset:
+                        repo.save_dataset(dataset)
+                        persisted = True
+                        logger.info(
+                            "Saved dataset %s to Supabase for org %s",
+                            result.dataset_id, current_user.org_id,
+                        )
+                except Exception as e:
+                    logger.error(
+                        "Failed to save dataset %s to Supabase: %s",
+                        result.dataset_id, str(e),
+                        exc_info=True,
+                    )
+                    raise HTTPException(
+                        status_code=500,
+                        detail={
+                            "error": {
+                                "code": "PERSISTENCE_ERROR",
+                                "message": f"File parsed successfully ({result.items_count} items) but failed to save to database: {str(e)}",
+                            }
+                        },
+                    )
+
+        response = result.model_dump()
+        response["persisted"] = persisted
+        if not persisted and settings.supabase_enabled:
+            response["warning"] = "Data was parsed but not saved to the database. Please log in and ensure you belong to an organization."
+        return response
+
+    except HTTPException:
+        raise
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
+    except Exception as e:
+        logger.error("Unexpected error during upload: %s", str(e), exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": {"code": "UPLOAD_ERROR", "message": str(e)}},
+        )
     finally:
         # Clean up temp file
         if os.path.exists(temp_path):
