@@ -25,12 +25,10 @@ const API_PREFIX = "/api/v1"
 
 class ApiClient {
   private baseUrl: string
-  private apiKey?: string
 
   constructor() {
-    // Use relative URL so requests go through Next.js rewrites (avoids CORS)
+    // API routes are now local Next.js route handlers
     this.baseUrl = API_PREFIX
-    this.apiKey = process.env.NEXT_PUBLIC_API_KEY
   }
 
   private getAccessToken(): string | null {
@@ -49,10 +47,6 @@ class ApiClient {
     const token = this.getAccessToken()
     if (token) {
       headers["Authorization"] = `Bearer ${token}`
-    }
-
-    if (this.apiKey) {
-      headers["X-API-Key"] = this.apiKey
     }
 
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
@@ -97,10 +91,6 @@ class ApiClient {
     const token = this.getAccessToken()
     if (token) {
       headers["Authorization"] = `Bearer ${token}`
-    }
-
-    if (this.apiKey) {
-      headers["X-API-Key"] = this.apiKey
     }
 
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
@@ -432,9 +422,6 @@ class ApiClient {
     const token = this.getAccessToken()
     if (token) {
       headers["Authorization"] = `Bearer ${token}`
-    }
-    if (this.apiKey) {
-      headers["X-API-Key"] = this.apiKey
     }
 
     const response = await fetch(

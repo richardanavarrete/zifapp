@@ -1,17 +1,9 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
+# Dependencies
+node_modules/
 
-# Streamlit
-.streamlit/secrets.toml
+# Next.js
+.next/
+out/
 
 # IDE
 .vscode/
@@ -23,15 +15,15 @@ venv.bak/
 .DS_Store
 Thumbs.db
 
-# Project specific
+# Environment secrets
+.env
+.env.local
+.env.production.local
+
+# Uploads/data
 *.xlsx
 *.csv
 *.log
 
-# Environment secrets
-.env
-.env.local
-
-# Database
-*.db
-*.db-journal
+# Vercel
+.vercel
