@@ -1,121 +1,64 @@
-# smallCOGS
+# Zif - Inventory Management
 
-A clean, generic inventory management system with usage analytics.
+Full-stack inventory management app built with **Next.js** and **Supabase**, deployed on **Vercel**.
 
-**Works with any structured spreadsheet** - no hardcoded business logic.
+## Tech Stack
+
+- **Frontend & API**: Next.js 16 (App Router + Route Handlers)
+- **UI**: React 19, Tailwind CSS 4, Shadcn UI
+- **Database & Auth**: Supabase (PostgreSQL + Auth + RLS)
+- **State**: Zustand, TanStack React Query
+- **Charts**: Recharts
+- **Deployment**: Vercel
 
 ## Features
 
-- **Upload any inventory spreadsheet** (Excel or CSV)
-- **Auto-detect columns** for item names, quantities, usage, categories
-- **Usage analytics** with trends, rolling averages, and alerts
-- **Drill-down views** for individual items with charts
-- **Clean REST API** for programmatic access
-- **Responsive Streamlit UI**
+- **Inventory Management** - Upload Excel/CSV, auto-detect columns, track items
+- **Dashboard Analytics** - Usage trends, rolling averages, alerts
+- **Voice Counting** - Audio transcription (OpenAI Whisper) + fuzzy matching
+- **Order Recommendations** - Smart ordering based on usage patterns & forecasts
+- **Multi-tenancy** - Organizations with role-based access (owner/admin/member/viewer)
 
-## Quick Start
-
-### 1. Install Dependencies
+## Getting Started
 
 ```bash
-pip install -r requirements.txt
-pip install -r requirements-ui.txt
+cd frontend
+cp .env.local.example .env.local
+# Fill in your Supabase credentials and OpenAI key
+npm install
+npm run dev
 ```
 
-### 2. Configure Environment
+## Environment Variables
 
-```bash
-cp .env.example .env
-# Edit .env with your settings
-```
-
-### 3. Generate an API Key
-
-```bash
-python -c "import secrets; print(f'sc_{secrets.token_urlsafe(24)}')"
-```
-
-Add the generated key to your `.env` file.
-
-### 4. Start the API
-
-```bash
-uvicorn api.main:app --reload
-```
-
-API will be available at `http://localhost:8000`
-
-### 5. Start the UI
-
-```bash
-streamlit run ui/app.py
-```
-
-UI will be available at `http://localhost:8501`
-
-## Docker
-
-```bash
-# Build and run both services
-cd docker
-docker-compose up --build
-
-# Or run with environment variables
-API_KEYS=your-key docker-compose up --build
-```
-
-## API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Health check |
-| POST | `/api/v1/inventory/upload` | Upload inventory file |
-| GET | `/api/v1/inventory/datasets` | List datasets |
-| GET | `/api/v1/inventory/datasets/{id}` | Get dataset details |
-| DELETE | `/api/v1/inventory/datasets/{id}` | Delete dataset |
-| GET | `/api/v1/inventory/datasets/{id}/items` | Get items with stats |
-| GET | `/api/v1/inventory/datasets/{id}/items/{item_id}` | Get item detail |
-| GET | `/api/v1/inventory/datasets/{id}/dashboard` | Get dashboard stats |
-
-All endpoints (except `/health`) require `X-API-Key` header.
-
-## Spreadsheet Format
-
-smallCOGS auto-detects columns. Your spreadsheet should have:
-
-**Required:**
-- Item/Product name column
-- Quantity/On-hand column
-
-**Optional (auto-detected):**
-- Usage column
-- Category column
-- Date column
-- Vendor column
+| Variable | Description |
+|---|---|
+| `SUPABASE_URL` | Supabase project URL (server-side) |
+| `SUPABASE_ANON_KEY` | Supabase anon key (server-side) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (server-side) |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (client-side) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key (client-side) |
+| `OPENAI_API_KEY` | OpenAI API key for voice transcription |
 
 ## Project Structure
 
 ```
-smallCOGS/
-├── smallcogs/          # Core business logic
-│   ├── models/         # Pydantic data models
-│   └── services/       # Business logic services
-├── api/                # FastAPI backend
-│   ├── routers/        # API endpoints
-│   └── middleware/     # Auth, logging
-├── ui/                 # Streamlit frontend
-│   └── pages/          # UI pages
-├── docker/             # Docker configuration
-└── data/               # Data storage
+frontend/
+  src/
+    app/
+      api/v1/          # Next.js API route handlers
+        auth/           # Register, login, logout, refresh, organizations
+        inventory/      # Upload, datasets, items, dashboard
+        voice/          # Sessions, transcribe, match, records
+        orders/         # Recommend, runs, export
+        health/         # Health check
+      (pages)/          # App pages (dashboard, inventory, orders, voice, etc.)
+    components/         # React components (layout, UI)
+    lib/
+      supabase/         # Supabase client (server + browser) & repository
+      services/         # Business logic (parser, stats, voice, orders)
+      api.ts            # Frontend API client
+      api-utils.ts      # Shared API route utilities
+    store/              # Zustand state management
+    types/              # TypeScript types
 ```
-
-## Security
-
-- API keys stored in environment variables only
-- Secrets never committed to git
-- CORS configured per environment
-- Input validation on all endpoints
-
-## License
-
-MIT

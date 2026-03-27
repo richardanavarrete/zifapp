@@ -9,17 +9,22 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.9.0",
+    "@supabase/supabase-js": "^2.100.1",
     "@tanstack/react-query": "^5.90.20",
     "@vercel/analytics": "^2.0.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "fuse.js": "^7.1.0",
     "lucide-react": "^0.563.0",
     "next": "16.1.4",
+    "openai": "^6.33.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "recharts": "^3.7.0",
     "tailwind-merge": "^3.4.0",
+    "xlsx": "^0.18.5",
     "zustand": "^5.0.10"
   },
   "devDependencies": {
